@@ -9,7 +9,7 @@ Phase 1 is built in 20 steps. Each step ends tested, merged, and (from step 4) d
 | 3    | Foundation               | Web app shell, axios and token refresh, TanStack Query, Zustand, mobile layout | Login works end to end on desktop and mobile         | Done   |
 | 4    | Foundation               | Docker images, CI/CD to ECR and EC2                                            | A push to main deploys automatically                 | Done   |
 | 5    | Chat                     | AI gateway, model registry, moderation, usage ledger, daily cost cap           | Every model call is recorded                         | Done   |
-| 6    | Chat                     | Streaming chat, stop, model picker, attachments                                | A streamed chat works on desktop and mobile          |        |
+| 6    | Chat                     | Streaming chat, stop, model picker, attachments                                | A streamed chat works on desktop and mobile          | Done   |
 | 7    | Knowledge                | Ingestion: S3, SQS, worker, Qdrant hybrid search                               | An uploaded PDF reaches ready                        |        |
 | 8    | Knowledge                | RAG pipeline and router with citations                                         | Answers cite the right chunks                        |        |
 | 9    | Agents                   | Tool registry, ReAct agent, approvals                                          | Approve and reject work, even after a restart        |        |

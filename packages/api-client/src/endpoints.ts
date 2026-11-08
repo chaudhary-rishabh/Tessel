@@ -3,6 +3,10 @@ import {
   completionResponseSchema,
   modelListResponseSchema,
   usageSummarySchema,
+  attachmentSchema,
+  threadListResponseSchema,
+  threadResponseSchema,
+  threadSummarySchema,
   publicUserSchema,
   workspaceListResponseSchema,
   workspaceSchema,
@@ -12,6 +16,10 @@ import {
   type CompletionResponse,
   type ModelListResponse,
   type UsageSummary,
+  type Attachment,
+  type ThreadListResponse,
+  type ThreadResponse,
+  type ThreadSummary,
   type LoginRequest,
   type PublicUser,
   type SignupRequest,
@@ -19,12 +27,14 @@ import {
 } from "@tessel/contracts";
 import type { z } from "zod";
 import type { ApiClient } from "./client";
+import { createChatStream } from "./stream";
 
 /**
  * Typed API calls. Every response is validated against the shared contract,
  * so a mismatch between frontend and backend fails loudly in one place.
  */
-export function createApi({ http, refreshSession }: ApiClient) {
+export function createApi(client: ApiClient) {
+  const { http, refreshSession } = client;
   const parse = <T extends z.ZodType>(schema: T, data: unknown): z.output<T> => schema.parse(data);
 
   return {
@@ -67,6 +77,55 @@ export function createApi({ http, refreshSession }: ApiClient) {
           completionResponseSchema,
           (await http.post(`/workspaces/${workspaceId}/completions`, input)).data,
         ),
+    },
+    chat: {
+      /** Sends a message and streams the reply. See ChatEvent for the event order. */
+      send: createChatStream(client),
+      threads: async (workspaceId: string, before?: string): Promise<ThreadListResponse> =>
+        parse(
+          threadListResponseSchema,
+          (await http.get(`/workspaces/${workspaceId}/threads`, { params: { before } })).data,
+        ),
+      thread: async (workspaceId: string, threadId: string): Promise<ThreadResponse> =>
+        parse(
+          threadResponseSchema,
+          (await http.get(`/workspaces/${workspaceId}/threads/${threadId}`)).data,
+        ),
+      rename: async (
+        workspaceId: string,
+        threadId: string,
+        title: string,
+      ): Promise<ThreadSummary> =>
+        parse(
+          threadSummarySchema,
+          (await http.patch(`/workspaces/${workspaceId}/threads/${threadId}`, { title })).data,
+        ),
+      remove: async (workspaceId: string, threadId: string): Promise<void> => {
+        await http.delete(`/workspaces/${workspaceId}/threads/${threadId}`);
+      },
+      upload: async (
+        workspaceId: string,
+        file: Blob,
+        filename: string,
+        onProgress?: (fraction: number) => void,
+      ): Promise<Attachment> => {
+        const form = new FormData();
+        form.append("file", file, filename);
+        const response = await http.post(`/workspaces/${workspaceId}/attachments`, form, {
+          timeout: 120_000,
+          onUploadProgress: (event) => {
+            if (event.total) onProgress?.(event.loaded / event.total);
+          },
+        });
+        return parse(attachmentSchema, response.data);
+      },
+      /** File contents as a Blob, for previews (img tags can't send the auth header). */
+      attachmentBlob: async (workspaceId: string, attachmentId: string): Promise<Blob> =>
+        (
+          await http.get<Blob>(`/workspaces/${workspaceId}/attachments/${attachmentId}/content`, {
+            responseType: "blob",
+          })
+        ).data,
     },
     usage: {
       summary: async (workspaceId: string, days = 30): Promise<UsageSummary> =>

@@ -1,7 +1,13 @@
 "use client";
 
-import { ArrowUp } from "lucide-react";
+import type { Attachment } from "@tessel/contracts";
 import { useSyncExternalStore } from "react";
+import { Composer } from "@/components/chat/composer";
+import { MessageList } from "@/components/chat/message-list";
+import { useChatModel } from "@/hooks/use-chat-model";
+import { useCurrentWorkspace } from "@/hooks/use-current-workspace";
+import { useSendMessage } from "@/hooks/use-send-message";
+import { replyControllers, useChatStore } from "@/lib/chat-store";
 import { useSessionStore } from "@/lib/session-store";
 
 function greetingFor(hour: number): string {
@@ -20,48 +26,50 @@ const useGreeting = () =>
     () => "Welcome",
   );
 
-export default function ChatPage() {
+export default function NewChatPage() {
   const user = useSessionStore((state) => state.user);
+  const { current } = useCurrentWorkspace();
   const greeting = useGreeting();
   const firstName = user?.name.split(/\s+/)[0] ?? "";
+  const send = useSendMessage(current?.id);
+  const { modelId, setModelId } = useChatModel();
+  // A new chat waiting for the server to create it (the page then moves to the chat).
+  const pending = useChatStore((state) =>
+    Object.values(state.replies).find((reply) => reply.threadId === null),
+  );
 
+  if (!current) return null;
+
+  const onSend = (content: string, attachments: Attachment[]) =>
+    send({ content, attachments, ...(modelId ? { model: modelId } : {}) });
+
+  // The composer stays mounted while a message is pending, so a refused
+  // message can be put back into it.
   return (
-    <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col justify-center px-4 py-10 sm:px-6">
-      <h1 className="text-center text-3xl font-medium tracking-tight sm:text-4xl">
-        {greeting}, {firstName}
-      </h1>
-
-      <form
-        className="mt-8"
-        onSubmit={(event) => event.preventDefault()}
-        aria-describedby="chat-note"
-      >
-        <div className="border-line bg-paper focus-within:border-accent rounded-2xl border p-3 shadow-sm">
-          <label htmlFor="message" className="sr-only">
-            Message
-          </label>
-          <textarea
-            id="message"
-            rows={3}
-            disabled
-            placeholder="Ask about your documents, or start a task"
-            className="text-ink placeholder:text-muted/70 w-full resize-none bg-transparent px-1 text-base focus:outline-none disabled:cursor-not-allowed"
-          />
-          <div className="flex justify-end">
-            <button
-              type="submit"
-              disabled
-              aria-label="Send message"
-              className="bg-accent text-accent-ink flex size-10 items-center justify-center rounded-full disabled:opacity-40"
-            >
-              <ArrowUp className="size-5" aria-hidden="true" />
-            </button>
-          </div>
-        </div>
-      </form>
-      <p id="chat-note" className="text-muted mt-3 text-center text-sm">
-        Chat is being built and arrives in the next update.
-      </p>
+    <div
+      className={
+        pending
+          ? "mx-auto flex min-h-full w-full max-w-3xl flex-col justify-between gap-6 px-4 pt-6 pb-3 sm:px-6 sm:pb-5"
+          : "mx-auto flex min-h-full w-full max-w-2xl flex-col justify-center gap-8 px-4 py-10 sm:px-6"
+      }
+    >
+      {pending ? (
+        <MessageList workspaceId={current.id} messages={[]} live={pending} />
+      ) : (
+        <h1 className="text-center text-3xl font-medium tracking-tight sm:text-4xl">
+          {greeting}, {firstName}
+        </h1>
+      )}
+      <Composer
+        workspaceId={current.id}
+        modelId={modelId}
+        onModelChange={setModelId}
+        onSend={onSend}
+        onStop={() => (pending ? replyControllers.stop(pending.key) : undefined)}
+        streaming={Boolean(pending)}
+        placeholder="How can I help today?"
+        autoFocus
+      />
     </div>
   );
 }

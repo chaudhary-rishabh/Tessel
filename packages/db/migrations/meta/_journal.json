@@ -22,6 +22,13 @@
       "when": 1794150796070,
       "tag": "0002_usage_ledger",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1794152176368,
+      "tag": "0003_chat",
+      "breakpoints": true
     }
   ]
 }

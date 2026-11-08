@@ -127,3 +127,15 @@ Caps apply per user, per workspace, and for the whole service, and are checked b
 ## D-031 Moderation with a small model, failing open by default
 
 User messages are classified by a cheap model (`defaults.moderation`) through the same gateway, so moderation calls are capped and recorded like any other. Only clear categories block a message (sexual content involving minors, mass-casualty weapons, malware, violent threats, hate); self-harm is detected but never blocked, so a person in distress gets a careful answer. If the check itself fails, the message goes through and the failure is logged; `AI_MODERATION_ON_FAILURE=block` reverses that.
+
+## D-032 Chat streams over server-sent events, and stop means disconnect
+
+`POST /workspaces/:workspaceId/chat` checks and saves the message, then streams the reply as server-sent events (`start`, `token`, `done`, `title`, `error`). Everything that can refuse a message (membership, model, attachments, spend caps, moderation) runs before the stream opens, so refusals are ordinary JSON errors. The browser reads the stream with `fetch`, since axios can't stream in the browser. Pressing stop aborts the request; the API sees the connection close, aborts the model call, saves what was streamed as a stopped reply, and the usage ledger records the call as aborted with estimated tokens. No separate stop endpoint is needed while one API instance serves each stream.
+
+## D-033 Chats are private to the member who started them
+
+Threads, messages, and attachments carry the owner's user ID, and row-level security only lets that user (while still a member) read or change them. Workspace admins see usage totals, not conversations. Shared projects and chats can come later as an explicit sharing feature rather than a default.
+
+## D-034 Attachments in Postgres until S3 arrives
+
+Step 6 accepts images (PNG, JPEG, GIF, WebP up to 5 MB) and UTF-8 text files (up to 1 MB), identified by their contents, not the type the browser claims. They are stored in Postgres so chat works before S3 exists; step 7 moves file storage to S3 and adds PDFs and office documents through ingestion. Text files are sent to the model inside `<attachment>` tags as data; images go to models that can read them, and other models refuse the message up front.

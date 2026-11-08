@@ -77,6 +77,19 @@ export interface CompletionRequest {
   signal?: AbortSignal;
 }
 
+export interface PreflightRequest {
+  /** Defaults to the registry's default chat model. */
+  model?: string;
+  /** The user's message, for moderation. */
+  text: string;
+  hasImages?: boolean;
+}
+
+export interface PreflightResult {
+  model: ModelInfo;
+  moderation: ModerationResult;
+}
+
 export interface CompletionResult {
   text: string;
   model: ModelInfo;
@@ -96,6 +109,12 @@ export interface Ai {
   /** A chat model for `context`: capped, recorded, and with the emergency fallback. */
   chatModel(context: AiCallContext, modelId?: string, options?: ChatModelOptions): TesselChatModel;
   embeddings(context: AiCallContext, modelId?: string): GatewayEmbeddings;
+  /**
+   * The checks before a user's message reaches a model: the model is
+   * pickable (and can read images if any are attached), spend caps, and
+   * moderation. A blocked message is recorded in the ledger.
+   */
+  preflight(context: AiCallContext, request: PreflightRequest): Promise<PreflightResult>;
   /** One non-streaming reply: cap check, moderation, model call, usage. */
   complete(context: AiCallContext, request: CompletionRequest): Promise<CompletionResult>;
 }
@@ -221,20 +240,28 @@ export function createAi(options: AiOptions): Ai {
           logger,
         });
 
-  async function complete(
+  async function preflight(
     context: AiCallContext,
-    request: CompletionRequest,
-  ): Promise<CompletionResult> {
+    request: PreflightRequest,
+  ): Promise<PreflightResult> {
     if (!isConfigured) throw new AiNotConfiguredError();
     const info = registry.resolve(request.model, "chat");
     if (info.kind !== "chat" || !info.selectable) throw new ModelNotFoundError(info.id);
+    if (request.hasImages && !info.capabilities.includes("vision")) {
+      throw new AiError(
+        400,
+        "model_cannot_read_images",
+        `${info.label} can't read images. Pick another model`,
+        {
+          model: info.id,
+        },
+      );
+    }
 
     // Cheapest check first: a capped user shouldn't pay for moderation either.
     await spend.assertWithinBudget(context);
 
-    const latestUserText =
-      request.messages.findLast((message) => message.role === "user")?.content ?? "";
-    const moderation = await moderator.check(context, latestUserText);
+    const moderation = await moderator.check(context, request.text);
     if (!moderation.allowed) {
       await tracker.record({
         ...NO_USAGE,
@@ -252,6 +279,19 @@ export function createAi(options: AiOptions): Ai {
       });
       throw new ContentBlockedError(moderation.categories);
     }
+    return { model: info, moderation };
+  }
+
+  async function complete(
+    context: AiCallContext,
+    request: CompletionRequest,
+  ): Promise<CompletionResult> {
+    const latestUserText =
+      request.messages.findLast((message) => message.role === "user")?.content ?? "";
+    const { model: info, moderation } = await preflight(context, {
+      model: request.model,
+      text: latestUserText,
+    });
 
     const messages: BaseMessage[] = [
       ...(request.system ? [new SystemMessage(request.system)] : []),
@@ -292,7 +332,17 @@ export function createAi(options: AiOptions): Ai {
     };
   }
 
-  return { registry, spend, moderator, tracker, isConfigured, chatModel, embeddings, complete };
+  return {
+    registry,
+    spend,
+    moderator,
+    tracker,
+    isConfigured,
+    chatModel,
+    embeddings,
+    preflight,
+    complete,
+  };
 }
 
 /** Builds the options for createAi from the shared AI environment variables. */

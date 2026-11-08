@@ -46,6 +46,19 @@
   }
 }
 
+@keyframes pulse-dot {
+  0%,
+  80%,
+  100% {
+    opacity: 0.25;
+    transform: scale(0.85);
+  }
+  40% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
 @keyframes fade-in {
   from {
     opacity: 0;
@@ -71,4 +84,65 @@ h2,
 h3 {
   @apply font-display;
   text-wrap: balance;
+}
+
+/* Spacing and type for Markdown replies in chat. */
+.prose-chat {
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+.prose-chat > :first-child {
+  margin-top: 0;
+}
+.prose-chat > :last-child {
+  margin-bottom: 0;
+}
+.prose-chat p,
+.prose-chat ul,
+.prose-chat ol,
+.prose-chat blockquote {
+  margin: 0.75em 0;
+}
+.prose-chat ul {
+  list-style: disc;
+  padding-left: 1.4em;
+}
+.prose-chat ol {
+  list-style: decimal;
+  padding-left: 1.4em;
+}
+.prose-chat li + li {
+  margin-top: 0.25em;
+}
+.prose-chat h1,
+.prose-chat h2,
+.prose-chat h3,
+.prose-chat h4 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  line-height: 1.3;
+  margin: 1.4em 0 0.5em;
+}
+.prose-chat h1 {
+  font-size: 1.4em;
+}
+.prose-chat h2 {
+  font-size: 1.25em;
+}
+.prose-chat h3 {
+  font-size: 1.1em;
+}
+.prose-chat blockquote {
+  border-left: 3px solid var(--color-line);
+  padding-left: 1em;
+  color: var(--color-muted);
+}
+.prose-chat hr {
+  border-color: var(--color-line);
+  margin: 1.5em 0;
+}
+.prose-chat pre code {
+  background: none;
+  padding: 0;
+  font-size: inherit;
 }

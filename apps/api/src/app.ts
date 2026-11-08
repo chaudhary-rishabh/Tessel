@@ -21,6 +21,9 @@ import { createRefreshCookie } from "./modules/auth/cookies";
 import { createPasswordHasher, type PasswordHasher } from "./modules/auth/password";
 import { createAccessTokens } from "./modules/auth/tokens";
 import type { DependencyCheckFn } from "./modules/health/checks";
+import { createChatController } from "./modules/chat/chat.controller";
+import { createChatRouter } from "./modules/chat/chat.routes";
+import { createChatService } from "./modules/chat/chat.service";
 import { createHealthRouter } from "./modules/health/health.routes";
 import { createUsageController } from "./modules/usage/usage.controller";
 import { createUsageRouter } from "./modules/usage/usage.routes";
@@ -114,6 +117,11 @@ export function createApp({
   const usageController = createUsageController(
     createUsageService({ db, spend: ai.spend, registry: ai.registry }),
   );
+  const chatController = createChatController({
+    service: createChatService({ db, ai, logger }),
+    ai,
+    logger,
+  });
   const authenticate = requireAuth(accessTokens);
 
   // Feature modules
@@ -154,6 +162,15 @@ export function createApp({
   app.use(
     "/workspaces/:workspaceId/usage",
     createUsageRouter({ controller: usageController, authenticate }),
+  );
+  app.use(
+    "/workspaces/:workspaceId",
+    createChatRouter({
+      controller: chatController,
+      authenticate,
+      rateLimit: config.rateLimits.ai,
+      storeFactory: rateLimitStoreFactory,
+    }),
   );
   app.use("/models", createModelsRouter({ controller: aiController, authenticate }));
 
