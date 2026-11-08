@@ -13,6 +13,12 @@ import type { AddressInfo } from "node:net";
  * first words of the conversation. The RAG router searches unless the message
  * contains MOCK_DIRECT, the reranker drops passages containing
  * MOCK_IRRELEVANT, and replies with sources cite [1].
+ *
+ * Agent modes: plans have two steps (MOCK_ONE_STEP: one); progress reviews
+ * continue unless the request has MOCK_FINISH_EARLY or MOCK_REVISE; draft
+ * reviews ask for a fix when it has MOCK_CRITIQUE; the supervisor hands one
+ * task to its first worker (MOCK_TWO_WORKERS: one to each of the first two),
+ * then finishes. Final answers say what they were written from.
  */
 export interface MockReply {
   text?: string;
@@ -94,6 +100,65 @@ function defaultReply(body: Record<string, unknown>): MockReply {
     }));
     return { toolCall: { name: "rank_passages", args: { passages } } };
   }
+  const forced = (body.tool_choice as { function?: { name?: string } } | undefined)?.function?.name;
+  const requestText = lastUser;
+  if (forced === "make_plan") {
+    const steps = [
+      { title: "Gather the facts", instruction: "Find what's needed" },
+      { title: "Work out the answer", instruction: "Use the facts" },
+    ];
+    return {
+      toolCall: {
+        name: "make_plan",
+        args: { steps: requestText.includes("MOCK_ONE_STEP") ? steps.slice(0, 1) : steps },
+      },
+    };
+  }
+  if (forced === "review_progress") {
+    const action = requestText.includes("MOCK_FINISH_EARLY")
+      ? "finish"
+      : requestText.includes("MOCK_REVISE")
+        ? "revise"
+        : "continue";
+    return {
+      toolCall: {
+        name: "review_progress",
+        args: {
+          action,
+          steps:
+            action === "revise" ? [{ title: "Double-check", instruction: "Check the result" }] : [],
+        },
+      },
+    };
+  }
+  if (forced === "review_draft") {
+    const critique = requestText.includes("MOCK_CRITIQUE");
+    return {
+      toolCall: {
+        name: "review_draft",
+        args: critique
+          ? { verdict: "revise", issues: ["Add a one-line summary"] }
+          : { verdict: "good", issues: [] },
+      },
+    };
+  }
+  if (forced === "delegate") {
+    const tool = tools.find((item) => item.function?.name === "delegate") as
+      { function: { parameters?: { properties?: { next?: { enum?: string[] } } } } } | undefined;
+    const workers = (tool?.function.parameters?.properties?.next?.enum ?? []).filter(
+      (name) => name !== "finish",
+    );
+    const reports = (requestText.match(/<report /g) ?? []).length;
+    const wanted = requestText.includes("MOCK_TWO_WORKERS") ? 2 : 1;
+    const next = reports < Math.min(wanted, workers.length) ? workers[reports]! : "finish";
+    return {
+      toolCall: {
+        name: "delegate",
+        args: { next, task: next === "finish" ? "" : `Task for ${next}` },
+      },
+    };
+  }
+
   // Agent tests: after a tool result, report it; MOCK_TOOLS <json> in the user's
   // message asks for those tool calls (only while the tools are on offer).
   const last = messages.at(-1);
@@ -111,6 +176,13 @@ function defaultReply(body: Record<string, unknown>): MockReply {
   if (system.startsWith("Write a short title")) {
     const words = lastUser.replace(/\s+/g, " ").trim().split(" ").slice(0, 4).join(" ");
     return { text: words || "New chat" };
+  }
+  // Final answers in agent modes say what they were written from.
+  if (tools.length === 0) {
+    const count = (tag: string) => (system.match(new RegExp(`<${tag}[ >]`, "g")) ?? []).length;
+    if (system.includes("<draft>")) return { text: "Revised answer with a one-line summary." };
+    if (system.includes("<results>")) return { text: `Answer from ${count("step")} results.` };
+    if (system.includes("<reports>")) return { text: `Answer from ${count("report")} reports.` };
   }
   if (lastUser.includes("MOCK_SLOW")) {
     return { text: Array.from({ length: 200 }, (_, i) => `word${i}`).join(" "), chunkDelayMs: 50 };

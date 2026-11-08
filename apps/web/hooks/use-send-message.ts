@@ -3,6 +3,7 @@
 import { ApiClientError, toApiClientError } from "@tessel/api-client";
 import { queryKeys, upsertThreadInList, useApi } from "@tessel/api-client/react";
 import type {
+  AgentModeName,
   Attachment,
   ChatEvent,
   ChatMessage,
@@ -21,6 +22,7 @@ export interface SendInput {
   model?: string;
   attachments: Attachment[];
   knowledge?: KnowledgeMode;
+  mode?: AgentModeName;
 }
 
 export type SendResult = { ok: true } | { ok: false; error: ApiClientError | null };
@@ -88,6 +90,9 @@ export function useReplyStream(workspaceId: string | undefined) {
         case "tool":
           store.tool(key, event.call);
           break;
+        case "activity":
+          store.update(key, { activity: event.items, stage: null });
+          break;
         case "done":
           setThreadMessages(queryClient, workspaceId, key, putMessage(event.message));
           store.finish(key);
@@ -133,6 +138,12 @@ export function useReplyStream(workspaceId: string | undefined) {
       toolCalls: (live?.toolCalls ?? []).map((call) =>
         call.status === "running" ? { ...call, status: "cancelled" as const } : call,
       ),
+      activity: (live?.activity ?? []).map((item) =>
+        item.status === "running" || item.status === "pending"
+          ? { ...item, status: "skipped" as const }
+          : item,
+      ),
+      agentMode: live?.agentMode ?? null,
     };
   };
 
@@ -143,6 +154,7 @@ export function useReplyStream(workspaceId: string | undefined) {
       model,
       attachments,
       knowledge,
+      mode,
     }: SendInput): Promise<SendResult> => {
       if (!workspaceId) return { ok: false, error: null };
       const temporaryKey = threadId ?? `new-${crypto.randomUUID()}`;
@@ -150,7 +162,7 @@ export function useReplyStream(workspaceId: string | undefined) {
       let started = false;
       let assistantMessageId = "";
 
-      useChatStore.getState().begin(temporaryKey, content, attachments);
+      useChatStore.getState().begin(temporaryKey, content, attachments, mode);
       const controller = new AbortController();
       replyControllers.set(temporaryKey, controller);
 
@@ -161,6 +173,7 @@ export function useReplyStream(workspaceId: string | undefined) {
             content,
             attachmentIds: attachments.map((file) => file.id),
             ...(knowledge ? { knowledge } : {}),
+            ...(mode ? { mode } : {}),
             ...(threadId ? { threadId } : {}),
             ...(model ? { model } : {}),
           },

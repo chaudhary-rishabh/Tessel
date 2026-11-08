@@ -28,8 +28,7 @@ export interface ToolDefinition<Schema extends z.ZodType = z.ZodType> {
   description: string;
   schema: Schema;
   risk: ToolRisk;
-  /** Shown on the approval card, e.g. "Create travel-notes.md". */
-  /** For approvals: what the call will do, in words. May look things up. */
+  /** Shown on the approval card, e.g. "Create travel-notes.md". May look things up. */
   describeCall?: (args: z.infer<Schema>) => string | Promise<string>;
   run(args: z.infer<Schema>, run: ToolRunContext): Promise<ToolOutput>;
 }

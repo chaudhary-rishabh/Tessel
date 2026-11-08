@@ -23,6 +23,7 @@ export default function ThreadPage() {
   const thread = useThread(workspaceId, threadId);
   const live = useChatStore((state) => state.replies[threadId]);
   const knowledge = useChatPreferences((state) => state.knowledge);
+  const mode = useChatPreferences((state) => state.mode);
   const { send, decide } = useReplyStream(workspaceId);
   const [decisionError, setDecisionError] = useState<string>();
   const { modelId: defaultModel } = useChatModel(thread.data?.thread.modelId);
@@ -65,6 +66,7 @@ export default function ThreadPage() {
       content,
       attachments,
       knowledge,
+      mode,
       ...(modelId ? { model: modelId } : {}),
     });
   };

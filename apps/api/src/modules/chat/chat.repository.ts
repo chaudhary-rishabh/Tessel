@@ -48,6 +48,8 @@ export function toMessage(row: MessageRow, files: AttachmentMeta[] = []): ChatMe
     attachments: files.map(toAttachment),
     sources: row.sources,
     toolCalls: row.toolCalls,
+    activity: row.activity,
+    agentMode: (row.agentMode as ChatMessage["agentMode"]) ?? null,
   };
 }
 
@@ -141,7 +143,7 @@ export const chatRepository = {
   async insertMessage(
     tx: Transaction,
     values: Pick<MessageRow, "threadId" | "workspaceId" | "userId" | "role"> &
-      Partial<Pick<MessageRow, "content" | "status" | "modelId" | "createdAt">>,
+      Partial<Pick<MessageRow, "content" | "status" | "modelId" | "createdAt" | "agentMode">>,
   ): Promise<MessageRow> {
     const [row] = await tx.insert(messages).values(values).returning();
     if (!row) throw new Error("Failed to insert message");
@@ -159,6 +161,7 @@ export const chatRepository = {
       outputTokens?: number | null;
       sources?: MessageRow["sources"];
       toolCalls?: MessageRow["toolCalls"];
+      activity?: MessageRow["activity"];
     },
   ): Promise<MessageRow | undefined> {
     const [row] = await tx
@@ -274,6 +277,11 @@ export const chatRepository = {
           status: "complete",
           toolCalls: message.toolCalls.map((call) =>
             call.status === "waiting" ? { ...call, status: "cancelled" as const } : call,
+          ),
+          activity: message.activity.map((item) =>
+            item.status === "running" || item.status === "pending"
+              ? { ...item, status: "skipped" as const }
+              : item,
           ),
         })
         .where(eq(messages.id, run.messageId));

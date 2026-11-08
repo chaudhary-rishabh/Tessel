@@ -33,6 +33,7 @@ export default function NewChatPage() {
   const greeting = useGreeting();
   const firstName = user?.name.split(/\s+/)[0] ?? "";
   const knowledge = useChatPreferences((state) => state.knowledge);
+  const mode = useChatPreferences((state) => state.mode);
   const send = useSendMessage(current?.id);
   const { modelId, setModelId } = useChatModel();
   // A new chat waiting for the server to create it (the page then moves to the chat).
@@ -43,7 +44,7 @@ export default function NewChatPage() {
   if (!current) return null;
 
   const onSend = (content: string, attachments: Attachment[]) =>
-    send({ content, attachments, knowledge, ...(modelId ? { model: modelId } : {}) });
+    send({ content, attachments, knowledge, mode, ...(modelId ? { model: modelId } : {}) });
 
   // The composer stays mounted while a message is pending, so a refused
   // message can be put back into it.

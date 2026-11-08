@@ -26,6 +26,15 @@ export interface MessageToolCall {
   error?: string;
 }
 
+/** A visible stage of an orchestrated reply (see ActivityItem in @tessel/ai). */
+export interface MessageActivity {
+  id: string;
+  kind: "plan" | "worker" | "review";
+  title: string;
+  status: "pending" | "running" | "done" | "failed" | "skipped";
+  detail?: string;
+}
+
 export const messageRole = pgEnum("message_role", ["user", "assistant"]);
 export const messageStatus = pgEnum("message_status", [
   "complete",
@@ -93,6 +102,10 @@ export const messages = pgTable(
     sources: jsonb("sources").$type<MessageSource[]>().notNull().default([]),
     /** For assistant messages: the tools the reply used, in order. */
     toolCalls: jsonb("tool_calls").$type<MessageToolCall[]>().notNull().default([]),
+    /** For assistant messages: how the reply was worked out (plan steps, team hand-offs, reviews). */
+    activity: jsonb("activity").$type<MessageActivity[]>().notNull().default([]),
+    /** For assistant messages: the agent mode the user picked. */
+    agentMode: text("agent_mode"),
     inputTokens: integer("input_tokens"),
     outputTokens: integer("output_tokens"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

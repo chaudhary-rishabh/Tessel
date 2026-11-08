@@ -187,3 +187,23 @@ The model's arguments are checked against each tool's Zod schema before anything
 ## D-046 A new message cancels a pending approval
 
 If the user replies instead of deciding, the waiting run is cancelled, its pending call is marked cancelled, and the conversation continues from the new message. This keeps one live run per chat and matches what people expect from Claude-style chat: moving on means "no". Decisions claim the run atomically (`waiting` to `running` in one update), so a double click or a second tab gets a 409 instead of running the tool twice.
+
+## D-047 Agent modes are chosen in the chat box, not guessed
+
+The composer offers four ways to reply: Answer (the ReAct agent from step 9), Plan (plan-and-execute), Review (reflection), and Team (a supervisor with specialist workers). The choice is a user preference that sticks between messages and is saved on each reply. Guessing the mode with a router would add a model call to every message and surprise people when it guessed wrong; an explicit choice is cheap, predictable, and easy to explain. Models that can't call tools always answer directly, since planning and delegating use forced tool calls.
+
+## D-048 The orchestrator is LangGraph graphs over a JSON checkpoint
+
+Each mode is a small LangGraph `StateGraph` whose nodes read and write one plain state object: plan → execute → review progress → answer; draft → review → publish or revise; supervise ⇄ work → write. Work inside a node (a plan step, a worker's task, a draft) is a ReAct sub-agent with tools, so approvals work in every mode: when a sub-agent pauses, the node records where it is, the graph ends, and the whole state is saved in `agent_runs` like a step 9 checkpoint. Resuming starts the graph at the saved node and continues the paused sub-agent with the user's decision. Checkpoints saved before modes existed still resume (they are read as Answer mode).
+
+## D-049 Helpers think, the reply model writes
+
+Planning and delegating use the model the user picked, since their choices shape the whole answer; progress checks and draft reviews use the cheaper utility model. Helper calls are recorded in the ledger as feature `agent` and count against the same spend caps. Sub-agents' working text is never streamed as the answer: the user sees the stages and tool calls live, and only the final answer streams as text. Each helper falls back instead of failing the reply: an unusable plan becomes one step, an unusable review counts as "good", an unusable hand-off finishes the team's work.
+
+## D-050 Finished replies are moderated too
+
+Input is checked before the model sees it (D-031). The finished reply is now checked as well, before it's saved. A blocked reply is replaced with an error the interface explains (`reply_blocked`), because the user already saw it stream. If the check itself fails, the reply is kept: the input already passed, and losing a good answer to a classifier outage is the worse failure.
+
+## D-051 Neighbouring read-only tool calls run in parallel
+
+When a model asks for several tools in one step, calls that need no approval run at the same time and their results go back in the order the model asked. A call that needs approval, an unknown tool, or invalid arguments ends the batch first, so ordering and pause points stay exactly as before.

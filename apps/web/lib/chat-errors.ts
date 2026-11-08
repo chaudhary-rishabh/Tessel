@@ -9,6 +9,7 @@ const MESSAGES: Record<string, string> = {
   ai_not_configured: "AI isn't set up on this server yet.",
   moderation_unavailable: "Messages can't be checked right now. Try again in a moment.",
   rate_limited: "You're sending messages too quickly. Wait a moment and try again.",
+  reply_blocked: "This reply was removed because it broke the usage policy.",
   approval_not_pending: "This action was already decided or cancelled.",
   network_error: "Can't reach Tessel. Check your connection and try again.",
 };

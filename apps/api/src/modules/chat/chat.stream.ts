@@ -3,14 +3,16 @@ import {
   AiError,
   citedSourceIds,
   createToolRegistry,
-  resumeAgent,
-  runAgent,
+  resumeOrchestrator,
+  runOrchestrator,
   sourcesPrompt,
-  type AgentCheckpoint,
-  type AgentOptions,
-  type AgentResult,
+  toOrchestratorCheckpoint,
+  type ActivityItem,
+  type AgentMode,
   type Ai,
   type AiCallContext,
+  type OrchestratorOptions,
+  type OrchestratorResult,
   type RagPipeline,
   type Source,
   type ToolCallRecord,
@@ -22,7 +24,7 @@ import { AppError } from "../../lib/errors";
 import type { Response } from "express";
 import type { DocumentsService } from "../documents/documents.service";
 import type { Actor, ChatService, PreparedReply } from "./chat.service";
-import { workspaceTools } from "./chat.tools";
+import { teamWorkers, workspaceTools } from "./chat.tools";
 
 const HEARTBEAT_MS = 15_000;
 
@@ -80,7 +82,8 @@ interface Drive {
   /** Text already written, when continuing a paused reply. */
   initialText: string;
   initialToolCalls: ToolCallRecord[];
-  start: (options: AgentOptions) => Promise<AgentResult>;
+  initialActivity: ActivityItem[];
+  start: (options: OrchestratorOptions) => Promise<OrchestratorResult>;
   /** After the reply ends, e.g. to name a new thread. */
   after?: () => Promise<void>;
   runId?: string;
@@ -97,14 +100,31 @@ const markCited = (sources: Source[], content: string): MessageSource[] => {
   return sources.map((source) => ({ ...source, cited: cited.has(source.id) }));
 };
 
+/** Closes stages that can't finish any more, e.g. after stop or an error. */
+const settle = (activity: ActivityItem[], status: "failed" | "skipped"): ActivityItem[] =>
+  activity.map((item) =>
+    item.status === "running"
+      ? { ...item, status }
+      : item.status === "pending"
+        ? { ...item, status: "skipped" }
+        : item,
+  );
+
+const BLOCKED_REPLY = {
+  code: "reply_blocked",
+  message: "This reply was removed because it broke the usage policy",
+};
+
 /**
- * Runs the agent for one reply and saves the outcome. Tokens and tool events
- * stream as they happen; the reply is saved once at the end: complete,
- * waiting for approval (with a checkpoint), stopped, or error.
+ * Runs the orchestrator for one reply and saves the outcome. Tokens, tool
+ * calls, and stages stream as they happen; the reply is saved once at the
+ * end: complete, waiting for approval (with a checkpoint), stopped, or error.
+ * Finished replies are moderated before they're saved.
  */
 async function drive(run: Drive): Promise<void> {
   const { deps, actor, stream, signal, context } = run;
   let content = run.initialText;
+  let activity = run.initialActivity;
   const toolCalls = new Map(run.initialToolCalls.map((call) => [call.id, call]));
   const tools = run.canUseTools
     ? createToolRegistry(
@@ -117,9 +137,13 @@ async function drive(run: Drive): Promise<void> {
         }),
       )
     : createToolRegistry([]);
-  const options: AgentOptions = {
+  const helper = { ...context, feature: "agent" as const };
+  const options: OrchestratorOptions = {
     model: deps.ai.chatModel(context, run.modelId),
+    thinker: deps.ai.chatModel(helper, run.modelId),
+    critic: deps.ai.chatModel(helper, deps.ai.registry.forRole("utility").id, { temperature: 0 }),
     tools,
+    workers: teamWorkers,
     context,
     signal,
     logger: deps.logger,
@@ -130,9 +154,12 @@ async function drive(run: Drive): Promise<void> {
       if (event.type === "token") {
         content += event.text;
         stream.send({ type: "token", text: event.text });
-      } else {
+      } else if (event.type === "tool") {
         toolCalls.set(event.call.id, event.call);
         stream.send({ type: "tool", call: event.call });
+      } else {
+        activity = event.items;
+        stream.send({ type: "activity", items: event.items });
       }
     },
   };
@@ -146,14 +173,27 @@ async function drive(run: Drive): Promise<void> {
         content: result.text,
         toolCalls: result.toolCalls,
         sources: markCited(run.sources, result.text),
-        checkpoint: result as unknown as Record<string, unknown>,
+        activity: result.activity,
+        checkpoint: result.checkpoint as unknown as Record<string, unknown>,
       });
       stream.send({ type: "done", status: "waiting", message });
+    } else if (!(await allowedOutput(deps, context, result.text))) {
+      const assistantMessage = await deps.service.finishReply(actor, run.messageId, {
+        content: "",
+        status: "error",
+        errorCode: BLOCKED_REPLY.code,
+        toolCalls: result.toolCalls,
+        activity: result.activity,
+        sources: [],
+      });
+      if (run.runId) await deps.service.setRunStatus(actor, run.runId, "completed");
+      stream.send({ type: "error", ...BLOCKED_REPLY, assistantMessage });
     } else {
       const message = await deps.service.finishReply(actor, run.messageId, {
         content: result.text,
         status: "complete",
         toolCalls: result.toolCalls,
+        activity: result.activity,
         sources: markCited(run.sources, result.text),
       });
       if (run.runId) await deps.service.setRunStatus(actor, run.runId, "completed");
@@ -168,6 +208,7 @@ async function drive(run: Drive): Promise<void> {
           content,
           status: "stopped",
           toolCalls: finalToolCalls(),
+          activity: settle(activity, "skipped"),
           sources: markCited(run.sources, content),
         })
         .catch((saveError: unknown) =>
@@ -186,6 +227,7 @@ async function drive(run: Drive): Promise<void> {
         status: "error",
         errorCode: code,
         toolCalls: finalToolCalls(),
+        activity: settle(activity, "failed"),
         sources: markCited(run.sources, content),
       })
       .catch((saveError: unknown) => {
@@ -201,6 +243,26 @@ async function drive(run: Drive): Promise<void> {
       ...(assistantMessage ? { assistantMessage } : {}),
     });
     await run.after?.().catch(() => undefined);
+  }
+}
+
+/**
+ * Checks a finished reply against the usage policy. The user already saw it
+ * stream, so a blocked reply is replaced rather than kept; a failed check
+ * keeps the reply, since the input was already checked.
+ */
+async function allowedOutput(
+  deps: ReplyDependencies,
+  context: AiCallContext,
+  text: string,
+): Promise<boolean> {
+  if (!text.trim()) return true;
+  try {
+    const result = await deps.ai.moderator.check(context, text);
+    return result.allowed;
+  } catch (error) {
+    deps.logger.warn({ err: error }, "Reply moderation failed, keeping the reply");
+    return true;
   }
 }
 
@@ -273,6 +335,7 @@ export async function streamReply({
       sources,
       initialText: "",
       initialToolCalls: [],
+      initialActivity: [],
       start: () => Promise.reject(error),
     });
     stream.end();
@@ -280,6 +343,9 @@ export async function streamReply({
   }
 
   const finalHistory = history;
+  const canUseTools = prepared.model.capabilities.includes("tools");
+  // The other modes plan and delegate with tool calls, so they need a model that can make them.
+  const mode: AgentMode = canUseTools ? prepared.mode : "auto";
   await drive({
     deps,
     actor,
@@ -289,11 +355,12 @@ export async function streamReply({
     threadId: prepared.thread.id,
     messageId: prepared.assistantMessageId,
     modelId: prepared.model.id,
-    canUseTools: prepared.model.capabilities.includes("tools"),
+    canUseTools,
     sources,
     initialText: "",
     initialToolCalls: [],
-    start: (options) => runAgent(options, finalHistory),
+    initialActivity: [],
+    start: (options) => runOrchestrator(options, mode, finalHistory),
     ...(prepared.isNewThread
       ? {
           after: async () => {
@@ -325,7 +392,7 @@ export async function streamDecision({
   signal: AbortSignal;
 }): Promise<void> {
   const { run, message } = claimed;
-  const checkpoint = run.checkpoint as unknown as AgentCheckpoint;
+  const checkpoint = toOrchestratorCheckpoint(run.checkpoint);
   const stream = openEventStream(res);
   stream.send({ type: "resume", message });
   const model = deps.ai.registry.list({ kind: "chat" }).find((item) => item.id === run.modelId);
@@ -347,8 +414,9 @@ export async function streamDecision({
     sources: run.sources.map(({ cited: _cited, ...source }) => source),
     initialText: checkpoint.text,
     initialToolCalls: checkpoint.toolCalls,
+    initialActivity: checkpoint.activity,
     runId: run.id,
-    start: (options) => resumeAgent(options, checkpoint, { callId, approved }),
+    start: (options) => resumeOrchestrator(options, checkpoint, { callId, approved }),
   });
   stream.end();
 }

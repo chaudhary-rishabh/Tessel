@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { HumanMessage, SystemMessage, type BaseMessage } from "@langchain/core/messages";
 import type { Ai, AiCallContext, KnowledgeMode, ModelInfo } from "@tessel/ai";
 import type {
+  AgentModeName,
   Attachment,
   ChatMessage,
   SendMessageRequest,
@@ -14,6 +15,7 @@ import {
   withUserContext,
   type AgentRunRow,
   type Database,
+  type MessageActivity,
   type MessageSource,
   type MessageStatus,
   type MessageToolCall,
@@ -42,6 +44,8 @@ export interface PreparedReply {
   assistantMessageId: string;
   /** System prompt first, then the turns that fit. */
   history: BaseMessage[];
+  /** How the reply is worked out, as picked in the chat box. */
+  mode: AgentModeName;
   /** What the RAG router needs: recent turns as text, and the search settings. */
   knowledge: {
     mode: KnowledgeMode;
@@ -242,6 +246,7 @@ export function createChatService({
           role: "assistant",
           status: "streaming",
           modelId: model.id,
+          agentMode: request.mode,
           // Strictly after the user's message, so ordering never ties.
           createdAt: new Date(now.getTime() + 1),
         });
@@ -273,6 +278,7 @@ export function createChatService({
         ),
         assistantMessageId: saved.assistantRow.id,
         history: buildModelMessages(saved.history, historyFiles, now),
+        mode: request.mode,
         knowledge: {
           mode: request.knowledge,
           hasDocuments: saved.hasDocuments,
@@ -295,6 +301,7 @@ export function createChatService({
         outputTokens?: number | null;
         sources?: MessageSource[];
         toolCalls?: MessageToolCall[];
+        activity?: MessageActivity[];
       },
     ): Promise<ChatMessage> {
       return withUserContext(db, actor.userId, async (tx) => {
@@ -313,6 +320,7 @@ export function createChatService({
         content: string;
         toolCalls: MessageToolCall[];
         sources: MessageSource[];
+        activity: MessageActivity[];
         checkpoint: Record<string, unknown>;
       },
     ): Promise<ChatMessage> {
@@ -322,6 +330,7 @@ export function createChatService({
           status: "waiting",
           toolCalls: state.toolCalls,
           sources: state.sources,
+          activity: state.activity,
         });
         if (!row) throw errors.notFound("Message not found");
         await chatRepository.saveRun(tx, {
