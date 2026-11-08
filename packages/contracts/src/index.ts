@@ -7,3 +7,4 @@ export * from "./health";
 export * from "./users";
 export * from "./workspaces";
 export * from "./skills";
+export * from "./connectors";

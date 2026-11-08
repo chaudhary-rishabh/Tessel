@@ -5,3 +5,4 @@ export * from "./usage-events";
 export * from "./chat";
 export * from "./documents";
 export * from "./skills";
+export * from "./connectors";
