@@ -4,6 +4,7 @@ import type { Logger } from "@tessel/logger";
 import type { ObjectStore, UploadEventQueue } from "@tessel/storage";
 import cookieParser from "cookie-parser";
 import cors from "cors";
+import { createMemoryStore, type EpisodeIndex } from "@tessel/memory";
 import express, { type Express } from "express";
 import helmet from "helmet";
 import type { AppConfig } from "./config";
@@ -40,6 +41,8 @@ import {
   createCurrentTokenRouter,
 } from "./modules/access-tokens/access-tokens.routes";
 import { createAccessTokensService } from "./modules/access-tokens/access-tokens.service";
+import { createMemoryRouter } from "./modules/memory/memory.routes";
+import { createMemoryService, type MemoryQueue } from "./modules/memory/memory.service";
 import { createSkillsRouter } from "./modules/skills/skills.routes";
 import { createSkillsService } from "./modules/skills/skills.service";
 import { createDocumentsService } from "./modules/documents/documents.service";
@@ -65,6 +68,8 @@ export interface AppDependencies {
   /** Qdrant: document chunks for search. */
   vectorIndex: VectorIndex;
   readinessChecks: DependencyCheckFn[];
+  /** Episodic memory (past chats) and the queue for memory work after replies. */
+  memory: { episodes: EpisodeIndex; queue: MemoryQueue };
   /** MCP connectors: the catalog, credential encryption, and OAuth redirects. */
   connectors: ConnectorsSettings;
   /** Rate limit storage per limiter. Defaults to in-memory (single instance only). */
@@ -84,6 +89,7 @@ export function createApp({
   vectorIndex,
   readinessChecks,
   connectors,
+  memory,
   rateLimitStoreFactory,
   passwordHasher = createPasswordHasher(),
 }: AppDependencies): Express {
@@ -157,11 +163,19 @@ export function createApp({
   const documentsController = createDocumentsController(documentsService);
   const skillsService = createSkillsService({ db, ai });
   const connectorsService = createConnectorsService({ db, logger, settings: connectors });
+  const memoryStore = createMemoryStore(db);
+  const memoryService = createMemoryService({
+    db,
+    ai,
+    logger,
+    memory: { store: memoryStore, ...memory },
+  });
   const chatController = createChatController({
     documents: documentsService,
     skills: skillsService,
     connectors: connectorsService,
-    service: createChatService({ db, ai, logger, objects: storage.objects }),
+    memory: memoryService,
+    service: createChatService({ db, ai, logger, objects: storage.objects, memory: memoryStore }),
     ai,
     rag: createRagPipeline({ ai, index: vectorIndex, logger }),
     logger,
@@ -233,6 +247,10 @@ export function createApp({
   app.use(
     "/workspaces/:workspaceId/connectors",
     createConnectorsRouter({ service: connectorsService, authenticate }),
+  );
+  app.use(
+    "/workspaces/:workspaceId/memory",
+    createMemoryRouter({ service: memoryService, authenticate }),
   );
   app.use(
     "/workspaces/:workspaceId/access-tokens",

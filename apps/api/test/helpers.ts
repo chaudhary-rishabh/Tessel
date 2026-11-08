@@ -14,6 +14,7 @@ import { memoryObjectStore, memoryUploadQueue } from "@tessel/storage/testing";
 import { memoryVectorIndex } from "@tessel/ai";
 import { createLogger } from "@tessel/logger";
 import { createSecretBox } from "@tessel/mcp";
+import { memoryEpisodeIndex, type ThreadMemoryJob } from "@tessel/memory";
 import type { Express } from "express";
 import request from "supertest";
 import { afterAll, inject } from "vitest";
@@ -22,6 +23,7 @@ import type { AppConfig, AuthConfig, RateLimitConfig } from "../src/config";
 import { createPasswordHasher } from "../src/modules/auth/password";
 import { connectorCatalog } from "../src/modules/connectors/connectors.catalog";
 import type { ConnectorsSettings } from "../src/modules/connectors/connectors.service";
+import type { MemoryQueue } from "../src/modules/memory/memory.service";
 
 export const WEB_ORIGIN = "http://localhost:3000";
 export const TEST_PASSWORD = "correct horse battery";
@@ -105,6 +107,17 @@ export function createTestAi({ gatewayUrl, limits, moderation }: TestAiOptions =
   });
 }
 
+/** A memory queue that records jobs, so tests can run them when they choose. */
+export function recordingMemoryQueue(): MemoryQueue & { jobs: ThreadMemoryJob[] } {
+  const jobs: ThreadMemoryJob[] = [];
+  return {
+    jobs,
+    enqueue: async (job) => {
+      if (!jobs.some((item) => item.threadId === job.threadId)) jobs.push(job);
+    },
+  };
+}
+
 /** Connector settings for tests: a throwaway key, local servers allowed. */
 export function testConnectors(overrides: { githubUrl?: string } = {}): ConnectorsSettings {
   return {
@@ -129,6 +142,7 @@ export function createTestApp(
     vectorIndex: memoryVectorIndex(),
     readinessChecks: [],
     connectors: testConnectors(),
+    memory: { episodes: memoryEpisodeIndex(), queue: recordingMemoryQueue() },
     passwordHasher: fastHasher,
     ...deps,
   });

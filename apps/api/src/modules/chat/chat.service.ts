@@ -23,6 +23,7 @@ import {
 import type { Logger } from "@tessel/logger";
 import { storageKeys, type ObjectStore } from "@tessel/storage";
 import { errors } from "../../lib/errors";
+import type { MemorySettingsValue, MemoryStore } from "@tessel/memory";
 import { workspacesRepository } from "../workspaces/workspaces.repository";
 import { classifyUpload } from "./chat.files";
 import { buildModelMessages, type AttachmentFile } from "./chat.history";
@@ -46,6 +47,8 @@ export interface PreparedReply {
   history: BaseMessage[];
   /** How the reply is worked out, as picked in the chat box. */
   mode: AgentModeName;
+  /** The user's memory settings, which decide the memory tools. */
+  memorySettings: MemorySettingsValue;
   /** What the RAG router needs: recent turns as text, and the search settings. */
   knowledge: {
     mode: KnowledgeMode;
@@ -62,16 +65,21 @@ function fallbackTitle(text: string): string {
   return words.length > 60 ? `${words.slice(0, 57)}…` : words || "New chat";
 }
 
+/** Long-term memories sent with each reply; the newest win when there are more. */
+const MAX_PROMPT_MEMORIES = 60;
+
 export function createChatService({
   db,
   ai,
   logger,
   objects,
+  memory,
 }: {
   db: Database;
   ai: Ai;
   logger: Logger;
   objects: ObjectStore;
+  memory: MemoryStore;
 }) {
   async function requireMembership(actor: Actor) {
     const workspace = await withUserContext(db, actor.userId, (tx) =>
@@ -267,6 +275,10 @@ export function createChatService({
       const historyFiles: AttachmentFile[] = await Promise.all(
         saved.historyRows.map(async (row) => ({ ...row, data: await objects.get(row.storageKey) })),
       );
+      const memorySettings = await memory.settings(actor);
+      const memories = memorySettings.memoryEnabled
+        ? (await memory.list(actor)).slice(0, MAX_PROMPT_MEMORIES).map((row) => row.content)
+        : [];
       return {
         context,
         model,
@@ -277,8 +289,13 @@ export function createChatService({
           files.map((file) => ({ ...file, messageId: saved.userRow.id })),
         ),
         assistantMessageId: saved.assistantRow.id,
-        history: buildModelMessages(saved.history, historyFiles, now),
+        history: buildModelMessages(saved.history, historyFiles, now, {
+          memories,
+          summary: saved.thread.summary,
+          summaryThrough: saved.thread.summaryThrough,
+        }),
         mode: request.mode,
+        memorySettings,
         knowledge: {
           mode: request.knowledge,
           hasDocuments: saved.hasDocuments,

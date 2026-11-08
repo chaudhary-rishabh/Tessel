@@ -25,7 +25,9 @@ import type { AgentRunRow, MessageSource } from "@tessel/db";
 import type { Logger } from "@tessel/logger";
 import { AppError } from "../../lib/errors";
 import type { Response } from "express";
+import { memoryTools, type MemorySettingsValue } from "@tessel/memory";
 import type { ConnectorsService } from "../connectors/connectors.service";
+import type { MemoryService } from "../memory/memory.service";
 import type { DocumentsService } from "../documents/documents.service";
 import type { SkillsService } from "../skills/skills.service";
 import type { Actor, ChatService, PreparedReply } from "./chat.service";
@@ -68,6 +70,7 @@ export interface ReplyDependencies {
   documents: DocumentsService;
   skills: SkillsService;
   connectors: ConnectorsService;
+  memory: MemoryService;
   logger: Logger;
 }
 
@@ -86,6 +89,8 @@ interface Drive {
   canUseTools: boolean;
   /** Skills the agent can load with load_skill. */
   skills: SkillDefinition[];
+  /** Which memory tools to offer: remember, and search past chats. */
+  memorySettings: MemorySettingsValue;
   /** Collects citation sources: pre-fetched ones first, then any the agent finds. */
   sources: Source[];
   /** Text already written, when continuing a paused reply. */
@@ -151,6 +156,23 @@ async function drive(run: Drive): Promise<void> {
           sources: run.sources,
         })
           .concat(run.skills.length ? [loadSkillTool(run.skills)] : [])
+          .concat(
+            memoryTools({
+              ...(run.memorySettings.memoryEnabled
+                ? {
+                    remember: async (content: string) => {
+                      await deps.memory.add(actor, { content }, "tool", run.threadId);
+                    },
+                  }
+                : {}),
+              ...(run.memorySettings.chatSearchEnabled
+                ? {
+                    searchPastChats: (query: string) =>
+                      deps.memory.searchPastChats(actor, query, run.threadId),
+                  }
+                : {}),
+            }),
+          )
           .concat(connectors?.tools ?? []),
       )
     : createToolRegistry([]);
@@ -198,6 +220,8 @@ async function drive(run: Drive): Promise<void> {
     await settleReply();
   } finally {
     await connectors?.close();
+    // Summary, long-term, and episodic memory run in the worker, after the reply.
+    await deps.memory.afterReply(actor, run.threadId);
   }
 
   async function settleReply() {
@@ -379,6 +403,7 @@ export async function streamReply({
       modelId: prepared.model.id,
       canUseTools: false,
       skills: [],
+      memorySettings: prepared.memorySettings,
       sources,
       initialText: "",
       initialToolCalls: [],
@@ -406,6 +431,7 @@ export async function streamReply({
     modelId: prepared.model.id,
     canUseTools,
     skills,
+    memorySettings: prepared.memorySettings,
     sources,
     initialText: "",
     initialToolCalls: [],
@@ -462,6 +488,7 @@ export async function streamDecision({
     modelId: run.modelId,
     canUseTools: model?.capabilities.includes("tools") ?? true,
     skills: await loadSkills(deps, actor),
+    memorySettings: await deps.memory.settings(actor),
     sources: run.sources.map(({ cited: _cited, ...source }) => source),
     initialText: checkpoint.text,
     initialToolCalls: checkpoint.toolCalls,

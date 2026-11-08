@@ -6,6 +6,7 @@ import {
   type MessageContent,
 } from "@langchain/core/messages";
 import type { AttachmentRow, MessageRow } from "@tessel/db";
+import { memoryPrompt } from "@tessel/memory";
 
 /** An attachment with its bytes, loaded from object storage. */
 export type AttachmentFile = AttachmentRow & { data: Buffer };
@@ -46,16 +47,28 @@ function userContent(message: MessageRow, files: AttachmentFile[]): MessageConte
 const size = (content: MessageContent): number =>
   typeof content === "string" ? content.length : JSON.stringify(content).length;
 
+/** What Tessel remembers for this reply: long-term memories and the chat's summary. */
+export interface ReplyMemory {
+  memories?: string[];
+  /** Summary memory: older turns, folded into one text. */
+  summary?: string | null;
+  /** The last message the summary covers; only later messages are sent in full. */
+  summaryThrough?: Date | null;
+}
+
 /**
- * The model's view of a thread: the system prompt, then the most recent
- * messages that fit. Failed replies are left out; stopped replies stay, since
- * the user saw them.
+ * The model's view of a thread: the system prompt (with memories and the
+ * summary of older turns), then the most recent messages that fit. Failed
+ * replies are left out; stopped replies stay, since the user saw them.
  */
 export function buildModelMessages(
-  rows: MessageRow[],
+  allRows: MessageRow[],
   files: AttachmentFile[],
   now?: Date,
+  memory: ReplyMemory = {},
 ): BaseMessage[] {
+  const summarized = memory.summary && memory.summaryThrough ? memory.summaryThrough : null;
+  const rows = summarized ? allRows.filter((row) => row.createdAt > summarized) : allRows;
   const filesByMessage = new Map<string, AttachmentFile[]>();
   for (const file of files) {
     if (!file.messageId) continue;
@@ -82,5 +95,12 @@ export function buildModelMessages(
   const ordered = turns.reverse();
   // Some providers require the conversation to start with the user.
   while (ordered[0] instanceof AIMessage) ordered.shift();
-  return [new SystemMessage(systemPrompt(now)), ...ordered];
+  const remembered = memoryPrompt({
+    memories: memory.memories ?? [],
+    summary: summarized ? memory.summary : null,
+  });
+  return [
+    new SystemMessage(remembered ? `${systemPrompt(now)}\n\n${remembered}` : systemPrompt(now)),
+    ...ordered,
+  ];
 }

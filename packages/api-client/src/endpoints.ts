@@ -10,6 +10,9 @@ import {
   downloadResponseSchema,
   searchResponseSchema,
   skillListResponseSchema,
+  memoryResponseSchema,
+  memorySchema,
+  memorySettingsSchema,
   accessTokenListResponseSchema,
   createAccessTokenResponseSchema,
   connectorConnectionSchema,
@@ -34,6 +37,10 @@ import {
   type SearchRequest,
   type SearchResponse,
   type CreateSkillRequest,
+  type Memory,
+  type MemoryResponse,
+  type MemorySettings,
+  type UpdateMemorySettingsRequest,
   type AccessToken,
   type CreateAccessTokenRequest,
   type CreateAccessTokenResponse,
@@ -154,6 +161,35 @@ export function createApi(client: ApiClient) {
             responseType: "blob",
           })
         ).data,
+    },
+    memory: {
+      get: async (workspaceId: string): Promise<MemoryResponse> =>
+        parse(memoryResponseSchema, (await http.get(`/workspaces/${workspaceId}/memory`)).data),
+      saveSettings: async (
+        workspaceId: string,
+        input: UpdateMemorySettingsRequest,
+      ): Promise<MemorySettings> =>
+        parse(
+          memorySettingsSchema,
+          (await http.put(`/workspaces/${workspaceId}/memory/settings`, input)).data,
+        ),
+      add: async (workspaceId: string, content: string): Promise<Memory> =>
+        parse(
+          memorySchema,
+          (await http.post(`/workspaces/${workspaceId}/memory/memories`, { content })).data,
+        ),
+      update: async (workspaceId: string, memoryId: string, content: string): Promise<Memory> =>
+        parse(
+          memorySchema,
+          (await http.patch(`/workspaces/${workspaceId}/memory/memories/${memoryId}`, { content }))
+            .data,
+        ),
+      remove: async (workspaceId: string, memoryId: string): Promise<void> => {
+        await http.delete(`/workspaces/${workspaceId}/memory/memories/${memoryId}`);
+      },
+      clear: async (workspaceId: string): Promise<void> => {
+        await http.delete(`/workspaces/${workspaceId}/memory/memories`);
+      },
     },
     accessTokens: {
       list: async (workspaceId: string): Promise<AccessToken[]> =>

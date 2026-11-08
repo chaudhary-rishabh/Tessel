@@ -9,6 +9,7 @@ import {
 import { loadEnvFiles, parseEnv } from "@tessel/config/env";
 import { createDatabase, createUsageLedger } from "@tessel/db";
 import { createLogger } from "@tessel/logger";
+import { createMemoryStore, createQdrantEpisodeIndex, processThreadMemory } from "@tessel/memory";
 import { createQueueConnection, jobSchemas, QUEUE_NAMES } from "@tessel/queue";
 import { createS3ObjectStore, createSqsUploadQueue } from "@tessel/storage";
 import { Queue, UnrecoverableError, Worker } from "bullmq";
@@ -53,9 +54,15 @@ const index = createQdrantIndex({
   dimensions: ai.registry.forRole("embedding").dimensions ?? 1536,
   ...(env.QDRANT_API_KEY ? { apiKey: env.QDRANT_API_KEY } : {}),
 });
-await index
-  .ensureCollection()
-  .catch((error: unknown) => logger.error({ err: error }, "Could not prepare the search index"));
+const episodes = createQdrantEpisodeIndex({
+  url: env.QDRANT_URL,
+  collection: env.QDRANT_EPISODES_COLLECTION,
+  dimensions: ai.registry.forRole("embedding").dimensions ?? 1536,
+  ...(env.QDRANT_API_KEY ? { apiKey: env.QDRANT_API_KEY } : {}),
+});
+await Promise.all([index.ensureCollection(), episodes.ensureCollection()]).catch((error: unknown) =>
+  logger.error({ err: error }, "Could not prepare the search indexes"),
+);
 if (env.STORAGE_AUTO_CREATE) {
   await uploads
     .ensureQueue()
@@ -80,6 +87,17 @@ const documentsWorker = new Worker(
   // Long documents take a while to embed; keep the job's lock alive meanwhile.
   { connection, concurrency: env.INGEST_CONCURRENCY, lockDuration: 120_000 },
 );
+const memoryStore = createMemoryStore(database.db);
+const memoryWorker = new Worker(
+  QUEUE_NAMES.memory,
+  async (job) => {
+    const parsed = jobSchemas.memory.thread.safeParse(job.data);
+    if (!parsed.success)
+      throw new UnrecoverableError(`Invalid memory payload: ${parsed.error.message}`);
+    return processThreadMemory({ store: memoryStore, ai, episodes, logger }, parsed.data);
+  },
+  { connection, concurrency: env.MEMORY_CONCURRENCY },
+);
 const documentsQueue = new Queue(QUEUE_NAMES.documents, { connection });
 const consumer = startUploadConsumer({
   uploads,
@@ -91,6 +109,7 @@ const consumer = startUploadConsumer({
 for (const [name, worker] of [
   [QUEUE_NAMES.system, systemWorker],
   [QUEUE_NAMES.documents, documentsWorker],
+  [QUEUE_NAMES.memory, memoryWorker],
 ] as const) {
   worker.on("ready", () => logger.info({ queue: name }, "Worker ready"));
   worker.on("failed", (job, error) =>
@@ -100,7 +119,11 @@ for (const [name, worker] of [
 }
 
 const healthServer = startHealthServer(env.WORKER_HEALTH_PORT, {
-  isRunning: () => systemWorker.isRunning() && documentsWorker.isRunning() && consumer.isHealthy(),
+  isRunning: () =>
+    systemWorker.isRunning() &&
+    documentsWorker.isRunning() &&
+    memoryWorker.isRunning() &&
+    consumer.isHealthy(),
   isConnected: () => connection.status === "ready",
 });
 
@@ -118,7 +141,7 @@ async function shutdown(signal: string): Promise<void> {
 
   healthServer.close();
   await consumer.stop();
-  await Promise.all([systemWorker.close(), documentsWorker.close()]);
+  await Promise.all([systemWorker.close(), documentsWorker.close(), memoryWorker.close()]);
   await documentsQueue.close();
   await Promise.allSettled([connection.quit(), redisCache.quit(), database.close()]);
   logger.info("Shutdown complete");

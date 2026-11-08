@@ -48,6 +48,7 @@ export function createChatController(deps: ReplyDependencies & { service: ChatSe
   const deleteThread: RequestHandler = async (req, res) => {
     const { threadId } = threadParamsSchema.parse(req.params);
     await service.deleteThread(actorFor(req), threadId);
+    await deps.memory.forgetThread(threadId);
     res.status(204).end();
   };
 

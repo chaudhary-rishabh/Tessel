@@ -9,3 +9,4 @@ export * from "./workspaces";
 export * from "./skills";
 export * from "./connectors";
 export * from "./access-tokens";
+export * from "./memory";

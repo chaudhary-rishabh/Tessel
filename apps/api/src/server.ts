@@ -9,6 +9,8 @@ import {
 import { loadEnvFiles, parseEnv } from "@tessel/config/env";
 import { createDatabase, createUsageLedger, pingDatabase } from "@tessel/db";
 import { createSecretBox } from "@tessel/mcp";
+import { createQdrantEpisodeIndex } from "@tessel/memory";
+import { createMemoryQueue, createQueueConnection } from "@tessel/queue";
 import { createS3ObjectStore, createSqsUploadQueue } from "@tessel/storage";
 import { createLogger } from "@tessel/logger";
 import { RedisStore } from "rate-limit-redis";
@@ -59,6 +61,14 @@ const vectorIndex = createQdrantIndex({
   ...(env.QDRANT_API_KEY ? { apiKey: env.QDRANT_API_KEY } : {}),
 });
 
+const episodes = createQdrantEpisodeIndex({
+  url: env.QDRANT_URL,
+  collection: env.QDRANT_EPISODES_COLLECTION,
+  dimensions: ai.registry.forRole("embedding").dimensions ?? 1536,
+  ...(env.QDRANT_API_KEY ? { apiKey: env.QDRANT_API_KEY } : {}),
+});
+const memoryQueue = createMemoryQueue(createQueueConnection(env.REDIS_QUEUE_URL));
+
 // Emulators start empty: create the bucket, its CORS rules, and the queue.
 // In AWS these are created once by the setup steps in infra/aws/README.md.
 if (env.STORAGE_AUTO_CREATE) {
@@ -67,9 +77,9 @@ if (env.STORAGE_AUTO_CREATE) {
       logger.error({ err: error }, "Could not create the storage bucket or upload queue"),
   );
 }
-await vectorIndex
-  .ensureCollection()
-  .catch((error: unknown) => logger.error({ err: error }, "Could not prepare the search index"));
+await Promise.all([vectorIndex.ensureCollection(), episodes.ensureCollection()]).catch(
+  (error: unknown) => logger.error({ err: error }, "Could not prepare the search indexes"),
+);
 
 const app = createApp({
   config,
@@ -78,6 +88,7 @@ const app = createApp({
   ai,
   storage: { objects, uploads, uploadEvents: env.UPLOAD_EVENTS },
   vectorIndex,
+  memory: { episodes, queue: memoryQueue },
   connectors: {
     box: createSecretBox(env.CONNECTOR_SECRET_KEY),
     catalog: connectorCatalog({
@@ -132,6 +143,7 @@ async function shutdown(signal: string): Promise<void> {
     database.close(),
     redisCache.quit(),
     redisQueue.quit(),
+    memoryQueue.close(),
     rateLimitRedis.quit(),
   ]);
   logger.info("Shutdown complete");
