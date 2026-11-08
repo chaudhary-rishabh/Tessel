@@ -1,10 +1,17 @@
 import {
   authResponseSchema,
+  completionResponseSchema,
+  modelListResponseSchema,
+  usageSummarySchema,
   publicUserSchema,
   workspaceListResponseSchema,
   workspaceSchema,
   type AuthResponse,
   type ChangePasswordRequest,
+  type CompletionRequest,
+  type CompletionResponse,
+  type ModelListResponse,
+  type UsageSummary,
   type LoginRequest,
   type PublicUser,
   type SignupRequest,
@@ -46,6 +53,27 @@ export function createApi({ http, refreshSession }: ApiClient) {
         parse(workspaceSchema, (await http.get(`/workspaces/${workspaceId}`)).data),
       rename: async (workspaceId: string, name: string): Promise<Workspace> =>
         parse(workspaceSchema, (await http.patch(`/workspaces/${workspaceId}`, { name })).data),
+    },
+    models: {
+      list: async (): Promise<ModelListResponse> =>
+        parse(modelListResponseSchema, (await http.get("/models")).data),
+    },
+    ai: {
+      complete: async (
+        workspaceId: string,
+        input: CompletionRequest,
+      ): Promise<CompletionResponse> =>
+        parse(
+          completionResponseSchema,
+          (await http.post(`/workspaces/${workspaceId}/completions`, input)).data,
+        ),
+    },
+    usage: {
+      summary: async (workspaceId: string, days = 30): Promise<UsageSummary> =>
+        parse(
+          usageSummarySchema,
+          (await http.get(`/workspaces/${workspaceId}/usage`, { params: { days } })).data,
+        ),
     },
   };
 }

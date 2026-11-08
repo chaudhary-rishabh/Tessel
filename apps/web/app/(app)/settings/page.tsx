@@ -8,6 +8,7 @@ import { Button, TextField } from "@tessel/ui";
 import { useEffect, useState, type ReactNode } from "react";
 import { useForm } from "react-hook-form";
 import { FormError, FormSuccess } from "@/components/form-error";
+import { UsageSection } from "@/components/settings/usage-section";
 import { useChangePassword } from "@/hooks/use-auth";
 import { useCurrentWorkspace } from "@/hooks/use-current-workspace";
 import { applyApiError } from "@/lib/form-errors";
@@ -128,6 +129,25 @@ function WorkspaceSection() {
   );
 }
 
+function UsageSettings() {
+  const { current } = useCurrentWorkspace();
+  if (!current) return null;
+  const seesWorkspace = current.role === "owner" || current.role === "admin";
+  return (
+    <Section
+      id="usage"
+      title="Usage"
+      description={
+        seesWorkspace
+          ? "AI usage across this workspace in the last 30 days."
+          : "Your AI usage in this workspace in the last 30 days."
+      }
+    >
+      <UsageSection workspaceId={current.id} />
+    </Section>
+  );
+}
+
 function PasswordSection() {
   const changePassword = useChangePassword();
   const [saved, setSaved] = useState<string>();
@@ -189,6 +209,7 @@ export default function SettingsPage() {
       <div className="mt-6">
         <ProfileSection />
         <WorkspaceSection />
+        <UsageSettings />
         <PasswordSection />
       </div>
     </div>
