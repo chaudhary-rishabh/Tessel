@@ -326,6 +326,25 @@ flowchart LR
 - Replies include up to 60 memories and the thread summary in the system prompt, and offer `remember` and `search_past_chats` when the user's settings allow.
 - Endpoints: `GET /workspaces/:workspaceId/memory`, `PUT …/memory/settings`, `POST|DELETE …/memory/memories`, `PATCH|DELETE …/memory/memories/:memoryId`. Settings has a Memory section for all of it.
 
+## Caching
+
+| Layer          | Where                     | Key                                                  | Lifetime                        |
+| -------------- | ------------------------- | ---------------------------------------------------- | ------------------------------- |
+| Embeddings     | Cache Redis               | model, dimensions, hash of text                      | 7 days                          |
+| Search results | Cache Redis               | workspace, search version, hash of query vectors     | 10 minutes or the next re-index |
+| Prompts        | Provider, via the gateway | automatic cache markers, session affinity per thread | the provider's (5 minutes)      |
+| Model list     | Browser                   | `Cache-Control: private, max-age=300` and ETag       | 5 minutes, then revalidated     |
+
+`withSearchCache` wraps the Qdrant index in both the API and the worker; the worker's writes bump the workspace's search version. All caches fail open.
+
+## Background jobs
+
+| Queue       | Job           | When                         | What it does                                                          |
+| ----------- | ------------- | ---------------------------- | --------------------------------------------------------------------- |
+| `documents` | `ingest`      | after an upload event        | parse, chunk, embed, and index a document                             |
+| `memory`    | `thread`      | 15 s after a reply, per chat | summary, long-term, and episodic memory                               |
+| `system`    | `maintenance` | daily at 03:17 UTC           | old tokens, unanswered approvals, old checkpoints, abandoned sign-ins |
+
 ## Web app
 
 | Concern          | Approach                                                                                                                                                                                                                                                                                                                                                                        |

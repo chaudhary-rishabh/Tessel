@@ -266,3 +266,23 @@ Summarizing, extracting memories, and indexing chats all happen in a `memory` Bu
 ## D-065 The user owns their memory
 
 Memories and memory settings are private to their user (row-level security). Users see every memory with where it came from, can add, edit, and delete them, and can switch memory and chat search off; switching chat search off deletes the index, not just stops using it. The extraction prompt refuses sensitive categories (health, finances, identity numbers, and similar) and removes memories the user asks Tessel to forget. Automatic memories make room for new ones at 200; memories the user wrote are never dropped. The `remember` tool doesn't ask for approval, since it only touches the user's own, editable memory.
+
+## D-066 Caches live in the cache Redis and fail open
+
+Every cache uses the cache Redis instance (evicting least-recently-used keys), never the queue instance. Reads that fail are misses and writes that fail are skipped, so a Redis outage makes Tessel slower, never broken.
+
+## D-067 Embeddings are cached by model and text
+
+The same text with the same model always gives the same vector, so embeddings are cached for a week under a hash of the model, dimensions, and text, packed as float32. Repeat searches, retried ingestion, and re-indexing unchanged chunks skip the model call and cost nothing. Only real calls reach the usage ledger.
+
+## D-068 Search results are cached per workspace version
+
+Hybrid search results are cached for ten minutes under a key that includes the workspace's search version. Anything that changes the workspace's index (indexing, re-indexing, deleting a document) increments that version, in the API or the worker, so every older result becomes unreachable at once without scanning for keys. Workspaces never invalidate each other.
+
+## D-069 Prompt caching through the gateway
+
+Chat calls ask the gateway for automatic prompt caching (`providerOptions.gateway.caching: "auto"`), which adds cache markers for providers that need them (Anthropic) and changes nothing for those that cache on their own. Each reply sends its thread ID as the session affinity header, so follow-up turns, agent steps, and tool loops reach the provider that already holds the cached prefix. Cached input tokens are recorded in the ledger at their lower price.
+
+## D-070 Daily maintenance in one database function
+
+A scheduled worker job (03:17 UTC, registered once however many workers run) calls `app.run_maintenance()`: refresh tokens a day past expiry or a week after revocation, access tokens a month after they ended, approvals nobody answered for a week (the run is cancelled and the reply closed), finished agent checkpoints after a month, and abandoned connector sign-ins. One `SECURITY DEFINER` function keeps the app role from needing broad delete rights.

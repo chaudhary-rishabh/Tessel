@@ -18,7 +18,7 @@ Phase 1 is built in 20 steps. Each step ends tested, merged, and (from step 4) d
 | 12   | Agents                   | MCP client and connectors                                                      | A GitHub tool call works with approval               | Done   |
 | 13   | Agents                   | MCP server with personal access tokens                                         | An outside MCP client can search the workspace       | Done   |
 | 14   | Memory and graph         | Short-term, summary, long-term, and episodic memory                            | Memory carries across threads and can be edited      | Done   |
-| 15   | Memory and graph         | Caching layers                                                                 | Repeat requests hit the cache; re-indexing clears it |        |
+| 15   | Memory and graph         | Caching layers                                                                 | Repeat requests hit the cache; re-indexing clears it | Done   |
 | 16   | Memory and graph         | Neo4j graph RAG                                                                | A relationship question is answered from the graph   |        |
 | 17   | Accounts, admin, billing | Email verification, password reset, OAuth, 2FA, mobile OTP, MCP server OAuth   | Each login method passes end-to-end tests            |        |
 | 18   | Accounts, admin, billing | Admin app: users, model registry, usage, audit log                             | Only admins can open it, checked on the backend      |        |
