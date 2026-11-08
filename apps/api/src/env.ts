@@ -1,3 +1,4 @@
+import { aiEnvShape } from "@tessel/ai";
 import { logLevelSchema, nodeEnvSchema } from "@tessel/config/env";
 import { z } from "zod";
 
@@ -34,6 +35,7 @@ export const envSchema = z
     RATE_LIMIT_SCALE: z.coerce.number().positive().max(1000).default(1),
     /** Defaults to true in production. Set false only for local HTTP development. */
     COOKIE_SECURE: z.stringbool().optional(),
+    ...aiEnvShape,
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV === "production" && env.JWT_ACCESS_SECRET.includes(DEV_SECRET_MARKER)) {

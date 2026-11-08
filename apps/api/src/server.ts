@@ -1,5 +1,12 @@
+import {
+  aiOptionsFromEnv,
+  createAi,
+  createSpendGuard,
+  redisSpendStore,
+  spendLimitsFromEnv,
+} from "@tessel/ai";
 import { loadEnvFiles, parseEnv } from "@tessel/config/env";
-import { createDatabase, pingDatabase } from "@tessel/db";
+import { createDatabase, createUsageLedger, pingDatabase } from "@tessel/db";
 import { createLogger } from "@tessel/logger";
 import { RedisStore } from "rate-limit-redis";
 import { createApp } from "./app";
@@ -25,10 +32,25 @@ const rateLimitRedis = createRedisClient(env.REDIS_CACHE_URL, "rate-limit", logg
   commandTimeoutMs: 250,
 });
 
+// Spend counters live in the cache Redis; the Postgres ledger is the source
+// of truth and is read instead whenever Redis is unavailable.
+const ledger = createUsageLedger(database.db);
+const spend = createSpendGuard({
+  store: redisSpendStore(redisCache),
+  limits: spendLimitsFromEnv(env),
+  logger,
+  ledgerFallback: ledger.spentSince,
+});
+const ai = createAi(aiOptionsFromEnv(env, { spend, ledger, logger }));
+if (!ai.isConfigured) {
+  logger.warn("AI is off: set AI_GATEWAY_API_KEY (or a fallback provider key) to turn it on");
+}
+
 const app = createApp({
   config,
   logger,
   db: database.db,
+  ai,
   // Shared counters, so limits hold across every API instance.
   rateLimitStoreFactory: (name) =>
     new RedisStore({

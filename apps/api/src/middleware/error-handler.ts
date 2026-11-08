@@ -1,3 +1,4 @@
+import { AiError, CostCapExceededError } from "@tessel/ai";
 import type { ApiError } from "@tessel/contracts";
 import type { Logger } from "@tessel/logger";
 import type { ErrorRequestHandler, RequestHandler } from "express";
@@ -19,6 +20,21 @@ export function errorHandler(logger: Logger): ErrorRequestHandler {
     const requestId = req.requestId;
 
     if (error instanceof AppError) {
+      send(res, error.status, {
+        code: error.code,
+        message: error.message,
+        requestId,
+        ...(error.details === undefined ? {} : { details: error.details }),
+      });
+      return;
+    }
+
+    if (error instanceof AiError) {
+      if (error instanceof CostCapExceededError) {
+        const seconds = Math.max(1, Math.ceil((error.resetsAt.getTime() - Date.now()) / 1000));
+        res.set("Retry-After", String(seconds));
+      }
+      if (error.status >= 500) logger.warn({ err: error, requestId }, "AI request failed");
       send(res, error.status, {
         code: error.code,
         message: error.message,
