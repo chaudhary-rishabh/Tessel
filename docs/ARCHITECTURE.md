@@ -239,6 +239,33 @@ flowchart LR
 - A new message in the chat cancels a waiting run. Runs are private to the chat's owner (row-level security on `agent_runs`).
 - Model steps are recorded in the ledger as feature `chat`, like any other reply step, under the reply's spend caps.
 
+## Agent modes
+
+```mermaid
+flowchart TB
+  subgraph Plan
+    p1["plan<br/>(thinker: make_plan)"] --> p2["execute step<br/>(ReAct sub-agent)"]
+    p2 --> p3{"review progress<br/>(critic)"}
+    p3 -- continue / revise --> p2
+    p3 -- finish --> p4["answer (streamed)"]
+  end
+  subgraph Review
+    r1["draft<br/>(ReAct sub-agent)"] --> r2{"review draft<br/>(critic)"}
+    r2 -- good --> r3["publish draft"]
+    r2 -- issues --> r4["revise (streamed)"]
+  end
+  subgraph Team
+    t1{"supervise<br/>(thinker: delegate)"} -- hand off --> t2["worker<br/>(ReAct, own tools)"]
+    t2 --> t1
+    t1 -- finish --> t3["write (streamed)"]
+  end
+```
+
+- `runOrchestrator` / `resumeOrchestrator` in `@tessel/ai` run the chosen mode; Answer mode is the step 9 agent. Each mode is a LangGraph graph over one JSON state, saved in `agent_runs` when a sub-agent pauses for approval.
+- Team workers in chat: researcher (search and list documents), analyst (calculator, time), editor (create and delete documents, with approval).
+- Stages stream as `activity` events and are saved on the reply (`messages.activity`, with `messages.agent_mode`). The interface shows them in a panel above the tool calls.
+- Finished replies are moderated before they're saved; a blocked reply becomes an error (`reply_blocked`).
+
 ## Web app
 
 | Concern          | Approach                                                                                                                                                                                                                                                                                                                                                                        |

@@ -13,7 +13,7 @@ Phase 1 is built in 20 steps. Each step ends tested, merged, and (from step 4) d
 | 7    | Knowledge                | Ingestion: S3, SQS, worker, Qdrant hybrid search                               | An uploaded PDF reaches ready                        | Done   |
 | 8    | Knowledge                | RAG pipeline and router with citations                                         | Answers cite the right chunks                        | Done   |
 | 9    | Agents                   | Tool registry, ReAct agent, approvals                                          | Approve and reject work, even after a restart        | Done   |
-| 10   | Agents                   | Orchestrator: plan-and-execute, reflection, supervisor                         | Each pattern can be reached from the chat box        |        |
+| 10   | Agents                   | Orchestrator: plan-and-execute, reflection, supervisor                         | Each pattern can be reached from the chat box        | Done   |
 | 11   | Agents                   | Built-in and custom skills                                                     | A user-created skill changes the agent's behaviour   |        |
 | 12   | Agents                   | MCP client and connectors                                                      | A GitHub tool call works with approval               |        |
 | 13   | Agents                   | MCP server with personal access tokens                                         | An outside MCP client can search the workspace       |        |
