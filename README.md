@@ -15,7 +15,7 @@ An AI workspace for teams. Tessel lets a team chat with AI over its own document
 ## What it will do
 
 - **Chat** with streaming answers and a model picker across providers, with every model call capped, moderated, and recorded in a usage ledger.
-- **Answer from your documents**: uploads go straight to S3, a worker indexes them, and hybrid search (meaning plus keywords) finds the right passages. Reranking and citations come next.
+- **Answer from your documents**: uploads go straight to S3, a worker indexes them, a router decides when a question needs them, and hybrid search plus reranking finds the passages. Answers cite them inline, and each citation opens the passage and its document.
 - **Run agents** (ReAct, plan-and-execute, reflection, supervisor) that pause for approval before write actions.
 - **Use skills**: built-in and user-created instructions the agent loads when needed.
 - **Connect tools through MCP**, both as a client (GitHub, Notion, Slack) and as a server for outside MCP clients.

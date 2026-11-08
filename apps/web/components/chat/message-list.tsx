@@ -6,6 +6,7 @@ import { CircleAlert } from "lucide-react";
 import { chatErrorMessage } from "@/lib/chat-errors";
 import type { LiveReply } from "@/lib/chat-store";
 import { AttachmentChip } from "./attachment-chip";
+import { SourceList } from "./citations";
 import { CopyButton, Markdown } from "./markdown";
 
 function UserMessage({ workspaceId, message }: { workspaceId: string; message: ChatMessage }) {
@@ -25,9 +26,13 @@ function UserMessage({ workspaceId, message }: { workspaceId: string; message: C
   );
 }
 
-function Thinking() {
+function Thinking({ searching = false }: { searching?: boolean }) {
   return (
-    <div className="flex h-7 items-center gap-1.5" role="status" aria-label="Writing a reply">
+    <div
+      className="text-muted flex h-7 items-center gap-1.5 text-sm"
+      role="status"
+      aria-label={searching ? "Searching your documents" : "Writing a reply"}
+    >
       {[0, 1, 2].map((dot) => (
         <span
           key={dot}
@@ -35,6 +40,7 @@ function Thinking() {
           style={{ animationDelay: `${dot * 0.15}s` }}
         />
       ))}
+      {searching ? <span className="ml-1.5">Searching your documents</span> : null}
     </div>
   );
 }
@@ -42,16 +48,23 @@ function Thinking() {
 function AssistantMessage({
   message,
   streaming,
+  searching,
   modelLabel,
 }: {
-  message: Pick<ChatMessage, "content" | "status" | "errorCode">;
+  message: Pick<ChatMessage, "content" | "status" | "errorCode" | "sources">;
   streaming?: boolean;
+  searching?: boolean;
   modelLabel?: string | undefined;
 }) {
   const hasText = message.content.length > 0;
   return (
     <div className="group flex flex-col gap-1.5" aria-busy={streaming || undefined}>
-      {hasText ? <Markdown text={message.content} /> : streaming ? <Thinking /> : null}
+      {hasText ? (
+        <Markdown text={message.content} sources={message.sources} />
+      ) : streaming ? (
+        <Thinking searching={searching ?? false} />
+      ) : null}
+      {!streaming ? <SourceList sources={message.sources} /> : null}
       {message.status === "error" ? (
         <p className="border-danger/40 text-danger flex items-start gap-2 rounded-xl border px-3 py-2 text-sm">
           <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
@@ -107,8 +120,14 @@ export function MessageList({
       {live ? (
         <li>
           <AssistantMessage
-            message={{ content: live.text, status: "streaming", errorCode: null }}
+            message={{
+              content: live.text,
+              status: "streaming",
+              errorCode: null,
+              sources: live.sources,
+            }}
             streaming
+            searching={live.stage === "searching"}
           />
         </li>
       ) : null}

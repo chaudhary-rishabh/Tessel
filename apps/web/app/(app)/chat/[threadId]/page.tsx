@@ -9,6 +9,7 @@ import { useState } from "react";
 import { Composer } from "@/components/chat/composer";
 import { MessageList } from "@/components/chat/message-list";
 import { useChatModel } from "@/hooks/use-chat-model";
+import { useChatPreferences } from "@/lib/chat-preferences";
 import { useCurrentWorkspace } from "@/hooks/use-current-workspace";
 import { useSendMessage } from "@/hooks/use-send-message";
 import { useStickToBottom } from "@/hooks/use-stick-to-bottom";
@@ -20,6 +21,7 @@ export default function ThreadPage() {
   const workspaceId = current?.id;
   const thread = useThread(workspaceId, threadId);
   const live = useChatStore((state) => state.replies[threadId]);
+  const knowledge = useChatPreferences((state) => state.knowledge);
   const send = useSendMessage(workspaceId);
   const { modelId: defaultModel } = useChatModel(thread.data?.thread.modelId);
   // A pick made in this chat applies to its next messages.
@@ -55,7 +57,13 @@ export default function ThreadPage() {
 
   const onSend = (content: string, attachments: Attachment[]) => {
     pin();
-    return send({ threadId, content, attachments, ...(modelId ? { model: modelId } : {}) });
+    return send({
+      threadId,
+      content,
+      attachments,
+      knowledge,
+      ...(modelId ? { model: modelId } : {}),
+    });
   };
 
   return (

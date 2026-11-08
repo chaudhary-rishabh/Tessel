@@ -159,3 +159,15 @@ Documents are shared knowledge: every member can read and search them, and the u
 ## D-039 Nightly Postgres backups to S3 from the host
 
 While Postgres runs on the EC2 host, `deploy.sh` installs a systemd timer that runs `pg_dump` (custom format) into an encrypted S3 bucket each night, and an S3 lifecycle rule expires old backups. `restore.sh` restores one with the apps stopped. Moving to RDS replaces this with RDS automated backups and point-in-time recovery.
+
+## D-040 Retrieval runs as a small LangGraph graph before the answer streams
+
+Route, retrieve, and rerank are nodes in a LangGraph `StateGraph`, with a conditional edge that skips retrieval when the router says documents won't help. The answer itself then streams through the normal chat path, so tokens, stop, and the usage ledger behave exactly as in plain chat. The router and reranker use the cheap utility model with forced tool calls, so their output is structured and validated with Zod. Each stage degrades instead of failing the reply: a broken router searches with the message as written, a broken reranker keeps the fused search order, and broken search answers without documents. Search is skipped without any model call when the user turns it off or the workspace has nothing indexed. The graph is the base the agent orchestrator extends in step 10.
+
+## D-041 A small model reranks, rather than a dedicated reranking model
+
+Hybrid search returns up to 20 candidates (fused across up to three rewritten queries); the utility model scores each 0 to 3 and the best six with a score of at least 1 become sources. This needs no extra provider or API beyond the gateway and handles any language. A dedicated reranker (for example Cohere Rerank) is cheaper per passage and faster at scale; the reranker is one function, so it can be swapped once evaluations in phase 3 show where it pays off.
+
+## D-042 Numbered sources, cited inline and stored with the reply
+
+Sources go into the system prompt as numbered `<source>` blocks marked as data, and the model cites them as `[1]`, `[2]`. The stream sends the sources before the first token, and the reply is saved with every source it was given and whether it cited it, so citations still work after a reload and if the document later changes. The interface turns each valid marker into a chip that shows the passage, its file and page, and a link to the original; markers that don't match a source stay plain text.

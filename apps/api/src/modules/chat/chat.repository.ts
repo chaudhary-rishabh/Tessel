@@ -1,6 +1,7 @@
 import type { Attachment, ChatMessage, ThreadSummary } from "@tessel/contracts";
 import {
   attachments,
+  documents,
   messages,
   threads,
   type AttachmentRow,
@@ -43,6 +44,7 @@ export function toMessage(row: MessageRow, files: AttachmentMeta[] = []): ChatMe
     errorCode: row.errorCode,
     createdAt: row.createdAt.toISOString(),
     attachments: files.map(toAttachment),
+    sources: row.sources,
   };
 }
 
@@ -152,6 +154,7 @@ export const chatRepository = {
       errorCode?: string | null;
       inputTokens?: number | null;
       outputTokens?: number | null;
+      sources?: MessageRow["sources"];
     },
   ): Promise<MessageRow | undefined> {
     const [row] = await tx
@@ -203,6 +206,16 @@ export const chatRepository = {
   async attachToMessage(tx: Transaction, ids: string[], messageId: string): Promise<void> {
     if (ids.length === 0) return;
     await tx.update(attachments).set({ messageId }).where(inArray(attachments.id, ids));
+  },
+
+  /** Whether the workspace has any document ready to search. */
+  async hasReadyDocuments(tx: Transaction, workspaceId: string): Promise<boolean> {
+    const [row] = await tx
+      .select({ id: documents.id })
+      .from(documents)
+      .where(and(eq(documents.workspaceId, workspaceId), eq(documents.status, "ready")))
+      .limit(1);
+    return Boolean(row);
   },
 
   async findAttachment(

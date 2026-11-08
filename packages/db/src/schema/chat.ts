@@ -1,6 +1,17 @@
-import { index, integer, pgEnum, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { index, integer, jsonb, pgEnum, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { users } from "./users";
 import { workspaces } from "./workspaces";
+
+export interface MessageSource {
+  id: number;
+  documentId: string;
+  filename: string;
+  page: number | null;
+  chunkIndex: number;
+  text: string;
+  /** Whether the reply cites it. */
+  cited: boolean;
+}
 
 export const messageRole = pgEnum("message_role", ["user", "assistant"]);
 export const messageStatus = pgEnum("message_status", [
@@ -57,6 +68,8 @@ export const messages = pgTable(
     /** For assistant messages: the model that wrote it. */
     modelId: text("model_id"),
     errorCode: text("error_code"),
+    /** For assistant messages: the document passages the reply could cite, numbered from 1. */
+    sources: jsonb("sources").$type<MessageSource[]>().notNull().default([]),
     inputTokens: integer("input_tokens"),
     outputTokens: integer("output_tokens"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

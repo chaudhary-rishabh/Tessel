@@ -5,6 +5,7 @@ import { useSyncExternalStore } from "react";
 import { Composer } from "@/components/chat/composer";
 import { MessageList } from "@/components/chat/message-list";
 import { useChatModel } from "@/hooks/use-chat-model";
+import { useChatPreferences } from "@/lib/chat-preferences";
 import { useCurrentWorkspace } from "@/hooks/use-current-workspace";
 import { useSendMessage } from "@/hooks/use-send-message";
 import { replyControllers, useChatStore } from "@/lib/chat-store";
@@ -31,6 +32,7 @@ export default function NewChatPage() {
   const { current } = useCurrentWorkspace();
   const greeting = useGreeting();
   const firstName = user?.name.split(/\s+/)[0] ?? "";
+  const knowledge = useChatPreferences((state) => state.knowledge);
   const send = useSendMessage(current?.id);
   const { modelId, setModelId } = useChatModel();
   // A new chat waiting for the server to create it (the page then moves to the chat).
@@ -41,7 +43,7 @@ export default function NewChatPage() {
   if (!current) return null;
 
   const onSend = (content: string, attachments: Attachment[]) =>
-    send({ content, attachments, ...(modelId ? { model: modelId } : {}) });
+    send({ content, attachments, knowledge, ...(modelId ? { model: modelId } : {}) });
 
   // The composer stays mounted while a message is pending, so a refused
   // message can be put back into it.

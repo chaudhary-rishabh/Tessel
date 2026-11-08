@@ -1,4 +1,4 @@
-import type { Ai } from "@tessel/ai";
+import type { Ai, RagPipeline } from "@tessel/ai";
 import {
   attachmentParamsSchema,
   threadListQuerySchema,
@@ -21,10 +21,12 @@ function actorFor(req: Request): Actor {
 export function createChatController({
   service,
   ai,
+  rag,
   logger,
 }: {
   service: ChatService;
   ai: Ai;
+  rag: RagPipeline;
   logger: Logger;
 }) {
   const listThreads: RequestHandler = async (req, res) => {
@@ -61,6 +63,7 @@ export function createChatController({
     });
     await streamReply({
       ai,
+      rag,
       service,
       logger,
       actor,
