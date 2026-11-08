@@ -1,4 +1,9 @@
 import {
+  connectedAppListResponseSchema,
+  oauthAuthorizationSchema,
+  oauthRedirectResponseSchema,
+  type ConnectedApp,
+  type OAuthAuthorization,
   identityListResponseSchema,
   oauthLinkResponseSchema,
   phoneCodeSentResponseSchema,
@@ -177,6 +182,32 @@ export function createApi(client: ApiClient) {
             recoveryCodesResponseSchema,
             (await http.post("/users/me/two-factor/recovery-codes", { code })).data,
           ).recoveryCodes,
+      },
+    },
+    /** Signing outside MCP clients in: the consent page and connected apps. */
+    oauth: {
+      describe: async (authorizationId: string): Promise<OAuthAuthorization> =>
+        parse(
+          oauthAuthorizationSchema,
+          (await http.get(`/oauth/authorizations/${authorizationId}`)).data,
+        ),
+      /** Returns where to send the browser: back to the client with a code. */
+      approve: async (authorizationId: string, workspaceId: string): Promise<string> =>
+        parse(
+          oauthRedirectResponseSchema,
+          (await http.post(`/oauth/authorizations/${authorizationId}/approve`, { workspaceId }))
+            .data,
+        ).redirectUrl,
+      deny: async (authorizationId: string): Promise<string> =>
+        parse(
+          oauthRedirectResponseSchema,
+          (await http.post(`/oauth/authorizations/${authorizationId}/deny`)).data,
+        ).redirectUrl,
+      apps: async (): Promise<ConnectedApp[]> =>
+        parse(connectedAppListResponseSchema, (await http.get("/users/me/connected-apps")).data)
+          .apps,
+      disconnect: async (appId: string): Promise<void> => {
+        await http.delete(`/users/me/connected-apps/${appId}`);
       },
     },
     workspaces: {

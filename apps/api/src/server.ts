@@ -136,6 +136,7 @@ const app = createApp({
       mockBaseUrl: env.SOCIAL_LOGIN_MOCK_URL,
     }),
     sms: smsFromEnv(),
+    mcpResourceUrl: new URL("/mcp", env.MCP_PUBLIC_URL ?? "http://localhost:4100").toString(),
   },
   connectors: {
     box: createSecretBox(env.ENCRYPTION_KEY),

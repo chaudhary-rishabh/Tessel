@@ -332,6 +332,28 @@ flowchart LR
 - Users create personal access tokens in Settings (`GET|POST /workspaces/:workspaceId/access-tokens`, `DELETE …/access-tokens/:tokenId`). The token is shown once, with the settings an MCP client needs.
 - The API accepts a token only on allowlisted routes in its own workspace: listing and reading documents, document text (`GET …/documents/:documentId/text`), search, and `GET /access-tokens/current`.
 - The MCP server (`@tessel/mcp/server`, run by `apps/mcp-server`) checks the token with the API, then serves `search_documents`, `list_documents`, and `read_document`, each a call to the API with the same token.
+- Clients that support MCP authorization sign in instead of pasting a token:
+
+```mermaid
+sequenceDiagram
+  participant C as MCP client
+  participant M as mcp-server
+  participant A as API (OAuth server)
+  participant W as Web app
+  C->>M: POST /mcp, no token
+  M-->>C: 401, resource_metadata=…/.well-known/oauth-protected-resource/mcp
+  C->>A: /.well-known/oauth-authorization-server, POST /register
+  C->>A: GET /authorize (PKCE, resource)
+  A-->>W: redirect to /oauth/consent/:id
+  W->>A: approve (signed in, picks a workspace)
+  A-->>C: redirect with a one-time code
+  C->>A: POST /token, then refresh as needed
+  C->>M: POST /mcp, Bearer tsl_oat_…
+```
+
+- The API is the authorization server, using the MCP SDK's router (`/register`, `/authorize`, `/token`, `/revoke`, metadata) with Tessel's own store. Clients register themselves; their registration is sealed with `ENCRYPTION_KEY`.
+- Access tokens (`tsl_oat_`) last an hour and are stored like personal access tokens, so the same allowlist and workspace checks apply. Refresh tokens rotate on every use; reusing an old one ends the grant.
+- Settings → Connected apps lists each client and disconnects it. Consent endpoints: `GET /oauth/authorizations/:authorizationId`, `POST …/approve`, `POST …/deny`; `GET|DELETE /users/me/connected-apps`.
 
 ## Memory
 

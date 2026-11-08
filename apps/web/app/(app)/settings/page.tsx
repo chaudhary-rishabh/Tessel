@@ -9,6 +9,7 @@ import { Suspense, useEffect, useState, type ReactNode } from "react";
 import { useForm } from "react-hook-form";
 import { FormError, FormSuccess } from "@/components/form-error";
 import { AccessTokensSection } from "@/components/settings/access-tokens-section";
+import { ConnectedAppsSection } from "@/components/settings/connected-apps-section";
 import { MemorySection } from "@/components/settings/memory-section";
 import { SessionsSection } from "@/components/settings/sessions-section";
 import { SignInMethodsSection } from "@/components/settings/sign-in-methods-section";
@@ -232,9 +233,21 @@ function AccessTokenSettings() {
     <Section
       id="access-tokens"
       title="Access tokens"
-      description="Connect outside tools, like Claude Desktop or Cursor, to this workspace through Tessel's MCP server."
+      description="Connect outside tools, like Claude or Cursor, through Tessel's MCP server. Apps that can sign in only need its URL; for the rest, make a token."
     >
       <AccessTokensSection workspaceId={current.id} />
+    </Section>
+  );
+}
+
+function ConnectedAppsSettings() {
+  return (
+    <Section
+      id="connected-apps"
+      title="Connected apps"
+      description="Apps you signed in to Tessel from. Each can search and read one workspace's documents."
+    >
+      <ConnectedAppsSection />
     </Section>
   );
 }
@@ -279,6 +292,7 @@ export default function SettingsPage() {
         <MemorySettings />
         <UsageSettings />
         <AccessTokenSettings />
+        <ConnectedAppsSettings />
         <PasswordSection />
         <SecuritySettings />
       </div>

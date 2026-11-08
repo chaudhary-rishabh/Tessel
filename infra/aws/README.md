@@ -154,6 +154,7 @@ put() { aws ssm put-parameter --region ap-south-1 --type SecureString --overwrit
 put JWT_ACCESS_SECRET "$(openssl rand -base64 48)"
 put ENCRYPTION_KEY "$(openssl rand -base64 32)"
 put API_PUBLIC_URL "https://api.example.com"
+put MCP_PUBLIC_URL "https://mcp.example.com"
 put WEB_ORIGIN "https://app.example.com"
 put MAIL_FROM "Tessel <no-reply@example.com>"
 put S3_BUCKET "BUCKET_NAME"

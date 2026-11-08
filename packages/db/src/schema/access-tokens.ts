@@ -1,4 +1,5 @@
 import { index, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { oauthGrants } from "./oauth";
 import { users } from "./users";
 import { workspaces } from "./workspaces";
 
@@ -26,6 +27,8 @@ export const personalAccessTokens = pgTable(
     lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
     expiresAt: timestamp("expires_at", { withTimezone: true }),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    /** Set for hour-long tokens issued to an OAuth client (`tsl_oat_`), not made by hand. */
+    grantId: uuid("grant_id").references(() => oauthGrants.id, { onDelete: "cascade" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [index("personal_access_tokens_owner_idx").on(table.userId, table.workspaceId)],

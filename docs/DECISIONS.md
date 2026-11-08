@@ -326,3 +326,11 @@ A provider account is found by its stable ID first. On first sign-in it joins th
 ## D-080 Sign-in by texted code, through SNS
 
 A number is added only after a texted code confirms it, and each number belongs to one account. Signing in by text answers the same whether or not the number has an account, and sends nothing when it doesn't. SNS sends transactional texts with the instance role; DLT IDs are passed for Indian numbers. It's off in production until `SMS_TRANSPORT=sns`, because SMS needs SNS production access and costs money per text. A text is one factor like a password, so two-step sign-in still applies after it.
+
+## D-081 The API is the OAuth server for MCP clients
+
+MCP clients such as Claude and Cursor can sign in with OAuth 2.1 (the MCP authorization spec) instead of a pasted token. The MCP server is only the protected resource: its 401 points to its protected resource metadata (RFC 9728), which names the API as the authorization server. The API runs the MCP SDK's router (dynamic registration, authorize, token, revoke, and metadata) over Tessel's own store, because it already has the database, users, and sessions; the MCP server stays a thin, stateless proxy. The authorize step saves the request and sends the browser to a consent page in the web app, where the signed-in user picks a workspace and allows or denies. Codes are single-use, last five minutes, and need PKCE; tokens are only issued for Tessel's own MCP server (`resource`). The router is mounted before CORS because clients call it from any origin. The MCP host also serves the authorization server's metadata for clients that look for it there.
+
+## D-082 OAuth access tokens reuse the personal access token path
+
+An approved client gets a grant (client, user, workspace, scopes, refresh token hash) and hour-long `tsl_oat_` access tokens stored in `personal_access_tokens` with the grant's ID. So the API checks them exactly like personal tokens: hashed, workspace-bound, and limited to the same route allowlist and scopes, with no second code path. They're hidden from the hand-made token list. Refresh tokens rotate on every use and the previous one is remembered, so a copied one being replayed ends the grant and its tokens.

@@ -113,6 +113,13 @@
       "when": 1794178113912,
       "tag": "0015_sign_in_methods",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1794179703233,
+      "tag": "0016_mcp_oauth",
+      "breakpoints": true
     }
   ]
 }

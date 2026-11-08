@@ -7,4 +7,5 @@ export * from "./documents";
 export * from "./skills";
 export * from "./connectors";
 export * from "./access-tokens";
+export * from "./oauth";
 export * from "./memories";

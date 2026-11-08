@@ -54,6 +54,12 @@ import { createPhoneService } from "./modules/auth/phone.service";
 import { createSignInMethodsRouter, createSignInRouter } from "./modules/auth/sign-in.routes";
 import type { SocialProvider } from "./modules/auth/social-providers";
 import { createSocialService } from "./modules/auth/social.service";
+import {
+  createConnectedAppsRouter,
+  createOAuthConsentRouter,
+  createOAuthServerRouter,
+} from "./modules/oauth/oauth.routes";
+import { createOAuthService } from "./modules/oauth/oauth.service";
 import { createSkillsRouter } from "./modules/skills/skills.routes";
 import { createSkillsService } from "./modules/skills/skills.service";
 import { createDocumentsService } from "./modules/documents/documents.service";
@@ -92,6 +98,11 @@ export interface AppDependencies {
     providers?: Partial<Record<IdentityProvider, SocialProvider>>;
     /** Texts sign-in codes; without it, phone sign-in is off. */
     sms?: SmsSender | undefined;
+    /**
+     * Tessel's MCP server as clients reach it (e.g. https://mcp.example.com/mcp).
+     * With it, the API is also the OAuth server MCP clients sign in through.
+     */
+    mcpResourceUrl?: string | undefined;
   };
   /** MCP connectors: the catalog, credential encryption, and OAuth redirects. */
   connectors: ConnectorsSettings;
@@ -127,6 +138,27 @@ export function createApp({
   app.use(requestId);
   app.use(requestLogger(logger));
   app.use(helmet());
+
+  // MCP clients sign in through these from any origin, so they come before CORS.
+  const accessTokensService = createAccessTokensService({ db });
+  const oauthService = createOAuthService({
+    db,
+    logger,
+    box: connectors.box,
+    accessTokens: accessTokensService,
+    webOrigin: config.corsOrigins[0]!,
+    resourceUrl: signIn.mcpResourceUrl ?? "http://localhost:4100/mcp",
+  });
+  if (signIn.mcpResourceUrl) {
+    app.use(
+      createOAuthServerRouter({
+        service: oauthService,
+        issuerUrl: signIn.apiPublicUrl,
+        resourceUrl: signIn.mcpResourceUrl,
+      }),
+    );
+  }
+
   app.use(
     cors({
       origin: config.corsOrigins,
@@ -242,7 +274,6 @@ export function createApp({
     }),
     logger,
   });
-  const accessTokensService = createAccessTokensService({ db });
   const authenticate = requireAuth(accessTokens, accessTokensService.resolve);
 
   // Feature modules
@@ -347,6 +378,14 @@ export function createApp({
     createAccessTokensRouter({ service: accessTokensService, authenticate }),
   );
   app.use("/access-tokens", createCurrentTokenRouter({ db, authenticate }));
+  app.use(
+    "/oauth/authorizations",
+    createOAuthConsentRouter({ service: oauthService, authenticate }),
+  );
+  app.use(
+    "/users/me/connected-apps",
+    createConnectedAppsRouter({ service: oauthService, authenticate }),
+  );
   app.use("/connectors", createConnectorCallbackRouter({ service: connectorsService }));
   // Development only: read the emails and texts the outboxes kept (codes, reset links).
   if (!config.isProduction) {

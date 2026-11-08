@@ -54,8 +54,8 @@ function tokenAccess(req: Request, identity: TokenIdentity): void {
 
 /**
  * Rejects requests without a valid `Authorization: Bearer` header: an access
- * token from signing in, or a personal access token (`tsl_pat_…`) on the
- * routes in TOKEN_ROUTES.
+ * token from signing in, or a personal access token (`tsl_pat_…`) or an
+ * OAuth client's token (`tsl_oat_…`) on the routes in TOKEN_ROUTES.
  */
 export function requireAuth(
   accessTokens: AccessTokens,
@@ -69,7 +69,7 @@ export function requireAuth(
       throw errors.unauthorized();
     }
     const presented = match[1];
-    if (resolveToken && presented.startsWith("tsl_pat_")) {
+    if (resolveToken && (presented.startsWith("tsl_pat_") || presented.startsWith("tsl_oat_"))) {
       const identity = await resolveToken(presented);
       if (!identity)
         throw errors.unauthorized("invalid_token", "Invalid, expired, or revoked token");
