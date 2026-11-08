@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 # The Next.js web app, built as a standalone server.
-#   NEXT_PUBLIC_API_URL is inlined into the browser bundle at build time.
+#   NEXT_PUBLIC_API_URL and NEXT_PUBLIC_MCP_URL are inlined into the browser bundle at build time.
 
 ARG NODE_IMAGE=node:24-alpine
 
@@ -15,7 +15,9 @@ RUN pnpm dlx turbo@2.11.10 prune @tessel/web --docker
 
 FROM base AS builder
 ARG NEXT_PUBLIC_API_URL
+ARG NEXT_PUBLIC_MCP_URL
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL} \
+    NEXT_PUBLIC_MCP_URL=${NEXT_PUBLIC_MCP_URL} \
     NEXT_OUTPUT=standalone \
     NEXT_TELEMETRY_DISABLED=1
 WORKDIR /repo

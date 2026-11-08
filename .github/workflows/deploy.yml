@@ -63,6 +63,7 @@ jobs:
         env:
           BUILD_CACHE: gha
           PUBLIC_API_URL: https://${{ vars.API_DOMAIN }}
+          PUBLIC_MCP_URL: https://${{ vars.MCP_DOMAIN }}/mcp
           PLATFORM: ${{ vars.IMAGE_PLATFORM || 'linux/amd64' }}
 
       - name: Deploy to EC2

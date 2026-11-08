@@ -1,6 +1,9 @@
 "use client";
 
 import type {
+  AccessToken,
+  CreateAccessTokenRequest,
+  CreateAccessTokenResponse,
   ConnectorConnection,
   ConnectorListResponse,
   CreateConnectionRequest,
@@ -43,6 +46,7 @@ export const queryKeys = {
   documents: (workspaceId: string) => ["workspaces", workspaceId, "documents"] as const,
   skills: (workspaceId: string) => ["workspaces", workspaceId, "skills"] as const,
   connectors: (workspaceId: string) => ["workspaces", workspaceId, "connectors"] as const,
+  accessTokens: (workspaceId: string) => ["workspaces", workspaceId, "access-tokens"] as const,
   threads: (workspaceId: string) => ["workspaces", workspaceId, "threads"] as const,
   thread: (workspaceId: string, threadId: string) =>
     ["workspaces", workspaceId, "threads", threadId] as const,
@@ -369,6 +373,39 @@ export function useDeleteConnection(workspaceId: string) {
                 connections: current.connections.filter((item) => item.id !== connectionId),
               }
             : current,
+      ),
+  });
+}
+
+export function useAccessTokens(workspaceId: string | undefined) {
+  const api = useApi();
+  return useQuery({
+    queryKey: queryKeys.accessTokens(workspaceId ?? "none"),
+    queryFn: () => api.accessTokens.list(workspaceId!),
+    enabled: Boolean(workspaceId),
+  });
+}
+
+export function useCreateAccessToken(workspaceId: string) {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<CreateAccessTokenResponse, ApiClientError, CreateAccessTokenRequest>({
+    mutationFn: (input) => api.accessTokens.create(workspaceId, input),
+    onSuccess: ({ accessToken }) =>
+      queryClient.setQueryData<AccessToken[]>(queryKeys.accessTokens(workspaceId), (current) =>
+        current ? [accessToken, ...current] : current,
+      ),
+  });
+}
+
+export function useRevokeAccessToken(workspaceId: string) {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<void, ApiClientError, string>({
+    mutationFn: (tokenId) => api.accessTokens.revoke(workspaceId, tokenId),
+    onSuccess: (_result, tokenId) =>
+      queryClient.setQueryData<AccessToken[]>(queryKeys.accessTokens(workspaceId), (current) =>
+        current?.filter((token) => token.id !== tokenId),
       ),
   });
 }

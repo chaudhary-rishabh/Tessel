@@ -72,6 +72,7 @@ services:
     environment:
       NODE_ENV: production
       MCP_PORT: "4100"
+      API_INTERNAL_URL: http://api:4000
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4100/health"]
       interval: 10s

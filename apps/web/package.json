@@ -29,6 +29,7 @@
     "zustand": "^5.1.0"
   },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
     "@playwright/test": "1.63.0",
     "@tailwindcss/postcss": "^4.3.5",
     "@tessel/config": "workspace:*",
