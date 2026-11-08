@@ -273,6 +273,28 @@ flowchart TB
 - Endpoints: `GET|POST /workspaces/:workspaceId/skills`, `PATCH|DELETE …/skills/:skillId`. Saving moderates the text; names are unique per workspace and can't match a built-in one.
 - The web app's Skills page lists workspace and built-in skills, with a switch to turn each workspace skill on or off.
 
+## Connectors (MCP client)
+
+```mermaid
+sequenceDiagram
+  participant B as Browser
+  participant A as API
+  participant S as MCP server / app
+  B->>A: POST /workspaces/:id/connectors (OAuth app)
+  A->>S: discovery, client registration (SDK)
+  A-->>B: authorizationUrl (state, PKCE)
+  B->>S: user signs in and allows
+  S-->>B: redirect to API callback with code
+  B->>A: GET /connectors/oauth/callback
+  A->>S: code exchange, list tools
+  A-->>B: redirect to /connectors?connected=…
+```
+
+- `@tessel/mcp` holds the client (Streamable HTTP via the MCP SDK), the OAuth provider, credential encryption, the URL guard, the tool adapter, and a mock server for tests.
+- Connections live in `connector_connections` (private to their user), with encrypted credentials, cached tools, and per-tool approval choices.
+- Each reply adds the user's enabled connector tools (named like `github_create_issue`), opens a client per connector on first use, and closes them when the reply ends. In team mode an integrations specialist gets these tools.
+- Endpoints: `GET|POST /workspaces/:workspaceId/connectors`, `POST …/connectors/:connectionId/refresh`, `PATCH|DELETE …/connectors/:connectionId`, and `GET /connectors/oauth/callback`.
+
 ## Web app
 
 | Concern          | Approach                                                                                                                                                                                                                                                                                                                                                                        |

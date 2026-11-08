@@ -15,7 +15,7 @@ Phase 1 is built in 20 steps. Each step ends tested, merged, and (from step 4) d
 | 9    | Agents                   | Tool registry, ReAct agent, approvals                                          | Approve and reject work, even after a restart        | Done   |
 | 10   | Agents                   | Orchestrator: plan-and-execute, reflection, supervisor                         | Each pattern can be reached from the chat box        | Done   |
 | 11   | Agents                   | Built-in and custom skills                                                     | A user-created skill changes the agent's behaviour   | Done   |
-| 12   | Agents                   | MCP client and connectors                                                      | A GitHub tool call works with approval               |        |
+| 12   | Agents                   | MCP client and connectors                                                      | A GitHub tool call works with approval               | Done   |
 | 13   | Agents                   | MCP server with personal access tokens                                         | An outside MCP client can search the workspace       |        |
 | 14   | Memory and graph         | Short-term, summary, long-term, and episodic memory                            | Memory carries across threads and can be edited      |        |
 | 15   | Memory and graph         | Caching layers                                                                 | Repeat requests hit the cache; re-indexing clears it |        |
