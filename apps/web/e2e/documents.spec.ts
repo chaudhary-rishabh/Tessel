@@ -58,4 +58,39 @@ test.describe("documents", () => {
       .click();
     await expect(page.getByText("No documents yet.")).toBeVisible();
   });
+
+  test("answers from a document with a citation to the passage", async ({ page }) => {
+    await signUp(page);
+    await page.goto("/documents");
+    await page.getByTestId("document-input").setInputFiles({
+      name: "travel-policy.md",
+      mimeType: "text/markdown",
+      buffer: Buffer.from("# Travel\n\nThe zephyrine allowance is 40 euros a day."),
+    });
+    await expect(page.getByRole("list", { name: "Documents" }).getByText(/Ready/)).toBeVisible({
+      timeout: 30_000,
+    });
+
+    await page.goto("/chat");
+    await page.getByRole("textbox", { name: "Message" }).fill("What is the zephyrine allowance?");
+    await page.getByRole("button", { name: "Send message" }).click();
+
+    const messages = page.getByRole("list", { name: "Messages" });
+    const chip = messages.getByRole("button", { name: "Source 1: travel-policy.md" });
+    await expect(chip).toBeVisible();
+    await chip.click();
+    await expect(
+      page.getByRole("dialog").getByText("The zephyrine allowance is 40 euros a day."),
+    ).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(messages.getByRole("list", { name: "Sources" })).toContainText("travel-policy.md");
+
+    // Turning documents off answers without searching.
+    await page.getByRole("button", { name: /^Use documents:/ }).click();
+    await page.getByRole("menuitem", { name: /^Off/ }).click();
+    await page.getByRole("textbox", { name: "Message" }).fill("And the zephyrine allowance again?");
+    await page.getByRole("button", { name: "Send message" }).click();
+    await expect(messages.getByText("Echo: And the zephyrine allowance again?")).toBeVisible();
+    await expect(messages.getByRole("button", { name: /^Source / })).toHaveCount(1);
+  });
 });

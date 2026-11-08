@@ -5,6 +5,7 @@ import { queryKeys, upsertThreadInList, useApi } from "@tessel/api-client/react"
 import type {
   Attachment,
   ChatMessage,
+  KnowledgeMode,
   ThreadListResponse,
   ThreadResponse,
 } from "@tessel/contracts";
@@ -18,6 +19,7 @@ export interface SendInput {
   content: string;
   model?: string;
   attachments: Attachment[];
+  knowledge?: KnowledgeMode;
 }
 
 export type SendResult = { ok: true } | { ok: false; error: ApiClientError | null };
@@ -34,7 +36,13 @@ export function useSendMessage(workspaceId: string | undefined) {
   const router = useRouter();
 
   return useCallback(
-    async ({ threadId, content, model, attachments }: SendInput): Promise<SendResult> => {
+    async ({
+      threadId,
+      content,
+      model,
+      attachments,
+      knowledge,
+    }: SendInput): Promise<SendResult> => {
       if (!workspaceId) return { ok: false, error: null };
       const store = useChatStore.getState();
       const temporaryKey = threadId ?? `new-${crypto.randomUUID()}`;
@@ -63,6 +71,7 @@ export function useSendMessage(workspaceId: string | undefined) {
           {
             content,
             attachmentIds: attachments.map((file) => file.id),
+            ...(knowledge ? { knowledge } : {}),
             ...(threadId ? { threadId } : {}),
             ...(model ? { model } : {}),
           },
@@ -94,6 +103,12 @@ export function useSendMessage(workspaceId: string | undefined) {
                   if (!threadId) router.push(`/chat/${liveKey}`);
                   break;
                 }
+                case "status":
+                  useChatStore.getState().update(liveKey, { stage: event.stage });
+                  break;
+                case "sources":
+                  useChatStore.getState().update(liveKey, { sources: event.sources });
+                  break;
                 case "token":
                   text += event.text;
                   useChatStore.getState().append(liveKey, event.text);
@@ -141,6 +156,7 @@ export function useSendMessage(workspaceId: string | undefined) {
             errorCode: null,
             createdAt: new Date().toISOString(),
             attachments: [],
+            sources: useChatStore.getState().replies[liveKey]?.sources ?? [],
           });
         } else {
           // The connection dropped mid-reply: load whatever the server saved.

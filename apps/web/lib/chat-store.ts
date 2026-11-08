@@ -1,4 +1,4 @@
-import type { Attachment, ChatMessage } from "@tessel/contracts";
+import type { Attachment, ChatMessage, MessageSource } from "@tessel/contracts";
 import { create } from "zustand";
 
 export type LiveStatus = "sending" | "streaming";
@@ -16,6 +16,9 @@ export interface LiveReply {
   assistantMessageId: string | null;
   text: string;
   status: LiveStatus;
+  /** Set while the documents are searched, before any text arrives. */
+  stage: "searching" | "writing" | null;
+  sources: MessageSource[];
 }
 
 interface ChatStore {
@@ -28,6 +31,7 @@ interface ChatStore {
     assistantMessageId: string,
   ) => void;
   append: (threadId: string, text: string) => void;
+  update: (threadId: string, patch: Partial<Pick<LiveReply, "stage" | "sources">>) => void;
   finish: (key: string) => void;
 }
 
@@ -51,10 +55,13 @@ export const useChatStore = create<ChatStore>()((set) => ({
             errorCode: null,
             createdAt: new Date().toISOString(),
             attachments,
+            sources: [],
           },
           assistantMessageId: null,
           text: "",
           status: "sending",
+          stage: null,
+          sources: [],
         },
       },
     })),
@@ -81,6 +88,12 @@ export const useChatStore = create<ChatStore>()((set) => ({
       const reply = state.replies[threadId];
       if (!reply) return state;
       return { replies: { ...state.replies, [threadId]: { ...reply, text: reply.text + text } } };
+    }),
+  update: (threadId, patch) =>
+    set((state) => {
+      const reply = state.replies[threadId];
+      if (!reply) return state;
+      return { replies: { ...state.replies, [threadId]: { ...reply, ...patch } } };
     }),
   finish: (key) =>
     set((state) => {
