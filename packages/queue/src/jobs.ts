@@ -5,6 +5,8 @@ export const QUEUE_NAMES = {
   system: "system",
   /** Parsing, chunking, embedding, and indexing uploaded documents. */
   documents: "documents",
+  /** Summary, long-term, and episodic memory after replies. */
+  memory: "memory",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -23,7 +25,23 @@ export const jobSchemas = {
       documentId: z.uuid(),
     }),
   },
+  memory: {
+    thread: z.object({
+      workspaceId: z.uuid(),
+      userId: z.uuid(),
+      threadId: z.uuid(),
+    }),
+  },
 } as const;
+
+export type ThreadMemoryJobData = z.infer<typeof jobSchemas.memory.thread>;
+
+/**
+ * One memory job per chat at a time, delayed a little so a burst of replies
+ * is handled once; the job reads the chat as it is when it runs.
+ */
+export const memoryJobId = (threadId: string) => `memory-${threadId}`;
+export const MEMORY_JOB_DELAY_MS = 15_000;
 
 export type IngestJobData = z.infer<typeof jobSchemas.documents.ingest>;
 

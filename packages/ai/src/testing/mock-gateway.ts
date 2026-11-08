@@ -20,6 +20,8 @@ import type { AddressInfo } from "node:net";
  * task to its first worker (MOCK_TWO_WORKERS: one to each of the first two),
  * then finishes. Final answers say what they were written from.
  * MOCK_SKILL <name> loads that skill; the reply then quotes its first line.
+ * Memory: "MOCK_REMEMBER: <fact>" in a user turn is saved, MOCK_FORGET clears
+ * memories, and chat summaries say how many turns they cover.
  */
 export interface MockReply {
   text?: string;
@@ -103,6 +105,17 @@ function defaultReply(body: Record<string, unknown>): MockReply {
   }
   const forced = (body.tool_choice as { function?: { name?: string } } | undefined)?.function?.name;
   const requestText = lastUser;
+  if (forced === "update_memories") {
+    const turns = /<turns>\n([\s\S]*?)\n<\/turns>/.exec(requestText)?.[1] ?? "";
+    const add = [...turns.matchAll(/^user: .*?MOCK_REMEMBER: ([^\n]+)$/gm)].map((match) =>
+      match[1]!.trim(),
+    );
+    const ids = [...requestText.matchAll(/<memory id="([^"]+)">/g)].map((match) => match[1]!);
+    const forget = /^user: .*MOCK_FORGET/m.test(turns);
+    return {
+      toolCall: { name: "update_memories", args: { add, update: [], remove: forget ? ids : [] } },
+    };
+  }
   if (forced === "make_plan") {
     const steps = [
       { title: "Gather the facts", instruction: "Find what's needed" },
@@ -180,6 +193,10 @@ function defaultReply(body: Record<string, unknown>): MockReply {
     return { toolCalls: JSON.parse(requested) as { name: string; args: unknown }[] };
   }
   const system = textOf(messages.find((message) => message.role === "system")?.content);
+  if (system.startsWith("Summarize this conversation")) {
+    const turns = (lastUser.match(/^(user|assistant): /gm) ?? []).length;
+    return { text: `Summary of ${turns} earlier turns.` };
+  }
   if (system.startsWith("Write a short title")) {
     const words = lastUser.replace(/\s+/g, " ").trim().split(" ").slice(0, 4).join(" ");
     return { text: words || "New chat" };
