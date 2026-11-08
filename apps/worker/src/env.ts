@@ -17,6 +17,9 @@ export const envSchema = z.object({
     z.string().optional(),
   ),
   QDRANT_COLLECTION: z.string().min(1).default("tessel_chunks"),
+  QDRANT_EPISODES_COLLECTION: z.string().min(1).default("tessel_episodes"),
+  /** Chats processed for memory at once. */
+  MEMORY_CONCURRENCY: z.coerce.number().int().positive().default(3),
   WORKER_CONCURRENCY: z.coerce.number().int().positive().default(5),
   /** Documents processed at once. Each holds a whole file in memory. */
   INGEST_CONCURRENCY: z.coerce.number().int().positive().default(2),

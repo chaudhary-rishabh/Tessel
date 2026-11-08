@@ -34,6 +34,8 @@ export const envSchema = z
       z.string().optional(),
     ),
     QDRANT_COLLECTION: z.string().min(1).default("tessel_chunks"),
+    /** Episodic memory: one point per chat, for searching past chats. */
+    QDRANT_EPISODES_COLLECTION: z.string().min(1).default("tessel_episodes"),
     NEO4J_HTTP_URL: z.url(),
     JWT_ACCESS_SECRET: z.string().min(32, "JWT_ACCESS_SECRET must be at least 32 characters"),
     ACCESS_TOKEN_TTL_SECONDS: z.coerce.number().int().min(60).max(3600).default(900),
