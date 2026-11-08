@@ -1,0 +1,316 @@
+import { ChatAnthropic } from "@langchain/anthropic";
+import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
+import {
+  AIMessage,
+  HumanMessage,
+  SystemMessage,
+  type AIMessageChunk,
+  type BaseMessage,
+} from "@langchain/core/messages";
+import { ChatOpenAI } from "@langchain/openai";
+import type { Logger } from "@tessel/logger";
+import OpenAI from "openai";
+import { TesselChatModel, type ModelRoute } from "./chat-model";
+import { GatewayEmbeddings, type EmbeddingRoute } from "./embeddings";
+import type { AiEnv } from "./env";
+import {
+  AiError,
+  AiNotConfiguredError,
+  ContentBlockedError,
+  ModelNotFoundError,
+  ModelUnavailableError,
+} from "./errors";
+import {
+  createModelModerator,
+  noModeration,
+  type ModerationResult,
+  type Moderator,
+} from "./moderation";
+import { loadModelRegistry, type ModelInfo, type ModelRegistry } from "./registry";
+import type { SpendGuard } from "./spend";
+import { UsageCallbackHandler, usageFromMetadata } from "./usage-handler";
+import {
+  costNanoUsd,
+  createUsageTracker,
+  estimateTokens,
+  NO_USAGE,
+  type AiCallContext,
+  type TokenUsage,
+  type UsageLedger,
+  type UsageRoute,
+  type UsageTracker,
+} from "./usage";
+
+export interface ProviderCredentials {
+  apiKey: string;
+  baseURL?: string;
+}
+
+export interface AiOptions {
+  gateway?: ProviderCredentials;
+  /** Emergency routes used only when the gateway can't be reached. */
+  fallback?: { openai?: ProviderCredentials; anthropic?: ProviderCredentials };
+  registry: ModelRegistry;
+  spend: SpendGuard;
+  ledger: UsageLedger;
+  moderation: { mode: "model" | "off"; failure: "allow" | "block" };
+  logger: Logger;
+  timeoutMs?: number;
+}
+
+export interface ChatModelOptions {
+  maxOutputTokens?: number;
+  temperature?: number;
+}
+
+export interface CompletionMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface CompletionRequest {
+  /** Defaults to the registry's default chat model. */
+  model?: string;
+  system?: string;
+  messages: CompletionMessage[];
+  maxOutputTokens?: number;
+  signal?: AbortSignal;
+}
+
+export interface CompletionResult {
+  text: string;
+  model: ModelInfo;
+  route: UsageRoute;
+  usage: TokenUsage;
+  costNanoUsd: number;
+  moderation: ModerationResult;
+}
+
+export interface Ai {
+  registry: ModelRegistry;
+  spend: SpendGuard;
+  moderator: Moderator;
+  tracker: UsageTracker;
+  /** True when at least one route (gateway or fallback) has credentials. */
+  isConfigured: boolean;
+  /** A chat model for `context`: capped, recorded, and with the emergency fallback. */
+  chatModel(context: AiCallContext, modelId?: string, options?: ChatModelOptions): TesselChatModel;
+  embeddings(context: AiCallContext, modelId?: string): GatewayEmbeddings;
+  /** One non-streaming reply: cap check, moderation, model call, usage. */
+  complete(context: AiCallContext, request: CompletionRequest): Promise<CompletionResult>;
+}
+
+/** Anthropic requires an output limit on every request. */
+const ANTHROPIC_DEFAULT_MAX_TOKENS = 8_192;
+
+export function createAi(options: AiOptions): Ai {
+  const { gateway, fallback = {}, registry, spend, ledger, logger, timeoutMs = 120_000 } = options;
+  const tracker = createUsageTracker({ ledger, spend, logger });
+  const isConfigured = Boolean(gateway || fallback.openai || fallback.anthropic);
+
+  function chatRoutes(info: ModelInfo, chatOptions: ChatModelOptions): ModelRoute[] {
+    const routes: ModelRoute[] = [];
+    if (gateway) {
+      routes.push({
+        route: "gateway",
+        model: new ChatOpenAI({
+          model: info.id,
+          apiKey: gateway.apiKey,
+          configuration: { baseURL: gateway.baseURL },
+          // The gateway already retries across providers; fail over to the next route quickly.
+          maxRetries: 1,
+          timeout: timeoutMs,
+          streamUsage: true,
+          useResponsesApi: false,
+          ...(chatOptions.maxOutputTokens ? { maxTokens: chatOptions.maxOutputTokens } : {}),
+          ...(chatOptions.temperature !== undefined
+            ? { temperature: chatOptions.temperature }
+            : {}),
+        }),
+      });
+    }
+    const target = info.fallback;
+    const credentials = target ? fallback[target.provider] : undefined;
+    if (target && credentials) {
+      const model: BaseChatModel =
+        target.provider === "anthropic"
+          ? new ChatAnthropic({
+              model: target.model,
+              apiKey: credentials.apiKey,
+              ...(credentials.baseURL ? { anthropicApiUrl: credentials.baseURL } : {}),
+              maxRetries: 1,
+              streamUsage: true,
+              maxTokens: chatOptions.maxOutputTokens ?? ANTHROPIC_DEFAULT_MAX_TOKENS,
+              ...(chatOptions.temperature !== undefined
+                ? { temperature: chatOptions.temperature }
+                : {}),
+            })
+          : new ChatOpenAI({
+              model: target.model,
+              apiKey: credentials.apiKey,
+              configuration: credentials.baseURL ? { baseURL: credentials.baseURL } : {},
+              maxRetries: 1,
+              timeout: timeoutMs,
+              streamUsage: true,
+              useResponsesApi: false,
+              ...(chatOptions.maxOutputTokens ? { maxTokens: chatOptions.maxOutputTokens } : {}),
+              ...(chatOptions.temperature !== undefined
+                ? { temperature: chatOptions.temperature }
+                : {}),
+            });
+      routes.push({ route: "direct", model });
+    }
+    return routes;
+  }
+
+  function chatModel(context: AiCallContext, modelId?: string, chatOptions: ChatModelOptions = {}) {
+    const info = modelId ? registry.get(modelId) : registry.forRole("chat");
+    if (info.kind !== "chat") throw new ModelNotFoundError(info.id);
+    const routes = chatRoutes(info, chatOptions);
+    if (routes.length === 0) throw new AiNotConfiguredError();
+    return new TesselChatModel({
+      info,
+      context,
+      routes,
+      spend,
+      logger,
+      callbacks: [new UsageCallbackHandler(tracker, context, info)],
+    });
+  }
+
+  function embeddings(context: AiCallContext, modelId?: string) {
+    const info = modelId ? registry.get(modelId) : registry.forRole("embedding");
+    if (info.kind !== "embedding") throw new ModelNotFoundError(info.id);
+    const routes: EmbeddingRoute[] = [];
+    if (gateway) {
+      routes.push({
+        route: "gateway",
+        model: info.id,
+        client: new OpenAI({
+          apiKey: gateway.apiKey,
+          baseURL: gateway.baseURL,
+          maxRetries: 1,
+          timeout: timeoutMs,
+        }),
+      });
+    }
+    const credentials = info.fallback?.provider === "openai" ? fallback.openai : undefined;
+    if (info.fallback && credentials) {
+      routes.push({
+        route: "direct",
+        model: info.fallback.model,
+        client: new OpenAI({
+          apiKey: credentials.apiKey,
+          baseURL: credentials.baseURL,
+          maxRetries: 1,
+          timeout: timeoutMs,
+        }),
+      });
+    }
+    if (routes.length === 0) throw new AiNotConfiguredError();
+    return new GatewayEmbeddings({ info, context, routes, tracker, spend, logger });
+  }
+
+  const moderator =
+    options.moderation.mode === "off"
+      ? noModeration
+      : createModelModerator({
+          createModel: (context) =>
+            chatModel(context, registry.forRole("moderation").id, { temperature: 0 }),
+          failure: options.moderation.failure,
+          logger,
+        });
+
+  async function complete(
+    context: AiCallContext,
+    request: CompletionRequest,
+  ): Promise<CompletionResult> {
+    if (!isConfigured) throw new AiNotConfiguredError();
+    const info = registry.resolve(request.model, "chat");
+    if (info.kind !== "chat" || !info.selectable) throw new ModelNotFoundError(info.id);
+
+    // Cheapest check first: a capped user shouldn't pay for moderation either.
+    await spend.assertWithinBudget(context);
+
+    const latestUserText =
+      request.messages.findLast((message) => message.role === "user")?.content ?? "";
+    const moderation = await moderator.check(context, latestUserText);
+    if (!moderation.allowed) {
+      await tracker.record({
+        ...NO_USAGE,
+        workspaceId: context.workspaceId,
+        userId: context.userId,
+        requestId: context.requestId ?? null,
+        feature: context.feature,
+        modelId: info.id,
+        route: "gateway",
+        status: "blocked",
+        costNanoUsd: 0,
+        estimated: false,
+        latencyMs: 0,
+        errorCode: "content_blocked",
+      });
+      throw new ContentBlockedError(moderation.categories);
+    }
+
+    const messages: BaseMessage[] = [
+      ...(request.system ? [new SystemMessage(request.system)] : []),
+      ...request.messages.map((message) =>
+        message.role === "user"
+          ? new HumanMessage(message.content)
+          : new AIMessage(message.content),
+      ),
+    ];
+
+    let reply: AIMessageChunk;
+    try {
+      reply = await chatModel(context, info.id, {
+        maxOutputTokens: request.maxOutputTokens,
+      }).invoke(messages, {
+        signal: request.signal,
+      });
+    } catch (error) {
+      if (error instanceof AiError || request.signal?.aborted) throw error;
+      throw new ModelUnavailableError(info.id, error);
+    }
+
+    const text = reply.text;
+    const usage = usageFromMetadata(reply.usage_metadata) ?? {
+      ...NO_USAGE,
+      inputTokens: estimateTokens(
+        messages.reduce((total, message) => total + message.text.length, 0),
+      ),
+      outputTokens: estimateTokens(text.length),
+    };
+    return {
+      text,
+      model: info,
+      route: (reply.response_metadata?.tessel_route as UsageRoute | undefined) ?? "gateway",
+      usage,
+      costNanoUsd: costNanoUsd(info, usage),
+      moderation,
+    };
+  }
+
+  return { registry, spend, moderator, tracker, isConfigured, chatModel, embeddings, complete };
+}
+
+/** Builds the options for createAi from the shared AI environment variables. */
+export function aiOptionsFromEnv(
+  env: AiEnv,
+  deps: Pick<AiOptions, "spend" | "ledger" | "logger"> & { registry?: ModelRegistry },
+): AiOptions {
+  const credentials = (apiKey?: string, baseURL?: string): ProviderCredentials | undefined =>
+    apiKey ? { apiKey, ...(baseURL ? { baseURL } : {}) } : undefined;
+  return {
+    ...deps,
+    registry: deps.registry ?? loadModelRegistry(env.AI_MODELS_FILE),
+    gateway: credentials(env.AI_GATEWAY_API_KEY, env.AI_GATEWAY_URL),
+    fallback: {
+      openai: credentials(env.AI_FALLBACK_OPENAI_API_KEY, env.AI_FALLBACK_OPENAI_URL),
+      anthropic: credentials(env.AI_FALLBACK_ANTHROPIC_API_KEY, env.AI_FALLBACK_ANTHROPIC_URL),
+    },
+    moderation: { mode: env.AI_MODERATION, failure: env.AI_MODERATION_ON_FAILURE },
+    timeoutMs: env.AI_REQUEST_TIMEOUT_MS,
+  };
+}

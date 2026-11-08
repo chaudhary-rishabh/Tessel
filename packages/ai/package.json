@@ -1,0 +1,26 @@
+{
+  "name": "@tessel/ai",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./testing": "./src/testing/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "mock-gateway": "tsx src/testing/mock-gateway-cli.ts"
+  },
+  "dependencies": {
+    "@langchain/anthropic": "^1.6.1",
+    "@langchain/core": "^1.3.5",
+    "@langchain/openai": "^1.8.2",
+    "@tessel/logger": "workspace:*",
+    "ioredis": "^5.11.1",
+    "openai": "^7.53.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@tessel/config": "workspace:*"
+  }
+}
