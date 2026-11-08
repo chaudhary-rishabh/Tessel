@@ -2,3 +2,4 @@ export * from "./refresh-tokens";
 export * from "./users";
 export * from "./workspaces";
 export * from "./usage-events";
+export * from "./chat";
