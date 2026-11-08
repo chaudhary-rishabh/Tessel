@@ -79,7 +79,49 @@ Each feature in `apps/api/src/modules/<name>/` follows the same layout:
 | `*.policy.ts`     | Who can do what                                     |
 | `*.test.ts`       | Integration tests                                   |
 
-Every request passes through, in order: request ID, security headers, rate limit, authentication, Zod validation, permission check, controller, and one shared error handler.
+Every request passes through, in order: request ID, request logging, security headers (helmet), CORS, body parsing (1 MB limit), rate limiting, authentication, Zod validation, permission check, controller, and one shared error handler.
+
+Modules are wired in `apps/api/src/app.ts`: each one exposes factory functions (`createXService`, `createXController`, `createXRouter`), so tests can build the whole app against a test database with cheaper settings.
+
+## Authentication
+
+| Piece           | How it works                                                                                                                                                                                          |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Passwords       | Argon2id (19 MiB, 2 iterations). Unknown emails still run a dummy verification so timing doesn't reveal which accounts exist.                                                                         |
+| Access token    | JWT (HS256), 15 minutes, sent as `Authorization: Bearer`. Carries the user ID and role. Stateless.                                                                                                    |
+| Refresh token   | 256-bit random value in an httpOnly, `SameSite=Strict`, `Path=/auth` cookie. Stored only as a SHA-256 hash.                                                                                           |
+| Rotation        | Every refresh retires the presented token and issues a new one in the same family (one family = one login session).                                                                                   |
+| Reuse detection | Presenting a retired token revokes the whole family. A token rotated less than 10 seconds earlier returns `refresh_token_rotated` instead, because that is almost always two tabs refreshing at once. |
+| Password change | Revokes every session for the user and starts a new one.                                                                                                                                              |
+| CSRF            | Auth routes reject browser requests whose `Origin` is not an allowed web origin, on top of `SameSite=Strict`.                                                                                         |
+
+Endpoints: `POST /auth/signup`, `/auth/login`, `/auth/refresh`, `/auth/logout`; `GET /users/me`; `POST /users/me/password`; `GET|POST /workspaces`; `GET|PATCH /workspaces/:workspaceId`.
+
+## Tenant isolation
+
+Workspaces are the tenant boundary. Isolation is enforced twice:
+
+1. **In code:** tenant queries join on the caller's membership, and services return 404 (never 403) for workspaces the caller doesn't belong to, so their existence isn't revealed.
+2. **In Postgres:** row-level security policies on tenant tables (see `packages/db/migrations/0001_row_level_security.sql`). The API connects as the restricted `tessel_app` role, which neither owns the tables nor bypasses RLS. Each request's tenant work runs in `withUserContext(db, userId, …)`, a transaction that sets `app.user_id`; without it, tenant tables return nothing.
+
+| Role                                      | Purpose                                                                                                                      |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Database owner (`DATABASE_MIGRATION_URL`) | Runs migrations. Never used by the running API.                                                                              |
+| `tessel_app` (`DATABASE_URL`)             | The API's runtime role. RLS always applies. Its login and password are set by `pnpm db:migrate`, never stored in migrations. |
+
+`users` and `refresh_tokens` are not tenant-scoped (auth reads them before any user context exists), so access to them is enforced in application code.
+
+## Rate limiting
+
+Counters live in the cache Redis, so limits hold across API instances. If Redis is down, limiting fails open after a 250 ms timeout rather than taking the API down.
+
+| Limiter                         | Default           | Key               |
+| ------------------------------- | ----------------- | ----------------- |
+| All routes except health checks | 300 per minute    | IP                |
+| Signup                          | 10 per hour       | IP                |
+| Login                           | 10 per 15 minutes | IP + hashed email |
+| Refresh                         | 30 per minute     | IP                |
+| Password change                 | 5 per 15 minutes  | IP + user         |
 
 ## Conventions
 
@@ -95,8 +137,9 @@ Every request passes through, in order: request ID, security headers, rate limit
 
 Built into each step as it lands; deep security testing comes after phase 1.
 
-- Passwords hashed with argon2, short-lived access tokens, rotating refresh tokens with reuse detection.
-- Ownership checks on every resource, plus Postgres row-level security per workspace.
+- Passwords hashed with Argon2id, short-lived access tokens, rotating refresh tokens with reuse detection (built in step 2).
+- Membership checks on every tenant query, plus Postgres row-level security per workspace (built in step 2).
+- Rate limits on every route, with stricter limits on auth routes (built in step 2).
 - Workspace filters on every Qdrant and Neo4j query, and workspace-prefixed S3 keys.
 - Moderation on input and output, prompt-injection checks on messages and uploaded documents.
 - Retrieved documents, tool results, and MCP results are treated as data, never instructions.

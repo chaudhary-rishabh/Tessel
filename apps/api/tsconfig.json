@@ -1,4 +1,4 @@
 {
   "extends": "@tessel/config/tsconfig/node.json",
-  "include": ["src", "tsdown.config.ts"]
+  "include": ["src", "test", "tsdown.config.ts", "vitest.config.ts"]
 }

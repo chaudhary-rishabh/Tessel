@@ -75,6 +75,7 @@ docs/           Architecture, decisions, roadmap, backlog
 pnpm install
 cp .env.example .env
 pnpm infra:up        # Postgres, Redis x2, Qdrant, Neo4j
+pnpm db:migrate      # apply migrations and set up the app database role
 pnpm dev             # web :3000, api :4000, mcp-server :4100, worker
 ```
 

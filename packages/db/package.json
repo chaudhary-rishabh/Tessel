@@ -5,12 +5,13 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./schema": "./src/schema/index.ts"
+    "./schema": "./src/schema/index.ts",
+    "./migrate": "./src/migrate.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
+    "db:migrate": "tsx src/scripts/migrate.ts",
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {

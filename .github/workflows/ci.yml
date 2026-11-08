@@ -17,6 +17,21 @@ jobs:
     name: Lint, typecheck, test, build
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    services:
+      # API integration tests run against a real Postgres, including row-level security.
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: tessel
+          POSTGRES_PASSWORD: tessel
+          POSTGRES_DB: tessel
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tessel -d tessel"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
 
@@ -40,6 +55,8 @@ jobs:
 
       - name: Test
         run: pnpm test
+        env:
+          TEST_DATABASE_ADMIN_URL: postgres://tessel:tessel@localhost:5432/postgres
 
       - name: Build
         run: pnpm build

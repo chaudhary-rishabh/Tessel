@@ -59,3 +59,19 @@ LocalStack no longer offers a free tier, so it is not part of the local stack. S
 ## D-014 Docker images on EC2 with Docker Compose
 
 Images are built in CI, pushed to ECR, and deployed to EC2 with Docker Compose. Simple to run and easy to move to a managed orchestrator later.
+
+## D-015 Row-level security with a restricted runtime role
+
+Tenant tables have Postgres RLS policies keyed on `app.user_id`, set per transaction by `withUserContext`. The API connects as `tessel_app`, which cannot bypass RLS; migrations run as the owner. Membership checks for policies use `SECURITY DEFINER` helper functions so policies don't recurse. This makes a missing `WHERE` clause a non-event instead of a data leak.
+
+## D-016 Refresh token rotation with reuse detection and a short grace window
+
+Refresh tokens are opaque, hashed at rest, rotated on every use, and grouped into families (one per login). Reusing a retired token revokes the family. A 10-second grace window returns a distinct `refresh_token_rotated` error instead, so two tabs refreshing at once don't log the user out. The revocation is committed outside the rotation transaction so the error path can't roll it back.
+
+## D-017 Rate limiting in Redis that fails open
+
+Limits are shared across instances through the cache Redis. If Redis is unavailable, requests pass after a 250 ms command timeout: a short loss of rate limiting is better than a full outage. Login limits key on IP plus a hash of the email, so emails are never stored in Redis keys.
+
+## D-018 Argon2id through @node-rs/argon2
+
+Prebuilt native binaries, so no install scripts or build toolchain in CI and Docker images. Defaults follow the OWASP minimum (19 MiB, 2 iterations).
