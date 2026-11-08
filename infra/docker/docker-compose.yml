@@ -72,7 +72,7 @@ services:
       retries: 10
 
   neo4j:
-    image: neo4j:2026.05.0
+    image: neo4j:2026.10.1
     environment:
       NEO4J_AUTH: neo4j/tessel-local-password
       NEO4J_server_memory_heap_max__size: 1G
