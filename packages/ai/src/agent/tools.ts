@@ -27,6 +27,11 @@ export interface ToolDefinition<Schema extends z.ZodType = z.ZodType> {
   /** Tells the model when and how to use the tool. */
   description: string;
   schema: Schema;
+  /**
+   * JSON Schema to show the model instead of one generated from `schema`,
+   * for tools described by someone else (e.g. an MCP server).
+   */
+  parameters?: Record<string, unknown>;
   risk: ToolRisk;
   /** Shown on the approval card, e.g. "Create travel-notes.md". May look things up. */
   describeCall?: (args: z.infer<Schema>) => string | Promise<string>;
@@ -80,7 +85,7 @@ export function createToolRegistry(tools: ToolDefinition[]): ToolRegistry {
             tool.risk === "read"
               ? tool.description
               : `${tool.description} The user is asked to approve this first.`,
-          parameters: z.toJSONSchema(tool.schema),
+          parameters: tool.parameters ?? z.toJSONSchema(tool.schema),
         },
       })),
   };
