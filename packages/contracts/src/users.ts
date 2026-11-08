@@ -22,6 +22,11 @@ export const publicUserSchema = z.object({
   name: z.string(),
   role: userRoleSchema,
   createdAt: z.iso.datetime(),
+  emailVerified: z.boolean(),
+  /** Whether sign-in asks for an authenticator code. */
+  twoFactorEnabled: z.boolean(),
+  /** False for accounts that only sign in with Google, GitHub, or a phone. */
+  hasPassword: z.boolean(),
 });
 
 export const changePasswordRequestSchema = z.object({

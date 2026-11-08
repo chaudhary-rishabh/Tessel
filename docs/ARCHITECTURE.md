@@ -86,17 +86,22 @@ Modules are wired in `apps/api/src/app.ts`: each one exposes factory functions (
 
 ## Authentication
 
-| Piece           | How it works                                                                                                                                                                                          |
-| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Passwords       | Argon2id (19 MiB, 2 iterations). Unknown emails still run a dummy verification so timing doesn't reveal which accounts exist.                                                                         |
-| Access token    | JWT (HS256), 15 minutes, sent as `Authorization: Bearer`. Carries the user ID and role. Stateless.                                                                                                    |
-| Refresh token   | 256-bit random value in an httpOnly, `SameSite=Strict`, `Path=/auth` cookie. Stored only as a SHA-256 hash.                                                                                           |
-| Rotation        | Every refresh retires the presented token and issues a new one in the same family (one family = one login session).                                                                                   |
-| Reuse detection | Presenting a retired token revokes the whole family. A token rotated less than 10 seconds earlier returns `refresh_token_rotated` instead, because that is almost always two tabs refreshing at once. |
-| Password change | Revokes every session for the user and starts a new one.                                                                                                                                              |
-| CSRF            | Auth routes reject browser requests whose `Origin` is not an allowed web origin, on top of `SameSite=Strict`.                                                                                         |
+| Piece           | How it works                                                                                                                                                                                                                                |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Passwords       | Argon2id (19 MiB, 2 iterations). Unknown emails still run a dummy verification so timing doesn't reveal which accounts exist.                                                                                                               |
+| Access token    | JWT (HS256), 15 minutes, sent as `Authorization: Bearer`. Carries the user ID and role. Stateless.                                                                                                                                          |
+| Refresh token   | 256-bit random value in an httpOnly, `SameSite=Strict`, `Path=/auth` cookie. Stored only as a SHA-256 hash.                                                                                                                                 |
+| Rotation        | Every refresh retires the presented token and issues a new one in the same family (one family = one login session).                                                                                                                         |
+| Reuse detection | Presenting a retired token revokes the whole family. A token rotated less than 10 seconds earlier returns `refresh_token_rotated` instead, because that is almost always two tabs refreshing at once.                                       |
+| Password change | Revokes every session for the user and starts a new one.                                                                                                                                                                                    |
+| Signup          | The form emails a 6-digit code; the account exists only once the code is entered (5 tries, 15 minutes). An address that already has an account gets a note instead, and the response is identical.                                          |
+| Password reset  | A one-time link (30 minutes, stored as a hash). Using it sets the password, revokes every session, and emails a notice. Unknown emails get the same answer and no email.                                                                    |
+| Two-step        | Optional TOTP (RFC 6238) with 10 one-time recovery codes. The secret is encrypted with `ENCRYPTION_KEY`; each accepted code's time step is stored so a code works once. Login then returns a 5-minute challenge token instead of a session. |
+| Sessions        | Each refresh token family is a signed-in device. Users can list them and sign any one out.                                                                                                                                                  |
+| Email           | Amazon SES in production. Elsewhere an in-memory outbox logs messages and serves them at `GET /dev/outbox` for tests.                                                                                                                       |
+| CSRF            | Auth routes reject browser requests whose `Origin` is not an allowed web origin, on top of `SameSite=Strict`.                                                                                                                               |
 
-Endpoints: `POST /auth/signup`, `/auth/login`, `/auth/refresh`, `/auth/logout`; `GET /users/me`; `POST /users/me/password`; `GET|POST /workspaces`; `GET|PATCH /workspaces/:workspaceId`. AI endpoints are listed under [AI gateway](#ai-gateway).
+Endpoints: `POST /auth/signup`, `/auth/signup/verify`, `/auth/signup/resend`, `/auth/login`, `/auth/login/two-factor`, `/auth/password/forgot`, `/auth/password/reset`, `/auth/refresh`, `/auth/logout`; `GET /auth/sessions`, `DELETE /auth/sessions/:sessionId`; `GET /users/me`; `POST /users/me/password`, `/users/me/two-factor/setup|enable|disable|recovery-codes`; `GET|POST /workspaces`; `GET|PATCH /workspaces/:workspaceId`. AI endpoints are listed under [AI gateway](#ai-gateway).
 
 ## Tenant isolation
 

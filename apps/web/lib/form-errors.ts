@@ -20,11 +20,6 @@ export function applyApiError<T extends FieldValues>(
     return;
   }
 
-  if (apiError.code === "email_taken" && fields.includes("email" as Path<T>)) {
-    setError("email" as Path<T>, { message: apiError.message });
-    return;
-  }
-
   const message =
     apiError.code === "rate_limited"
       ? "Too many attempts. Wait a few minutes, then try again."

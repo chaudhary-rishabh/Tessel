@@ -1,5 +1,18 @@
 import {
   authResponseSchema,
+  loginResponseSchema,
+  recoveryCodesResponseSchema,
+  sessionListResponseSchema,
+  signupStartedResponseSchema,
+  twoFactorSetupResponseSchema,
+  type DisableTwoFactorRequest,
+  type LoginResponse,
+  type ResetPasswordRequest,
+  type Session,
+  type SignupStartedResponse,
+  type TwoFactorLoginRequest,
+  type TwoFactorSetupResponse,
+  type VerifySignupRequest,
   completionResponseSchema,
   modelListResponseSchema,
   usageSummarySchema,
@@ -76,10 +89,30 @@ export function createApi(client: ApiClient) {
 
   return {
     auth: {
-      signup: async (input: SignupRequest): Promise<AuthResponse> =>
-        parse(authResponseSchema, (await http.post("/auth/signup", input)).data),
-      login: async (input: LoginRequest): Promise<AuthResponse> =>
-        parse(authResponseSchema, (await http.post("/auth/login", input)).data),
+      /** Emails a code; the account is created by `verifySignup`. */
+      signup: async (input: SignupRequest): Promise<SignupStartedResponse> =>
+        parse(signupStartedResponseSchema, (await http.post("/auth/signup", input)).data),
+      verifySignup: async (input: VerifySignupRequest): Promise<AuthResponse> =>
+        parse(authResponseSchema, (await http.post("/auth/signup/verify", input)).data),
+      resendSignup: async (challengeId: string): Promise<void> => {
+        await http.post("/auth/signup/resend", { challengeId });
+      },
+      /** A session, or a request for the second sign-in step. */
+      login: async (input: LoginRequest): Promise<LoginResponse> =>
+        parse(loginResponseSchema, (await http.post("/auth/login", input)).data),
+      completeTwoFactor: async (input: TwoFactorLoginRequest): Promise<AuthResponse> =>
+        parse(authResponseSchema, (await http.post("/auth/login/two-factor", input)).data),
+      forgotPassword: async (email: string): Promise<void> => {
+        await http.post("/auth/password/forgot", { email });
+      },
+      resetPassword: async (input: ResetPasswordRequest): Promise<void> => {
+        await http.post("/auth/password/reset", input);
+      },
+      sessions: async (): Promise<Session[]> =>
+        parse(sessionListResponseSchema, (await http.get("/auth/sessions")).data).sessions,
+      revokeSession: async (sessionId: string): Promise<void> => {
+        await http.delete(`/auth/sessions/${sessionId}`);
+      },
       logout: async (): Promise<void> => {
         await http.post("/auth/logout");
       },
@@ -90,6 +123,24 @@ export function createApi(client: ApiClient) {
         parse(publicUserSchema, (await http.get("/users/me")).data),
       changePassword: async (input: ChangePasswordRequest): Promise<AuthResponse> =>
         parse(authResponseSchema, (await http.post("/users/me/password", input)).data),
+      twoFactor: {
+        setup: async (): Promise<TwoFactorSetupResponse> =>
+          parse(twoFactorSetupResponseSchema, (await http.post("/users/me/two-factor/setup")).data),
+        /** Returns the recovery codes, shown once. */
+        enable: async (code: string): Promise<string[]> =>
+          parse(
+            recoveryCodesResponseSchema,
+            (await http.post("/users/me/two-factor/enable", { code })).data,
+          ).recoveryCodes,
+        disable: async (input: DisableTwoFactorRequest): Promise<void> => {
+          await http.post("/users/me/two-factor/disable", input);
+        },
+        regenerateRecoveryCodes: async (code: string): Promise<string[]> =>
+          parse(
+            recoveryCodesResponseSchema,
+            (await http.post("/users/me/two-factor/recovery-codes", { code })).data,
+          ).recoveryCodes,
+      },
     },
     workspaces: {
       list: async (): Promise<Workspace[]> =>

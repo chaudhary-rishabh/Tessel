@@ -15,6 +15,7 @@ import { memoryVectorIndex } from "@tessel/ai";
 import { createLogger } from "@tessel/logger";
 import { memoryGraphStore } from "@tessel/graph";
 import { createSecretBox } from "@tessel/mcp";
+import { createOutboxMailer } from "../src/lib/mailer";
 import { memoryEpisodeIndex, type ThreadMemoryJob } from "@tessel/memory";
 import type { Express } from "express";
 import request from "supertest";
@@ -145,6 +146,7 @@ export function createTestApp(
     vectorIndex: memoryVectorIndex(),
     readinessChecks: [],
     connectors: testConnectors(),
+    mailer: testOutbox,
     memory: { episodes: memoryEpisodeIndex(), queue: recordingMemoryQueue() },
     graph: memoryGraphStore(),
     passwordHasher: fastHasher,
@@ -169,13 +171,30 @@ export function findRefreshCookie(setCookie: string[] | string | undefined): str
   return header?.split(";")[0];
 }
 
+/** The emails every test app sends (signup codes, reset links). */
+export const testOutbox = createOutboxMailer();
+
+/** The newest six-digit code emailed to an address. */
+export function emailedCode(email: string): string {
+  const code = /\b(\d{6})\b/.exec(testOutbox.latest(email)?.text ?? "")?.[1];
+  if (!code) throw new Error(`No code was emailed to ${email}`);
+  return code;
+}
+
+/** Signs up the way a person does: submit the form, then enter the emailed code. */
 export async function signUp(
   app: Express,
   { email = uniqueEmail(), name = "Ada Lovelace", password = TEST_PASSWORD } = {},
 ): Promise<SignedUpUser> {
-  const res = await request(app).post("/auth/signup").send({ email, name, password });
+  const started = await request(app).post("/auth/signup").send({ email, name, password });
+  if (started.status !== 202) {
+    throw new Error(`Signup failed: ${started.status} ${JSON.stringify(started.body)}`);
+  }
+  const res = await request(app)
+    .post("/auth/signup/verify")
+    .send({ challengeId: started.body.challengeId, code: emailedCode(email) });
   if (res.status !== 201) {
-    throw new Error(`Signup failed: ${res.status} ${JSON.stringify(res.body)}`);
+    throw new Error(`Signup verification failed: ${res.status} ${JSON.stringify(res.body)}`);
   }
   const refreshCookie = findRefreshCookie(res.headers["set-cookie"]);
   if (!refreshCookie) throw new Error("Signup did not set a refresh cookie");

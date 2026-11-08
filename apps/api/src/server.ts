@@ -18,6 +18,7 @@ import { createS3ObjectStore, createSqsUploadQueue } from "@tessel/storage";
 import { createLogger } from "@tessel/logger";
 import { RedisStore } from "rate-limit-redis";
 import { createApp } from "./app";
+import { createOutboxMailer, createSesMailer } from "./lib/mailer";
 import { connectorCatalog } from "./modules/connectors/connectors.catalog";
 import { configFromEnv } from "./config";
 import { envSchema } from "./env";
@@ -102,8 +103,12 @@ const app = createApp({
   vectorIndex,
   memory: { episodes, queue: memoryQueue },
   graph,
+  mailer:
+    env.MAIL_TRANSPORT === "ses"
+      ? createSesMailer({ region: env.AWS_REGION, from: env.MAIL_FROM })
+      : createOutboxMailer({ logger }),
   connectors: {
-    box: createSecretBox(env.CONNECTOR_SECRET_KEY),
+    box: createSecretBox(env.ENCRYPTION_KEY),
     catalog: connectorCatalog({
       githubUrl: env.GITHUB_MCP_URL,
       githubClient: env.GITHUB_MCP_CLIENT_ID

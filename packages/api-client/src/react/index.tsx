@@ -1,6 +1,9 @@
 "use client";
 
 import type {
+  DisableTwoFactorRequest,
+  Session,
+  TwoFactorSetupResponse,
   Memory,
   MemoryResponse,
   UpdateMemorySettingsRequest,
@@ -43,6 +46,7 @@ export function useApi(): Api {
 /** One place for cache keys, so invalidation can't drift from the queries that use them. */
 export const queryKeys = {
   me: ["users", "me"] as const,
+  sessions: ["auth", "sessions"] as const,
   workspaces: ["workspaces"] as const,
   workspace: (id: string) => ["workspaces", id] as const,
   models: ["models"] as const,
@@ -479,4 +483,44 @@ export function useGraph(workspaceId: string | undefined, entity = "") {
     queryFn: () => api.graph.explore(workspaceId!, entity || undefined),
     enabled: Boolean(workspaceId),
   });
+}
+
+export function useSessions() {
+  const api = useApi();
+  return useQuery({ queryKey: queryKeys.sessions, queryFn: api.auth.sessions });
+}
+
+export function useRevokeSession() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<void, ApiClientError, string>({
+    mutationFn: (sessionId) => api.auth.revokeSession(sessionId),
+    onSuccess: (_result, sessionId) =>
+      queryClient.setQueryData<Session[]>(queryKeys.sessions, (current) =>
+        current?.filter((session) => session.id !== sessionId),
+      ),
+  });
+}
+
+/** Two-step sign-in changes refresh the user, whose `twoFactorEnabled` they flip. */
+export function useTwoFactorActions() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  const refreshMe = () => queryClient.invalidateQueries({ queryKey: queryKeys.me });
+  return {
+    setup: useMutation<TwoFactorSetupResponse, ApiClientError, void>({
+      mutationFn: () => api.users.twoFactor.setup(),
+    }),
+    enable: useMutation<string[], ApiClientError, string>({
+      mutationFn: (code) => api.users.twoFactor.enable(code),
+      onSuccess: refreshMe,
+    }),
+    disable: useMutation<void, ApiClientError, DisableTwoFactorRequest>({
+      mutationFn: (input) => api.users.twoFactor.disable(input),
+      onSuccess: refreshMe,
+    }),
+    regenerate: useMutation<string[], ApiClientError, string>({
+      mutationFn: (code) => api.users.twoFactor.regenerateRecoveryCodes(code),
+    }),
+  };
 }

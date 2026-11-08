@@ -36,7 +36,14 @@ interface RetriableConfig extends InternalAxiosRequestConfig {
 }
 
 // Requests to these paths never trigger an automatic refresh-and-retry.
-const NO_REFRESH_PATHS = ["/auth/login", "/auth/signup", "/auth/refresh", "/auth/logout"];
+// Prefixes, so "/auth/login" also covers the two-step sign-in step.
+const NO_REFRESH_PATHS = [
+  "/auth/login",
+  "/auth/signup",
+  "/auth/password",
+  "/auth/refresh",
+  "/auth/logout",
+];
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 

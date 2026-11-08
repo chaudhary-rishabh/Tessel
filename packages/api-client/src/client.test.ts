@@ -18,6 +18,9 @@ function authResponse(accessToken: string): AuthResponse {
       name: "Ada",
       role: "user",
       createdAt: "2026-11-08T10:00:00.000Z",
+      emailVerified: true,
+      twoFactorEnabled: false,
+      hasPassword: true,
     },
   };
 }
