@@ -24,6 +24,9 @@ export interface ApiClientOptions {
 
 export interface ApiClient {
   http: AxiosInstance;
+  baseURL: string;
+  getAccessToken: () => string | null;
+  onSessionExpired: () => void;
   /** Exchanges the refresh cookie for a new access token. Concurrent calls share one request. */
   refreshSession: () => Promise<AuthResponse>;
 }
@@ -128,5 +131,5 @@ export function createApiClient({
     return http({ ...config, headers });
   });
 
-  return { http, refreshSession };
+  return { http, refreshSession, baseURL, getAccessToken, onSessionExpired };
 }

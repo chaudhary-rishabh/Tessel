@@ -1,6 +1,13 @@
 "use client";
 
-import type { ModelListResponse, UsageSummary, Workspace } from "@tessel/contracts";
+import type {
+  ModelListResponse,
+  ThreadListResponse,
+  ThreadResponse,
+  ThreadSummary,
+  UsageSummary,
+  Workspace,
+} from "@tessel/contracts";
 import { useMutation, useQuery, useQueryClient, type UseQueryOptions } from "@tanstack/react-query";
 import { createContext, useContext, type ReactNode } from "react";
 import type { Api } from "../endpoints";
@@ -24,6 +31,9 @@ export const queryKeys = {
   workspaces: ["workspaces"] as const,
   workspace: (id: string) => ["workspaces", id] as const,
   models: ["models"] as const,
+  threads: (workspaceId: string) => ["workspaces", workspaceId, "threads"] as const,
+  thread: (workspaceId: string, threadId: string) =>
+    ["workspaces", workspaceId, "threads", threadId] as const,
   usage: (workspaceId: string, days: number) => ["workspaces", workspaceId, "usage", days] as const,
 };
 
@@ -89,5 +99,83 @@ export function useUsage(
     queryFn: () => api.usage.summary(workspaceId!, days),
     enabled: Boolean(workspaceId),
     ...options,
+  });
+}
+
+export function useThreads(
+  workspaceId: string | undefined,
+  options: QueryOptions<ThreadListResponse> = {},
+) {
+  const api = useApi();
+  return useQuery({
+    queryKey: queryKeys.threads(workspaceId ?? "none"),
+    queryFn: () => api.chat.threads(workspaceId!),
+    enabled: Boolean(workspaceId),
+    ...options,
+  });
+}
+
+export function useThread(
+  workspaceId: string | undefined,
+  threadId: string | undefined,
+  options: QueryOptions<ThreadResponse> = {},
+) {
+  const api = useApi();
+  return useQuery({
+    queryKey: queryKeys.thread(workspaceId ?? "none", threadId ?? "none"),
+    queryFn: () => api.chat.thread(workspaceId!, threadId!),
+    enabled: Boolean(workspaceId && threadId),
+    ...options,
+  });
+}
+
+/** Puts a thread at the top of the cached chat list, adding or updating it. */
+export function upsertThreadInList(
+  queryClient: ReturnType<typeof useQueryClient>,
+  workspaceId: string,
+  thread: ThreadSummary,
+) {
+  queryClient.setQueryData<ThreadListResponse>(queryKeys.threads(workspaceId), (current) => {
+    if (!current) return current;
+    const rest = current.threads.filter((item) => item.id !== thread.id);
+    return { ...current, threads: [thread, ...rest] };
+  });
+}
+
+export function useRenameThread(workspaceId: string) {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<ThreadSummary, ApiClientError, { threadId: string; title: string }>({
+    mutationFn: ({ threadId, title }) => api.chat.rename(workspaceId, threadId, title),
+    onSuccess: (thread) => {
+      queryClient.setQueryData<ThreadListResponse>(queryKeys.threads(workspaceId), (current) =>
+        current
+          ? {
+              ...current,
+              threads: current.threads.map((item) => (item.id === thread.id ? thread : item)),
+            }
+          : current,
+      );
+      queryClient.setQueryData<ThreadResponse>(
+        queryKeys.thread(workspaceId, thread.id),
+        (current) => (current ? { ...current, thread } : current),
+      );
+    },
+  });
+}
+
+export function useDeleteThread(workspaceId: string) {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<void, ApiClientError, string>({
+    mutationFn: (threadId) => api.chat.remove(workspaceId, threadId),
+    onSuccess: (_result, threadId) => {
+      queryClient.setQueryData<ThreadListResponse>(queryKeys.threads(workspaceId), (current) =>
+        current
+          ? { ...current, threads: current.threads.filter((item) => item.id !== threadId) }
+          : current,
+      );
+      queryClient.removeQueries({ queryKey: queryKeys.thread(workspaceId, threadId) });
+    },
   });
 }
