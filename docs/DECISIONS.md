@@ -207,3 +207,15 @@ Input is checked before the model sees it (D-031). The finished reply is now che
 ## D-051 Neighbouring read-only tool calls run in parallel
 
 When a model asks for several tools in one step, calls that need no approval run at the same time and their results go back in the order the model asked. A call that needs approval, an unknown tool, or invalid arguments ends the batch first, so ordering and pause points stay exactly as before.
+
+## D-052 Skills load on demand through a tool
+
+The system prompt lists every enabled skill by name and one-line description; the full instructions arrive only when the agent calls `load_skill`. That keeps many skills cheap in context and makes it visible in the reply which skill was used (it shows as a step). It's the same progressive-disclosure approach as Claude's skills. Skills work in every agent mode, since sub-agents get the same tool.
+
+## D-053 Workspace skills are shared and moderated
+
+A skill belongs to the workspace: every member can read and use it, write their own, and turn their own on or off; the author, owners, and admins can edit or delete it (row-level security in `0009_skills.sql`). Names come from titles in kebab-case, are unique per workspace, and can't reuse a built-in name, so a workspace skill never silently replaces one. Because the agent follows a skill's text, it is moderated when saved, and the prompt says loaded skills never override safety rules or the need for approval.
+
+## D-054 Built-in skills live in code
+
+Tessel ships four skills (meeting notes, email draft, document summary, decision memo) as code in `@tessel/ai`, so they're versioned and reviewed with the prompts that use them and need no seed data. They're always on for now; switching them off per workspace is in the backlog.
