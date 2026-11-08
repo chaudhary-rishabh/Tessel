@@ -27,6 +27,7 @@ import { AppError } from "../../lib/errors";
 import type { Response } from "express";
 import { memoryTools, type MemorySettingsValue } from "@tessel/memory";
 import type { ConnectorsService } from "../connectors/connectors.service";
+import type { GraphService } from "../graph/graph.service";
 import type { MemoryService } from "../memory/memory.service";
 import type { DocumentsService } from "../documents/documents.service";
 import type { SkillsService } from "../skills/skills.service";
@@ -71,6 +72,7 @@ export interface ReplyDependencies {
   skills: SkillsService;
   connectors: ConnectorsService;
   memory: MemoryService;
+  graph: GraphService;
   logger: Logger;
 }
 
@@ -154,6 +156,7 @@ async function drive(run: Drive): Promise<void> {
           userId: actor.userId,
           ...(actor.requestId ? { requestId: actor.requestId } : {}),
           sources: run.sources,
+          ...(deps.graph.enabled ? { graph: deps.graph } : {}),
         })
           .concat(run.skills.length ? [loadSkillTool(run.skills)] : [])
           .concat(

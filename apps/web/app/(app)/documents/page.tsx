@@ -4,6 +4,7 @@ import { useDocuments } from "@tessel/api-client/react";
 import type { DocumentSummary } from "@tessel/contracts";
 import { Spinner } from "@tessel/ui";
 import { DocumentList } from "@/components/documents/document-list";
+import { GraphPanel } from "@/components/documents/graph-panel";
 import { SearchPanel } from "@/components/documents/search-panel";
 import { UploadZone } from "@/components/documents/upload-zone";
 import { useCurrentWorkspace } from "@/hooks/use-current-workspace";
@@ -70,6 +71,8 @@ export default function DocumentsPage() {
           <SearchPanel workspaceId={current.id} />
         </section>
       ) : null}
+
+      {readyCount > 0 ? <GraphPanel workspaceId={current.id} /> : null}
     </div>
   );
 }

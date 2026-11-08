@@ -51,6 +51,8 @@ export const queryKeys = {
   connectors: (workspaceId: string) => ["workspaces", workspaceId, "connectors"] as const,
   accessTokens: (workspaceId: string) => ["workspaces", workspaceId, "access-tokens"] as const,
   memory: (workspaceId: string) => ["workspaces", workspaceId, "memory"] as const,
+  graph: (workspaceId: string, entity: string) =>
+    ["workspaces", workspaceId, "graph", entity] as const,
   threads: (workspaceId: string) => ["workspaces", workspaceId, "threads"] as const,
   thread: (workspaceId: string, threadId: string) =>
     ["workspaces", workspaceId, "threads", threadId] as const,
@@ -468,4 +470,13 @@ export function useMemoryActions(workspaceId: string) {
       onSuccess: () => patch((current) => ({ ...current, memories: [] })),
     }),
   };
+}
+
+export function useGraph(workspaceId: string | undefined, entity = "") {
+  const api = useApi();
+  return useQuery({
+    queryKey: queryKeys.graph(workspaceId ?? "none", entity),
+    queryFn: () => api.graph.explore(workspaceId!, entity || undefined),
+    enabled: Boolean(workspaceId),
+  });
 }

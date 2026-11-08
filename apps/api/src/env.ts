@@ -1,5 +1,6 @@
 import { aiEnvShape } from "@tessel/ai";
 import { logLevelSchema, nodeEnvSchema } from "@tessel/config/env";
+import { graphEnvShape } from "@tessel/graph";
 import { connectorsEnvShape } from "@tessel/mcp";
 import { storageEnvShape } from "@tessel/storage";
 import { z } from "zod";
@@ -47,6 +48,7 @@ export const envSchema = z
     ...aiEnvShape,
     ...storageEnvShape,
     ...connectorsEnvShape,
+    ...graphEnvShape,
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV === "production" && env.CONNECTORS_ALLOW_PRIVATE_NETWORKS) {
