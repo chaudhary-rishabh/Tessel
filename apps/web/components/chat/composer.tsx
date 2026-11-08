@@ -11,6 +11,7 @@ import { chatErrorMessage } from "@/lib/chat-errors";
 import { AttachmentChip } from "./attachment-chip";
 import { useChatPreferences } from "@/lib/chat-preferences";
 import { KnowledgePicker } from "./knowledge-picker";
+import { ModePicker } from "./mode-picker";
 import { ModelPicker } from "./model-picker";
 
 interface PendingFile {
@@ -60,6 +61,8 @@ export function Composer({
   const [error, setError] = useState<string>();
   const knowledge = useChatPreferences((state) => state.knowledge);
   const setKnowledge = useChatPreferences((state) => state.setKnowledge);
+  const mode = useChatPreferences((state) => state.mode);
+  const setMode = useChatPreferences((state) => state.setMode);
 
   // Grow with the text, up to a limit, then scroll.
   useEffect(() => {
@@ -231,6 +234,7 @@ export function Composer({
             <Paperclip className="size-5" aria-hidden="true" />
           </button>
           <KnowledgePicker value={knowledge} onChange={setKnowledge} />
+          <ModePicker value={mode} onChange={setMode} />
           <div className="ml-auto flex items-center gap-1.5">
             <ModelPicker value={modelId} onChange={onModelChange} />
             <button

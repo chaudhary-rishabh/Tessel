@@ -1,4 +1,4 @@
-import type { KnowledgeMode } from "@tessel/contracts";
+import type { AgentModeName, KnowledgeMode } from "@tessel/contracts";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { safeStorage } from "./safe-storage";
@@ -10,6 +10,9 @@ interface ChatPreferences {
   /** When to search the workspace's documents. */
   knowledge: KnowledgeMode;
   setKnowledge: (knowledge: KnowledgeMode) => void;
+  /** How replies are worked out: answer, plan, review, or team. */
+  mode: AgentModeName;
+  setMode: (mode: AgentModeName) => void;
 }
 
 export const useChatPreferences = create<ChatPreferences>()(
@@ -19,6 +22,8 @@ export const useChatPreferences = create<ChatPreferences>()(
       setModelId: (modelId) => set({ modelId }),
       knowledge: "auto",
       setKnowledge: (knowledge) => set({ knowledge }),
+      mode: "auto",
+      setMode: (mode) => set({ mode }),
     }),
     { name: "tessel.chat", storage: safeStorage },
   ),

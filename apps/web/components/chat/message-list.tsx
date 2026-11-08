@@ -8,6 +8,7 @@ import type { LiveReply } from "@/lib/chat-store";
 import { AttachmentChip } from "./attachment-chip";
 import { SourceList } from "./citations";
 import { CopyButton, Markdown } from "./markdown";
+import { ActivityPanel } from "./activity";
 import { ApprovalCard, ToolCallList } from "./tool-calls";
 
 function UserMessage({ workspaceId, message }: { workspaceId: string; message: ChatMessage }) {
@@ -59,7 +60,10 @@ function AssistantMessage({
   modelLabel,
   onDecide,
 }: {
-  message: Pick<ChatMessage, "content" | "status" | "errorCode" | "sources" | "toolCalls">;
+  message: Pick<
+    ChatMessage,
+    "content" | "status" | "errorCode" | "sources" | "toolCalls" | "activity" | "agentMode"
+  >;
   streaming?: boolean;
   searching?: boolean;
   modelLabel?: string | undefined;
@@ -71,9 +75,16 @@ function AssistantMessage({
       ? message.toolCalls.find((call) => call.status === "waiting")
       : undefined;
   // While a step runs, its row shows progress; the dots are for before anything happens.
-  const busy = message.toolCalls.some((call) => call.status === "running");
+  const busy =
+    message.toolCalls.some((call) => call.status === "running") ||
+    message.activity.some((item) => item.status === "running");
   return (
     <div className="group flex flex-col gap-1.5" aria-busy={streaming || undefined}>
+      <ActivityPanel
+        items={message.activity}
+        mode={message.agentMode}
+        live={Boolean(streaming) || message.status === "waiting"}
+      />
       <ToolCallList calls={message.toolCalls} />
       {hasText ? (
         <Markdown text={message.content} sources={message.sources} />
@@ -161,6 +172,8 @@ export function MessageList({
               errorCode: null,
               sources: live.sources,
               toolCalls: live.toolCalls,
+              activity: live.activity,
+              agentMode: live.agentMode,
             }}
             streaming
             searching={live.stage === "searching"}

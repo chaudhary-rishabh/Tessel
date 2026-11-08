@@ -1,4 +1,11 @@
-import type { Attachment, ChatMessage, MessageSource, ToolCallView } from "@tessel/contracts";
+import type {
+  ActivityItemView,
+  AgentModeName,
+  Attachment,
+  ChatMessage,
+  MessageSource,
+  ToolCallView,
+} from "@tessel/contracts";
 import { create } from "zustand";
 
 export type LiveStatus = "sending" | "streaming";
@@ -21,11 +28,19 @@ export interface LiveReply {
   stage: "searching" | "writing" | null;
   sources: MessageSource[];
   toolCalls: ToolCallView[];
+  /** Plan steps, hand-offs, and reviews, in agent modes. */
+  activity: ActivityItemView[];
+  agentMode: AgentModeName | null;
 }
 
 interface ChatStore {
   replies: Record<string, LiveReply>;
-  begin: (key: string, content: string, attachments: Attachment[]) => void;
+  begin: (
+    key: string,
+    content: string,
+    attachments: Attachment[],
+    agentMode?: AgentModeName,
+  ) => void;
   started: (
     key: string,
     threadId: string,
@@ -33,7 +48,10 @@ interface ChatStore {
     assistantMessageId: string,
   ) => void;
   append: (threadId: string, text: string) => void;
-  update: (threadId: string, patch: Partial<Pick<LiveReply, "stage" | "sources">>) => void;
+  update: (
+    threadId: string,
+    patch: Partial<Pick<LiveReply, "stage" | "sources" | "activity">>,
+  ) => void;
   /** Adds a tool call, or replaces the earlier state of the same call. */
   tool: (threadId: string, call: ToolCallView) => void;
   /** Continues a saved reply live, e.g. after the user approves a tool call. */
@@ -45,7 +63,7 @@ const controllers = new Map<string, AbortController>();
 
 export const useChatStore = create<ChatStore>()((set) => ({
   replies: {},
-  begin: (key, content, attachments) =>
+  begin: (key, content, attachments, agentMode) =>
     set((state) => ({
       replies: {
         ...state.replies,
@@ -63,6 +81,8 @@ export const useChatStore = create<ChatStore>()((set) => ({
             attachments,
             sources: [],
             toolCalls: [],
+            activity: [],
+            agentMode: null,
           },
           assistantMessageId: null,
           text: "",
@@ -70,6 +90,8 @@ export const useChatStore = create<ChatStore>()((set) => ({
           stage: null,
           sources: [],
           toolCalls: [],
+          activity: [],
+          agentMode: agentMode ?? null,
         },
       },
     })),
@@ -127,6 +149,8 @@ export const useChatStore = create<ChatStore>()((set) => ({
           stage: null,
           sources: message.sources,
           toolCalls: message.toolCalls,
+          activity: message.activity,
+          agentMode: message.agentMode,
         },
       },
     })),
