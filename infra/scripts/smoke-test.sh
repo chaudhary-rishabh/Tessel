@@ -6,7 +6,7 @@
 #
 # Uses throwaway secrets from infra/deploy/ci/secrets.env. Runs the data
 # profile (databases in containers) with S3 and SQS emulators in place of
-# AWS, and skips the edge profile (Caddy).
+# AWS (and a mock of SES for email), and skips the edge profile (Caddy).
 set -euo pipefail
 
 REGISTRY=${1:?usage: smoke-test.sh <registry> <tag>}
@@ -14,7 +14,7 @@ TAG=${2:?usage: smoke-test.sh <registry> <tag>}
 
 cd "$(dirname "$0")/../deploy"
 WORK=$(mktemp -d)
-cp docker-compose.prod.yml ci/docker-compose.emulators.yml "$WORK/"
+cp docker-compose.prod.yml ci/docker-compose.emulators.yml ci/mock-ses.mjs "$WORK/"
 cp ../docker/seaweedfs/s3.json "$WORK/"
 cp ci/secrets.env "$WORK/.env"
 cat >"$WORK/deploy.env" <<EOF
@@ -44,7 +44,7 @@ fail() {
 }
 
 echo "==> Starting data services"
-compose up --detach --wait --wait-timeout 300 postgres redis-cache redis-queue qdrant neo4j objectstore sqs ||
+compose up --detach --wait --wait-timeout 300 postgres redis-cache redis-queue qdrant neo4j objectstore sqs ses ||
   fail "data services did not become healthy"
 
 echo "==> Running migrations"
@@ -60,10 +60,23 @@ ready=$(http http://127.0.0.1:4000/health/ready) || fail "readiness check failed
 echo "$ready"
 grep -q '"status":"ready"' <<<"$ready" || fail "API is not ready"
 
-echo "==> Signup through the production image"
-signup=$(http --header 'Content-Type: application/json' \
+echo "==> Signup through the production image (the code arrives by email through SES)"
+started=$(http --header 'Content-Type: application/json' \
   --post-data '{"email":"smoke@example.com","password":"a long enough password","name":"Smoke Test"}' \
   http://127.0.0.1:4000/auth/signup) || fail "signup request failed"
+challenge=$(sed -E 's/.*"challengeId":"([^"]+)".*/\1/' <<<"$started")
+[[ "$challenge" =~ ^[0-9a-f-]{36}$ ]] || fail "signup did not start a verification: $started"
+code=""
+for _ in $(seq 1 10); do
+  # The subject starts with the code: "123456 is your Tessel code".
+  code=$(http 'http://ses:8005/messages?to=smoke@example.com' | grep -oE '"subject":"[0-9]{6} ' | grep -oE '[0-9]{6}' | tail -1) || true
+  [[ -n "$code" ]] && break
+  sleep 1
+done
+[[ -n "$code" ]] || fail "no signup code was emailed"
+signup=$(http --header 'Content-Type: application/json' \
+  --post-data "{\"challengeId\":\"$challenge\",\"code\":\"$code\"}" \
+  http://127.0.0.1:4000/auth/signup/verify) || fail "signup verification failed"
 grep -q '"accessToken"' <<<"$signup" || fail "signup did not return an access token"
 token=$(sed -E 's/.*"accessToken":"([^"]+)".*/\1/' <<<"$signup")
 workspaces=$(http --header "Authorization: Bearer $token" http://127.0.0.1:4000/workspaces) || fail "workspaces request failed"

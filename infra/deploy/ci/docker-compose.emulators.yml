@@ -1,4 +1,4 @@
-# Stand-ins for Amazon S3 and SQS in the CI smoke test, layered over
+# Stand-ins for Amazon S3, SQS, and SES in the CI smoke test, layered over
 # docker-compose.prod.yml. Production talks to AWS instead.
 services:
   objectstore:
@@ -25,3 +25,18 @@ services:
   sqs:
     image: softwaremill/elasticmq-native:1.6.11
     profiles: [data]
+
+  # Amazon SES: accepts the API's emails so the test can read the signup code.
+  ses:
+    image: node:24-alpine
+    profiles: [data]
+    command: ["node", "/srv/mock-ses.mjs"]
+    environment:
+      PORT: "8005"
+    volumes:
+      - ./mock-ses.mjs:/srv/mock-ses.mjs:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8005/health >/dev/null 2>&1 || exit 1"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
