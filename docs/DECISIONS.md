@@ -171,3 +171,19 @@ Hybrid search returns up to 20 candidates (fused across up to three rewritten qu
 ## D-042 Numbered sources, cited inline and stored with the reply
 
 Sources go into the system prompt as numbered `<source>` blocks marked as data, and the model cites them as `[1]`, `[2]`. The stream sends the sources before the first token, and the reply is saved with every source it was given and whether it cited it, so citations still work after a reload and if the document later changes. The interface turns each valid marker into a chip that shows the passage, its file and page, and a link to the original; markers that don't match a source stay plain text.
+
+## D-043 Our own ReAct loop, checkpointed as JSON in Postgres
+
+The agent (`runAgent` in `@tessel/ai`) is a short loop over LangChain's chat model with tools bound: stream a step, run the tool calls it asked for, feed the results back, repeat, with at most eight steps and the last one answering without tools. When a call needs approval the loop stops and returns a checkpoint: the conversation so far as LangChain's stored-message JSON, the tool call records, the text written, and the pending call. The API saves it in `agent_runs` and the reply as a `waiting` message, so a decision works after a reload, from another device, or after the API restarts. `resumeAgent` picks up exactly where it stopped. LangGraph's checkpointer would also do this, but it needs its own tables and serialises whole graph state; a plain JSON row is easy to inspect, to protect with row-level security, and to expire. Step 10 builds the orchestrator as a LangGraph graph and calls this loop as one of its nodes.
+
+## D-044 Approval depends on what a tool can change
+
+Every tool declares a risk: `read`, `write`, or `destructive`. Read-only tools (search, list, calculate, check the time) run straight away; anything that writes or deletes waits for the user, with a sentence saying what will happen ("Create "notes.md" in the workspace"). Tools act only as the signed-in user, through the same services and row-level security as the API, so an approved call still can't do what the user couldn't. Per-tool "always allow" settings and admin policies come with connectors in step 12.
+
+## D-045 Tool input is validated and tool output is marked as data
+
+The model's arguments are checked against each tool's Zod schema before anything runs; invalid calls come back to the model as errors it can correct. Results go back wrapped in `<tool_result>` tags, capped at 12,000 characters, and the system prompt says they are data, not instructions, to blunt prompt injection from documents. Each tool has a 30-second timeout and follows the reply's stop signal. Errors that explain themselves (a permission error, a bad expression) are shown as written; anything unexpected becomes "The tool failed unexpectedly" so hostnames and stack details stay in the logs.
+
+## D-046 A new message cancels a pending approval
+
+If the user replies instead of deciding, the waiting run is cancelled, its pending call is marked cancelled, and the conversation continues from the new message. This keeps one live run per chat and matches what people expect from Claude-style chat: moving on means "no". Decisions claim the run atomically (`waiting` to `running` in one update), so a double click or a second tab gets a 409 instead of running the tool twice.

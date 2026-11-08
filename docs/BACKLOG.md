@@ -32,3 +32,7 @@ Things noticed along the way that are not needed yet. Each item names the step w
 - **Choose documents for a message:** Let users pick which documents a question searches; the pipeline already accepts document IDs. (Step 20)
 - **RAG evaluations:** A question set with expected passages, scoring retrieval recall, citation accuracy, and faithfulness, run in CI. (Phase 3)
 - **Dedicated reranker:** Try a reranking model through the gateway and compare cost and quality with the utility model (D-041). (Phase 3)
+- **Always allow:** Remember "allow" per tool for a user, and let admins require or forbid approval per tool. (Step 12)
+- **Parallel tool calls:** Run independent read-only calls from one step at the same time instead of in order. (Step 10)
+- **Expire stale runs:** Cancel waiting runs after a few days and clean up old checkpoints. (Step 15)
+- **Agent evaluations:** Scenarios checking tool choice, argument quality, and that declined actions aren't retried. (Phase 3)
