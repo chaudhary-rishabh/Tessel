@@ -9,3 +9,4 @@ export * from "./connectors";
 export * from "./access-tokens";
 export * from "./oauth";
 export * from "./memories";
+export * from "./members";

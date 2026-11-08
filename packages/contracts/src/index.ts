@@ -11,3 +11,4 @@ export * from "./connectors";
 export * from "./access-tokens";
 export * from "./memory";
 export * from "./oauth";
+export * from "./members";

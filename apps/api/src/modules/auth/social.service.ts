@@ -6,9 +6,10 @@ import type { SecretBox } from "@tessel/mcp";
 import { and, asc, eq, gt, isNull } from "drizzle-orm";
 import { errors, isUniqueViolation } from "../../lib/errors";
 import { emails, type Mailer } from "../../lib/mailer";
+import { noAudit, type AuditRecorder } from "../../lib/audit";
 import { usersRepository } from "../users/users.repository";
 import { createAccount } from "./accounts";
-import type { LoginOutcome, SessionMeta } from "./auth.service";
+import type { LoginOutcome, SessionMeta, SignInMethod } from "./auth.service";
 import { assertNotLastSignInMethod } from "./sign-in-methods";
 import type { SocialProvider, SocialProfile } from "./social-providers";
 import { hashToken } from "./tokens";
@@ -50,7 +51,8 @@ export interface SocialServiceDependencies {
   callbackUrl: (provider: IdentityProvider) => string;
   webOrigin: string;
   /** Signs in (or asks for the authenticator code) once the account is known. */
-  beginSession: (user: UserRow, meta: SessionMeta) => Promise<LoginOutcome>;
+  beginSession: (user: UserRow, meta: SessionMeta, method: SignInMethod) => Promise<LoginOutcome>;
+  audit?: AuditRecorder;
   now?: () => Date;
 }
 
@@ -64,6 +66,7 @@ export function createSocialService({
   callbackUrl,
   webOrigin,
   beginSession,
+  audit = noAudit,
   now = () => new Date(),
 }: SocialServiceDependencies) {
   function provider(name: IdentityProvider): SocialProvider {
@@ -108,10 +111,11 @@ export function createSocialService({
     }
   }
 
-  async function issueTicket(userId: string): Promise<string> {
+  async function issueTicket(userId: string, provider: IdentityProvider): Promise<string> {
     const ticket = base64url(randomBytes(32));
     await db.insert(loginTickets).values({
       userId,
+      provider,
       ticketHash: hashToken(ticket),
       expiresAt: new Date(now().getTime() + TICKET_TTL_MS),
     });
@@ -123,7 +127,7 @@ export function createSocialService({
     name: IdentityProvider,
     profile: SocialProfile,
     retried = false,
-  ): Promise<{ user: UserRow; linked: boolean } | SocialErrorCode> {
+  ): Promise<{ user: UserRow; linked: boolean; created?: boolean } | SocialErrorCode> {
     const [identity] = await db
       .select()
       .from(userIdentities)
@@ -155,7 +159,7 @@ export function createSocialService({
         if (existing && !existing.emailVerifiedAt) {
           await tx.update(users).set({ emailVerifiedAt: now() }).where(eq(users.id, existing.id));
         }
-        return { user, linked: Boolean(existing) };
+        return { user, linked: Boolean(existing), created: !existing };
       });
     } catch (error) {
       // The account already has a different Google (or GitHub) account linked.
@@ -219,6 +223,11 @@ export function createSocialService({
           throw error;
         }
         logger.info({ userId: user.id, provider: name }, "Sign-in method linked");
+        await audit.record({
+          actorId: user.id,
+          action: "auth.sign_in_method_added",
+          metadata: { method: name },
+        });
         await mailer.send(emails.signInMethodAdded(user.email, PROVIDER_LABELS[name]));
         return settingsUrl(`linked=${name}`);
       }
@@ -227,8 +236,19 @@ export function createSocialService({
       if (typeof account === "string") return fail(account);
       if (account.linked) {
         await mailer.send(emails.signInMethodAdded(account.user.email, PROVIDER_LABELS[name]));
+        await audit.record({
+          actorId: account.user.id,
+          action: "auth.sign_in_method_added",
+          metadata: { method: name, matchedBy: "email" },
+        });
+      } else if (account.created) {
+        await audit.record({
+          actorId: account.user.id,
+          action: "auth.signed_up",
+          metadata: { method: name },
+        });
       }
-      const ticket = await issueTicket(account.user.id);
+      const ticket = await issueTicket(account.user.id, name);
       const next = sealed.next ? `?next=${encodeURIComponent(sealed.next)}` : "";
       // The ticket goes in the fragment, so it never reaches a server log or a Referer header.
       return `${webOrigin}/oauth/complete${next}#ticket=${ticket}`;
@@ -246,12 +266,12 @@ export function createSocialService({
             gt(loginTickets.expiresAt, now()),
           ),
         )
-        .returning({ userId: loginTickets.userId });
+        .returning({ userId: loginTickets.userId, provider: loginTickets.provider });
       const user = used ? await usersRepository.findById(db, used.userId) : undefined;
       if (!user) {
         throw errors.unauthorized("invalid_ticket", "This sign-in has expired. Try again.");
       }
-      return beginSession(user, meta);
+      return beginSession(user, meta, used?.provider ?? "google");
     },
 
     async list(userId: string): Promise<Identity[]> {

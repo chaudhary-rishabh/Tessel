@@ -3,9 +3,7 @@
 Things noticed along the way that are not needed yet. Each item names the step where it fits best.
 
 - **TypeScript 7:** Upgrade when `typescript-eslint` supports it (see D-003).
-- **Member management:** Endpoints to invite, change roles, and remove workspace members (RLS policies already cover these). (Step 18)
 - **Theme switch:** Let users override the system light or dark setting. (Step 20)
-- **Toasts:** A shared notification pattern for actions that finish away from their form. (Step 18)
 - **Visual regression:** Screenshot comparisons in CI for key screens. (Phase 3)
 - **Centralised logs:** Ship container logs to CloudWatch (the `awslogs` driver) with retention. (Step 20)
 - **Image vulnerability scans in CI:** Run Trivy on the built images. (Phase 3)
@@ -44,3 +42,5 @@ Things noticed along the way that are not needed yet. Each item names the step w
 - **Community summaries:** Summaries of clusters of related entities for broad questions, as in GraphRAG. (Phase 3)
 - **Email bounces:** Subscribe to SES bounce and complaint notifications and stop mailing addresses that bounce. (Step 20)
 - **New sign-in alerts:** Email the user when a new device signs in. (Phase 3)
+- **Audit log export:** Download a workspace's audit log as CSV, and stream events to a SIEM. (Phase 3)
+- **Workspace deletion:** Let the owner delete a team workspace, with its files, index, and graph. (Step 20)

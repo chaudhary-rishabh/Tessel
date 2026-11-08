@@ -334,3 +334,11 @@ MCP clients such as Claude and Cursor can sign in with OAuth 2.1 (the MCP author
 ## D-082 OAuth access tokens reuse the personal access token path
 
 An approved client gets a grant (client, user, workspace, scopes, refresh token hash) and hour-long `tsl_oat_` access tokens stored in `personal_access_tokens` with the grant's ID. So the API checks them exactly like personal tokens: hashed, workspace-bound, and limited to the same route allowlist and scopes, with no second code path. They're hidden from the hand-made token list. Refresh tokens rotate on every use and the previous one is remembered, so a copied one being replayed ends the grant and its tokens.
+
+## D-083 Invitations are accepted through a database function
+
+The existing row-level security lets owners and admins add members, but an invitee isn't a member yet, so they can't insert their own membership. Rather than loosen the policy, `app.accept_invitation(token_hash)` (security definer) checks that the invitation is open and was sent to the current user's verified email, then adds the membership and marks the invitation used, all in one statement. A second function shows an invitation's preview to anyone holding the link. Inviting the same address again revokes the earlier link. Only the owner can make admins or change roles, so an admin can't promote themselves or others.
+
+## D-084 One audit log, written by the API
+
+Security-relevant actions are recorded in `audit_events` (actor, workspace, action, target, metadata, IP) by the services that perform them. A failed write is logged and never blocks the action, since refusing a password change because the audit log is down would be worse. The table has no row-level security, like the auth tables: workspace owners and admins read their own workspace's events through the API, and platform admins read everything in the admin app. Actor and workspace references are set to null on deletion so history survives, and daily maintenance drops events after a year.

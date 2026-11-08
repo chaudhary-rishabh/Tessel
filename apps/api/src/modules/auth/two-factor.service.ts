@@ -7,6 +7,7 @@ import { eq } from "drizzle-orm";
 import QRCode from "qrcode";
 import { errors } from "../../lib/errors";
 import { emails, type Mailer } from "../../lib/mailer";
+import { noAudit, type AuditRecorder } from "../../lib/audit";
 import { usersRepository } from "../users/users.repository";
 import { hashRecoveryCode } from "./auth.service";
 import type { PasswordHasher } from "./password";
@@ -39,12 +40,14 @@ export function createTwoFactorService({
   passwords,
   mailer,
   logger,
+  audit = noAudit,
 }: {
   db: Database;
   box: SecretBox;
   passwords: PasswordHasher;
   mailer: Mailer;
   logger: Logger;
+  audit?: AuditRecorder;
 }) {
   async function load(userId: string) {
     const user = await usersRepository.findById(db, userId);
@@ -113,6 +116,7 @@ export function createTwoFactorService({
         .where(eq(users.id, user.id));
       const codes = await replaceRecoveryCodes(user.id);
       logger.info({ userId }, "Two-step sign-in turned on");
+      await audit.record({ actorId: userId, action: "auth.two_factor_enabled" });
       await mailer.send(emails.twoFactorChanged(user.email, true));
       return codes;
     },
@@ -142,6 +146,7 @@ export function createTwoFactorService({
         await tx.delete(recoveryCodes).where(eq(recoveryCodes.userId, user.id));
       });
       logger.info({ userId }, "Two-step sign-in turned off");
+      await audit.record({ actorId: userId, action: "auth.two_factor_disabled" });
       await mailer.send(emails.twoFactorChanged(user.email, false));
     },
 
@@ -149,7 +154,9 @@ export function createTwoFactorService({
     async regenerateRecoveryCodes(userId: string, code: string): Promise<string[]> {
       const user = await load(userId);
       await checkActiveCode(user, code);
-      return replaceRecoveryCodes(user.id);
+      const codes = await replaceRecoveryCodes(user.id);
+      await audit.record({ actorId: userId, action: "auth.recovery_codes_regenerated" });
+      return codes;
     },
   };
 }

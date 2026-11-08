@@ -28,6 +28,7 @@ import { createAccount } from "./accounts";
 import { refreshTokenRepository } from "./auth.repository";
 import type { PasswordHasher } from "./password";
 import { emails, type Mailer } from "../../lib/mailer";
+import { noAudit, type AuditRecorder } from "../../lib/audit";
 import { generateRefreshToken, hashToken, type AccessTokens } from "./tokens";
 import { verifyTotp } from "./totp";
 
@@ -54,8 +55,12 @@ export interface AuthServiceDependencies {
   webOrigin: string;
   /** Decrypts two-factor secrets. */
   box: SecretBox;
+  audit?: AuditRecorder;
   now?: () => Date;
 }
+
+/** How the first sign-in step was passed, for the audit log. */
+export type SignInMethod = "password" | "google" | "github" | "phone";
 
 /** Login either signs in, or asks for the second factor first. */
 export type LoginOutcome =
@@ -113,6 +118,7 @@ export function createAuthService({
   mailer,
   webOrigin,
   box,
+  audit = noAudit,
   now = () => new Date(),
 }: AuthServiceDependencies) {
   async function buildAuthResponse(user: UserRow): Promise<AuthResponse> {
@@ -142,7 +148,11 @@ export function createAuthService({
    * Signs a user in after their first factor (password, Google, GitHub, or a
    * texted code), or asks for their authenticator code first.
    */
-  async function beginSession(user: UserRow, meta: SessionMeta): Promise<LoginOutcome> {
+  async function beginSession(
+    user: UserRow,
+    meta: SessionMeta,
+    method: SignInMethod = "password",
+  ): Promise<LoginOutcome> {
     if (user.totpEnabledAt) {
       return {
         kind: "two_factor",
@@ -150,6 +160,12 @@ export function createAuthService({
       };
     }
     await usersRepository.touchLastLogin(db, user.id, now());
+    await audit.record({
+      actorId: user.id,
+      action: "auth.signed_in",
+      metadata: { method },
+      ipAddress: meta.ipAddress,
+    });
     return { kind: "session", session: await issueSession(user, meta) };
   }
 
@@ -240,6 +256,12 @@ export function createAuthService({
       });
       if (outcome.kind === "invalid") throw INVALID_CODE();
       logger.info({ userId: outcome.user.id }, "User signed up");
+      await audit.record({
+        actorId: outcome.user.id,
+        action: "auth.signed_up",
+        metadata: { method: "email" },
+        ipAddress: meta.ipAddress,
+      });
       return issueSession(outcome.user, meta);
     },
 
@@ -307,6 +329,12 @@ export function createAuthService({
         logger.info({ userId: user.id }, "Signed in with a recovery code");
       }
       await usersRepository.touchLastLogin(db, user.id, now());
+      await audit.record({
+        actorId: user.id,
+        action: "auth.signed_in",
+        metadata: { secondStep: input.code ? "authenticator" : "recovery_code" },
+        ipAddress: meta.ipAddress,
+      });
       return issueSession(user, meta);
     },
 
@@ -337,7 +365,7 @@ export function createAuthService({
      * marks the email verified (the link proved it). Two-step sign-in still
      * applies at the next login.
      */
-    async resetPassword(input: ResetPasswordRequest): Promise<void> {
+    async resetPassword(input: ResetPasswordRequest, meta: SessionMeta = {}): Promise<void> {
       const passwordHash = await passwords.hash(input.password);
       const user = await db.transaction(async (tx) => {
         const [reset] = await tx
@@ -362,6 +390,11 @@ export function createAuthService({
       });
       if (!user) throw INVALID_RESET();
       logger.info({ userId: user.id }, "Password reset; all sessions revoked");
+      await audit.record({
+        actorId: user.id,
+        action: "auth.password_reset",
+        ipAddress: meta.ipAddress,
+      });
       await mailer.send(emails.passwordChanged(user.email));
     },
 
@@ -393,7 +426,7 @@ export function createAuthService({
     },
 
     /** Signs one session out everywhere it's used. */
-    async revokeSession(userId: string, sessionId: string): Promise<void> {
+    async revokeSession(userId: string, sessionId: string, meta: SessionMeta = {}): Promise<void> {
       const revoked = await db
         .update(refreshTokens)
         .set({ revokedAt: now() })
@@ -406,6 +439,12 @@ export function createAuthService({
         )
         .returning({ id: refreshTokens.id });
       if (revoked.length === 0) throw errors.notFound("Session not found");
+      await audit.record({
+        actorId: userId,
+        action: "auth.session_revoked",
+        target: `session:${sessionId}`,
+        ipAddress: meta.ipAddress,
+      });
     },
 
     /**
@@ -501,6 +540,11 @@ export function createAuthService({
         await refreshTokenRepository.revokeAllForUser(tx, user.id, now());
       });
       logger.info({ userId }, "Password changed; all sessions revoked");
+      await audit.record({
+        actorId: userId,
+        action: "auth.password_changed",
+        ipAddress: meta.ipAddress,
+      });
       await mailer.send(emails.passwordChanged(user.email));
       return issueSession({ ...user, passwordHash }, meta);
     },

@@ -41,6 +41,8 @@ describe("processSystemJob", () => {
       oauthAuthorizationsDeleted: 0,
       oauthAccessTokensDeleted: 0,
       oauthGrantsDeleted: 0,
+      invitationsDeleted: 0,
+      auditEventsDeleted: 0,
     };
     await expect(
       processSystemJob({ name: "maintenance", data: {} }, logger, {

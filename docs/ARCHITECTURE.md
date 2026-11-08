@@ -106,6 +106,13 @@ Modules are wired in `apps/api/src/app.ts`: each one exposes factory functions (
 
 Endpoints: `POST /auth/signup`, `/auth/signup/verify`, `/auth/signup/resend`, `/auth/login`, `/auth/login/two-factor`, `/auth/password/forgot`, `/auth/password/reset`, `/auth/oauth/exchange`, `/auth/oauth/:provider/link`, `/auth/phone/start`, `/auth/phone/verify`, `/auth/refresh`, `/auth/logout`; `GET /auth/options`, `/auth/oauth/:provider/start`, `/auth/oauth/:provider/callback`; `GET /auth/sessions`, `DELETE /auth/sessions/:sessionId`; `GET /users/me`; `POST /users/me/password`, `/users/me/two-factor/setup|enable|disable|recovery-codes`, `/users/me/phone`, `/users/me/phone/verify`; `GET /users/me/identities`; `DELETE /users/me/identities/:provider`, `/users/me/phone`; `GET|POST /workspaces`; `GET|PATCH /workspaces/:workspaceId`. AI endpoints are listed under [AI gateway](#ai-gateway).
 
+## Members and the audit log
+
+- Team workspaces have an owner, admins, and members. Owners and admins invite by email; the link (`/invite/:token`, 7 days, stored as a hash) shows the workspace to anyone, and only the account with that verified email can accept, through `app.accept_invitation`, since the invitee isn't a member yet. Personal workspaces can't have other members.
+- The owner changes roles and hands ownership over (becoming an admin). Admins remove members; the owner removes anyone; anyone but the owner can leave. Removing someone also ends their tokens and connected apps there, because token checks require membership.
+- Endpoints under `/workspaces/:workspaceId`: `GET /members`, `PATCH|DELETE /members/:userId`, `POST /transfer`, `GET|POST /invitations`, `DELETE /invitations/:invitationId`, `GET /audit-log`. Links: `GET /invitations/:token`, `POST /invitations/:token/accept`.
+- `audit_events` records who did what, from which IP: sign-ups, sign-ins (with method), password, two-step, and sign-in method changes, sessions signed out, members and invitations, workspace changes, access tokens, connected apps, connectors, and deleted documents. Workspace owners and admins read their workspace's events in Settings → Activity; platform admins read all of them. Writing an event never fails the action. Events are kept for a year.
+
 ## Tenant isolation
 
 Workspaces are the tenant boundary. Isolation is enforced twice:

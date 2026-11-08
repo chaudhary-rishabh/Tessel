@@ -1,6 +1,10 @@
 "use client";
 
 import type {
+  AssignableRole,
+  CreateInvitationRequest,
+  Invitation,
+  Member,
   ConnectedApp,
   Identity,
   IdentityProvider,
@@ -31,7 +35,13 @@ import type {
   UsageSummary,
   Workspace,
 } from "@tessel/contracts";
-import { useMutation, useQuery, useQueryClient, type UseQueryOptions } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type UseQueryOptions,
+} from "@tanstack/react-query";
 import { createContext, useContext, type ReactNode } from "react";
 import type { Api } from "../endpoints";
 import type { ApiClientError } from "../errors";
@@ -54,6 +64,9 @@ export const queryKeys = {
   sessions: ["auth", "sessions"] as const,
   signInOptions: ["auth", "options"] as const,
   connectedApps: ["users", "me", "connected-apps"] as const,
+  members: (workspaceId: string) => ["workspaces", workspaceId, "members"] as const,
+  invitations: (workspaceId: string) => ["workspaces", workspaceId, "invitations"] as const,
+  auditLog: (workspaceId: string) => ["workspaces", workspaceId, "audit-log"] as const,
   identities: ["users", "me", "identities"] as const,
   workspaces: ["workspaces"] as const,
   workspace: (id: string) => ["workspaces", id] as const,
@@ -591,5 +604,72 @@ export function useDisconnectApp() {
       queryClient.setQueryData<ConnectedApp[]>(queryKeys.connectedApps, (current) =>
         current?.filter((app) => app.id !== appId),
       ),
+  });
+}
+
+export function useMembers(workspaceId: string | undefined) {
+  const api = useApi();
+  return useQuery({
+    queryKey: queryKeys.members(workspaceId ?? "none"),
+    queryFn: () => api.members.list(workspaceId!),
+    enabled: Boolean(workspaceId),
+  });
+}
+
+export function useInvitations(workspaceId: string | undefined, enabled = true) {
+  const api = useApi();
+  return useQuery({
+    queryKey: queryKeys.invitations(workspaceId ?? "none"),
+    queryFn: () => api.members.invitations(workspaceId!),
+    enabled: Boolean(workspaceId) && enabled,
+  });
+}
+
+/** Member and invitation changes, keeping both lists and the audit log fresh. */
+export function useMemberActions(workspaceId: string) {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  const refresh = () =>
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.members(workspaceId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.invitations(workspaceId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.auditLog(workspaceId) }),
+    ]);
+  return {
+    invite: useMutation<Invitation, ApiClientError, CreateInvitationRequest>({
+      mutationFn: (input) => api.members.invite(workspaceId, input),
+      onSuccess: refresh,
+    }),
+    revokeInvitation: useMutation<void, ApiClientError, string>({
+      mutationFn: (invitationId) => api.members.revokeInvitation(workspaceId, invitationId),
+      onSuccess: refresh,
+    }),
+    updateRole: useMutation<Member, ApiClientError, { userId: string; role: AssignableRole }>({
+      mutationFn: ({ userId, role }) => api.members.updateRole(workspaceId, userId, role),
+      onSuccess: refresh,
+    }),
+    remove: useMutation<void, ApiClientError, string>({
+      mutationFn: (userId) => api.members.remove(workspaceId, userId),
+      onSuccess: refresh,
+    }),
+    transfer: useMutation<void, ApiClientError, string>({
+      mutationFn: (userId) => api.members.transferOwnership(workspaceId, userId),
+      onSuccess: async () => {
+        await refresh();
+        await queryClient.invalidateQueries({ queryKey: queryKeys.workspaces });
+      },
+    }),
+  };
+}
+
+/** The workspace's audit log, newest first, a page at a time. */
+export function useAuditLog(workspaceId: string | undefined) {
+  const api = useApi();
+  return useInfiniteQuery({
+    queryKey: queryKeys.auditLog(workspaceId ?? "none"),
+    queryFn: ({ pageParam }) => api.members.auditLog(workspaceId!, pageParam),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (page) => page.nextBefore ?? undefined,
+    enabled: Boolean(workspaceId),
   });
 }

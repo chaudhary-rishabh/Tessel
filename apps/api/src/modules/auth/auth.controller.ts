@@ -61,7 +61,7 @@ export function createAuthController(service: AuthService, cookie: RefreshCookie
   };
 
   const resetPassword: RequestHandler = async (req, res) => {
-    await service.resetPassword(resetPasswordRequestSchema.parse(req.body));
+    await service.resetPassword(resetPasswordRequestSchema.parse(req.body), sessionMeta(req));
     cookie.clear(res);
     res.status(204).end();
   };
@@ -96,7 +96,7 @@ export function createAuthController(service: AuthService, cookie: RefreshCookie
 
   const revokeSession: RequestHandler = async (req, res) => {
     const { sessionId } = sessionParamsSchema.parse(req.params);
-    await service.revokeSession(getAuth(req).userId, sessionId);
+    await service.revokeSession(getAuth(req).userId, sessionId, sessionMeta(req));
     res.status(204).end();
   };
 

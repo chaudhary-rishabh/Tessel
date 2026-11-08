@@ -31,6 +31,7 @@ import {
   type ToolPolicy,
 } from "@tessel/mcp";
 import { and, asc, eq, sql } from "drizzle-orm";
+import { noAudit, type AuditRecorder } from "../../lib/audit";
 import { errors } from "../../lib/errors";
 import { workspacesRepository } from "../workspaces/workspaces.repository";
 import type { CatalogEntry } from "./connectors.catalog";
@@ -93,11 +94,21 @@ export function createConnectorsService({
   db,
   logger,
   settings,
+  audit = noAudit,
 }: {
   db: Database;
   logger: Logger;
   settings: ConnectorsSettings;
+  audit?: AuditRecorder;
 }) {
+  const recordAdded = (actor: Actor, connection: { id: string; name: string }) =>
+    audit.record({
+      actorId: actor.userId,
+      workspaceId: actor.workspaceId,
+      action: "connector.added",
+      target: `connector:${connection.id}`,
+      metadata: { name: connection.name },
+    });
   const { box } = settings;
   const catalogEntry = (id: string | null) => settings.catalog.find((entry) => entry.id === id);
 
@@ -279,6 +290,7 @@ export function createConnectorsService({
         try {
           const authorizationUrl = await startOAuth(row);
           const pending = await withUserContext(db, actor.userId, (tx) => find(tx, actor, row.id));
+          await recordAdded(actor, row);
           return { connection: toConnection(pending), authorizationUrl };
         } catch (error) {
           logger.warn({ err: error, connector: row.id }, "Connector sign-in couldn't start");
@@ -299,6 +311,7 @@ export function createConnectorsService({
             : (verified?.lastError ?? "Tessel couldn't connect"),
         );
       }
+      await recordAdded(actor, row);
       return { connection: toConnection(verified), authorizationUrl: null };
     },
 
@@ -387,7 +400,15 @@ export function createConnectorsService({
       return toConnection(row);
     },
 
-    remove,
+    async remove(actor: Actor, connectionId: string): Promise<void> {
+      await remove(actor, connectionId);
+      await audit.record({
+        actorId: actor.userId,
+        workspaceId: actor.workspaceId,
+        action: "connector.removed",
+        target: `connector:${connectionId}`,
+      });
+    },
 
     /**
      * The user's connector tools for one reply. Clients open on first use and
