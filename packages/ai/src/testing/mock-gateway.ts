@@ -8,7 +8,9 @@ import type { AddressInfo } from "node:net";
  * answers with an echo of the last user message.
  *
  * Moderation: text containing MOCK_BLOCK is flagged as "weapons" and text
- * containing MOCK_SELF_HARM as "self_harm".
+ * containing MOCK_SELF_HARM as "self_harm". MOCK_SLOW streams a long reply
+ * slowly (for stop tests) and MOCK_FAIL returns a 400. Title requests get the
+ * first words of the conversation.
  */
 export interface MockReply {
   text?: string;
@@ -69,7 +71,21 @@ function defaultReply(body: Record<string, unknown>): MockReply {
     ];
     return { toolCall: { name: "moderation_result", args: { categories } } };
   }
-  return { text: `Echo: ${lastUser}` };
+  const system = textOf(messages.find((message) => message.role === "system")?.content);
+  if (system.startsWith("Write a short title")) {
+    const words = lastUser.replace(/\s+/g, " ").trim().split(" ").slice(0, 4).join(" ");
+    return { text: words || "New chat" };
+  }
+  if (lastUser.includes("MOCK_SLOW")) {
+    return { text: Array.from({ length: 200 }, (_, i) => `word${i}`).join(" "), chunkDelayMs: 50 };
+  }
+  if (lastUser.includes("MOCK_FAIL")) return { status: 400 };
+  // Images arrive as content parts; say how many so tests can check they were sent.
+  const lastContent = messages.findLast((message) => message.role === "user")?.content;
+  const images = Array.isArray(lastContent)
+    ? lastContent.filter((part) => part?.type === "image_url").length
+    : 0;
+  return { text: `Echo: ${lastUser}${images ? ` [${images} image${images > 1 ? "s" : ""}]` : ""}` };
 }
 
 function usageFor(body: Record<string, unknown>, reply: MockReply, output: string) {
