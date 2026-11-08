@@ -195,9 +195,19 @@ function upsert(state: RunState, record: ToolCallRecord, emit: AgentOptions["emi
   emit({ type: "tool", call: record });
 }
 
+/** A call that can run now: a known tool, valid arguments, no approval needed. */
+interface ReadyCall {
+  id: string;
+  tool: ToolDefinition;
+  args: unknown;
+  record: Omit<ToolCallRecord, "status">;
+}
+
 /**
- * Runs tool calls in order. Returns the ID of the first call that needs
- * approval (leaving it and later calls for resume), or null when all ran.
+ * Runs tool calls in order. Neighbouring calls that need no approval run at
+ * the same time; results go back to the model in the order it asked. Returns
+ * the ID of the first call that needs approval (leaving it and later calls
+ * for resume), or null when all ran.
  */
 async function runCalls(
   options: AgentOptions,
@@ -206,6 +216,20 @@ async function runCalls(
   decision?: { callId: string; approved: boolean },
 ): Promise<string | null> {
   const { tools, emit } = options;
+  let batch: ReadyCall[] = [];
+  const respond = (id: string, name: string, content: string) =>
+    state.history.push(
+      new ToolMessage({ tool_call_id: id, name, content: wrapResult(name, content) }),
+    );
+  const flush = async () => {
+    const running = batch;
+    batch = [];
+    const results = await Promise.all(
+      running.map((ready) => execute(options, state, ready.tool, ready.args, ready.record)),
+    );
+    running.forEach((ready, index) => respond(ready.id, ready.tool.name, results[index]!));
+  };
+
   for (const call of calls) {
     const id = call.id ?? `call_${state.toolCalls.length + 1}`;
     const tool = tools.get(call.name);
@@ -216,24 +240,20 @@ async function runCalls(
       args: call.args,
       requiresApproval: tool ? needsApproval(tool) : false,
     };
-    const respond = (content: string) =>
-      state.history.push(
-        new ToolMessage({
-          tool_call_id: id,
-          name: call.name,
-          content: wrapResult(call.name, content),
-        }),
-      );
 
     if (!tool) {
+      await flush();
       upsert(state, { ...base, status: "failed", error: "Unknown tool" }, emit);
-      respond(`Error: there is no tool called "${call.name}".`);
+      respond(id, call.name, `Error: there is no tool called "${call.name}".`);
       continue;
     }
     const parsed = tool.schema.safeParse(call.args);
     if (!parsed.success) {
+      await flush();
       upsert(state, { ...base, status: "failed", error: "Invalid arguments" }, emit);
       respond(
+        id,
+        call.name,
         `Error: invalid arguments. ${parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ")}`,
       );
       continue;
@@ -246,28 +266,34 @@ async function runCalls(
     }
     const record = { ...base, ...(description ? { description } : {}) };
 
-    if (needsApproval(tool) && decision?.callId !== id) {
+    if (!needsApproval(tool)) {
+      batch.push({ id, tool, args: parsed.data, record });
+      continue;
+    }
+    await flush();
+    if (decision?.callId !== id) {
       upsert(state, { ...record, status: "waiting" }, emit);
       return id;
     }
-    if (decision?.callId === id && !decision.approved) {
+    if (!decision.approved) {
       upsert(state, { ...record, status: "rejected" }, emit);
-      respond(DECLINED);
+      respond(id, call.name, DECLINED);
       continue;
     }
-    await execute(options, state, tool, parsed.data, record, respond);
+    respond(id, call.name, await execute(options, state, tool, parsed.data, record));
   }
+  await flush();
   return null;
 }
 
+/** Runs one tool and returns what the model should read. */
 async function execute(
   options: AgentOptions,
   state: RunState,
   tool: ToolDefinition,
   args: unknown,
   record: Omit<ToolCallRecord, "status">,
-  respond: (content: string) => void,
-) {
+): Promise<string> {
   const { emit, signal, context, logger } = options;
   upsert(state, { ...record, status: "running" }, emit);
   const timeout = AbortSignal.timeout(options.toolTimeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS);
@@ -283,7 +309,7 @@ async function execute(
     ]);
     if (output.artifact !== undefined) options.onArtifact?.(tool.name, output.artifact);
     upsert(state, { ...record, status: "completed", summary: output.summary }, emit);
-    respond(output.content);
+    return output.content;
   } catch (error) {
     if (signal.aborted) throw error;
     // Spend caps and similar stop the whole reply, not just this tool.
@@ -297,6 +323,6 @@ async function execute(
       : (expected ?? "The tool failed unexpectedly");
     if (expected === undefined) logger.warn({ err: error, tool: tool.name }, "Tool failed");
     upsert(state, { ...record, status: "failed", error: message }, emit);
-    respond(`Error: ${message}`);
+    return `Error: ${message}`;
   }
 }
