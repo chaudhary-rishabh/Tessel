@@ -55,6 +55,9 @@ if [[ ! -s .env.next ]]; then
   exit 1
 fi
 mv .env.next .env
+# Database containers get only their own secret, not every app variable.
+grep -E '^POSTGRES_PASSWORD=' .env >postgres.env || true
+grep -E '^NEO4J_AUTH=' .env >neo4j.env || true
 
 log "Logging in to ECR"
 aws ecr get-login-password --region "$AWS_REGION" |

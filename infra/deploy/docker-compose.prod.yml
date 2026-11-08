@@ -120,7 +120,10 @@ services:
     image: postgres:17-alpine
     restart: unless-stopped
     profiles: [data]
-    env_file: .env
+    # Only POSTGRES_PASSWORD, split out of .env by deploy.sh.
+    env_file:
+      - path: postgres.env
+        required: false
     environment:
       POSTGRES_USER: tessel
       POSTGRES_DB: tessel
@@ -183,7 +186,11 @@ services:
     image: neo4j:2026.05.0
     restart: unless-stopped
     profiles: [data]
-    env_file: .env
+    # Only NEO4J_AUTH, split out of .env by deploy.sh. Neo4j treats every NEO4J_*
+    # variable as a setting, so it must not see the apps' variables.
+    env_file:
+      - path: neo4j.env
+        required: false
     environment:
       NEO4J_server_memory_heap_max__size: 1G
       NEO4J_server_memory_pagecache_size: 512M

@@ -21,6 +21,9 @@ AWS_REGION=unused
 COMPOSE_PROFILES=data
 EOF
 cd "$WORK"
+# Database containers get only their own secret, not every app variable.
+grep -E '^POSTGRES_PASSWORD=' .env >postgres.env || true
+grep -E '^NEO4J_AUTH=' .env >neo4j.env || true
 
 compose() { IMAGE_TAG=$TAG docker compose --project-name tessel-smoke --file docker-compose.prod.yml --env-file deploy.env "$@"; }
 cleanup() {
