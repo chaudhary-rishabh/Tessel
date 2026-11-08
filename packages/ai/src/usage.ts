@@ -4,7 +4,15 @@ import type { SpendGuard } from "./spend";
 
 /** What a model call was for. Shown in usage reports. */
 export type UsageFeature =
-  "chat" | "completion" | "moderation" | "embedding" | "title" | "rag" | "agent" | "memory";
+  | "chat"
+  | "completion"
+  | "moderation"
+  | "embedding"
+  | "title"
+  | "rag"
+  | "agent"
+  | "memory"
+  | "search";
 
 /** Who a model call is for. Always taken from the session, never from model output. */
 export interface AiCallContext {
