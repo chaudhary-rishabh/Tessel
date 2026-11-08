@@ -107,3 +107,23 @@ App secrets are `SecureString` parameters under `/tessel/prod`, written to a roo
 ## D-026 Deploys over Systems Manager with automatic rollback
 
 GitHub Actions assumes an AWS role through OIDC (no stored keys), pushes images tagged with the commit, and runs `deploy.sh` on the host through SSM (no SSH port). The script runs migrations, starts the new version, waits for every health check, and restores the previous tag if any check fails. Because migrations run before the new version starts, they must stay compatible with the version still running.
+
+## D-027 One chat model class in front of every model call
+
+Every model call goes through `TesselChatModel` in `@tessel/ai`, a LangChain chat model that checks the daily spend caps, calls the gateway's OpenAI-compatible endpoint, and falls back to the provider directly when the gateway is unreachable. A usage callback attached to it writes one ledger row per call. Because agents, RAG graphs, and plain completions all use this class, none of them can skip the caps or the ledger. Inner provider models are called through their `_generate` and `_streamResponseChunks` methods, so streaming callbacks see each token once, whichever route served it.
+
+## D-028 Emergency fallback only when the gateway itself fails
+
+The gateway already retries across providers, so Tessel falls back only on errors that point at the gateway: network errors, timeouts, 5xx, 429, and account problems (401, 402, 403). Bad requests (400, 404, 409, 413, 422) and cancellations never fall back, and a stream never switches routes once tokens have reached the user. Fallback keys are optional; without them the gateway is the only route.
+
+## D-029 Prices from the model registry, in nano-dollars
+
+Models, their prices, and the defaults for each role (chat, utility, moderation, embedding) live in `packages/ai/models.json`, validated with Zod at startup and replaceable through `AI_MODELS_FILE` without a rebuild. Cost is computed from those prices and stored as integer nano-dollars, so a single embedding call doesn't round to zero and sums stay exact. Embeddings use the cost the gateway reports when it reports one. The admin app (step 18) moves the registry into the database.
+
+## D-030 Daily spend caps in Redis, the ledger as the source of truth
+
+Caps apply per user, per workspace, and for the whole service, and are checked before every model call. Counters are Redis keys per UTC day, updated after each call, so a cap can be exceeded by at most the calls already running. If Redis is down, user and workspace spend are summed from the Postgres ledger instead, so an outage never turns caps off. The ledger is append-only for the app role. The 5-hour and weekly plan limits in step 19 build on the same ledger.
+
+## D-031 Moderation with a small model, failing open by default
+
+User messages are classified by a cheap model (`defaults.moderation`) through the same gateway, so moderation calls are capped and recorded like any other. Only clear categories block a message (sexual content involving minors, mass-casualty weapons, malware, violent threats, hate); self-harm is detected but never blocked, so a person in distress gets a careful answer. If the check itself fails, the message goes through and the failure is logged; `AI_MODERATION_ON_FAILURE=block` reverses that.

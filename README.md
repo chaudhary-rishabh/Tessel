@@ -14,7 +14,7 @@ An AI workspace for teams. Tessel lets a team chat with AI over its own document
 
 ## What it will do
 
-- **Chat** with streaming answers and a model picker across providers.
+- **Chat** with streaming answers and a model picker across providers, with every model call capped, moderated, and recorded in a usage ledger.
 - **Answer from your documents** with hybrid search, reranking, and citations.
 - **Run agents** (ReAct, plan-and-execute, reflection, supervisor) that pause for approval before write actions.
 - **Use skills**: built-in and user-created instructions the agent loads when needed.
@@ -69,6 +69,7 @@ packages/
   contracts/    Zod schemas shared by frontend and backend
   db/           Drizzle schema, migrations, database client
   queue/        Queue names, job schemas, Redis connection
+  ai/           Model gateway, model registry, spend caps, moderation, usage ledger
   api-client/   axios client with token refresh, typed endpoints, query hooks
   ui/           Shared React components and the Tessel mark
 infra/docker/   Dockerfiles and local data services
@@ -87,6 +88,12 @@ cp .env.example .env
 pnpm infra:up        # Postgres, Redis x2, Qdrant, Neo4j
 pnpm db:migrate      # apply migrations and set up the app database role
 pnpm dev             # web :3000, api :4000, mcp-server :4100, worker
+```
+
+AI features need an [AI Gateway](https://vercel.com/ai-gateway) key in `AI_GATEWAY_API_KEY`. To work offline, run the mock gateway and point the API at it:
+
+```bash
+pnpm --filter @tessel/ai mock-gateway   # then set AI_GATEWAY_API_KEY=mock and AI_GATEWAY_URL=http://127.0.0.1:4300/v1
 ```
 
 Check that everything is connected:
