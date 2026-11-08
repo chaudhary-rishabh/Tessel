@@ -26,13 +26,18 @@ export const ORG: GraphExtraction = {
 export function graphStoreContract(
   name: string,
   makeStore: () => GraphStore | Promise<GraphStore>,
-  workspace = "w1",
+  newWorkspace: () => string = () => "w1",
 ) {
   describe(name, () => {
     it("stores a document's graph, scoped to its workspace", async () => {
       const store = await makeStore();
+      const workspace = newWorkspace();
       await store.replaceDocument(workspace, { id: `${workspace}-d1`, filename: "org.md" }, [ORG]);
-      await store.replaceDocument("other", { id: "other-d1", filename: "x.md" }, [ORG]);
+      await store.replaceDocument(
+        `${workspace}-other`,
+        { id: `${workspace}-other-d1`, filename: "x.md" },
+        [ORG],
+      );
 
       const hits = await store.findEntities(workspace, ["alice chen", "PAYMENTS"]);
       expect(hits.map((hit) => hit.name)).toEqual(
@@ -53,6 +58,7 @@ export function graphStoreContract(
 
     it("replaces and removes a document's contribution", async () => {
       const store = await makeStore();
+      const workspace = newWorkspace();
       await store.replaceDocument(workspace, { id: `${workspace}-d2`, filename: "org.md" }, [ORG]);
       await store.replaceDocument(workspace, { id: `${workspace}-d2`, filename: "org.md" }, [
         { chunkIndex: 3, entities: ORG.entities.slice(0, 2), relations: ORG.relations.slice(0, 1) },

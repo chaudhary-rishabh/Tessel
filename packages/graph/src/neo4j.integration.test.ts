@@ -6,7 +6,8 @@ import { createNeo4jGraphStore } from "./neo4j";
 // Runs against a real Neo4j when TEST_NEO4J_URL is set (CI starts one).
 const url = process.env.TEST_NEO4J_URL;
 
-describe.skipIf(!url)("Neo4j graph store", () => {
+// A fresh Neo4j is slow to accept its first Bolt connection and schema changes.
+describe.skipIf(!url)("Neo4j graph store", { timeout: 60_000 }, () => {
   const store = url
     ? createNeo4jGraphStore({
         url,
@@ -22,7 +23,7 @@ describe.skipIf(!url)("Neo4j graph store", () => {
         await store.ensureSchema();
         return store;
       },
-      `ws-${randomUUID()}`,
+      () => `ws-${randomUUID()}`,
     );
   }
 });

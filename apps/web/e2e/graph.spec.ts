@@ -11,6 +11,8 @@ test.describe("knowledge graph", () => {
     await page.goto("/documents");
     const text = [
       "# Org chart",
+      // The passage itself is ranked out, so the answer's only source is the graph.
+      "MOCK_IRRELEVANT",
       "MOCK_REL: Alice Chen (Person) | MANAGES | Payments Team (Team)",
       "MOCK_REL: Payments Team (Team) | OWNS | Ledger Service (System)",
     ].join("\n");
