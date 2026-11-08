@@ -9,7 +9,9 @@ import {
   type HealthResponse,
 } from "@tessel/contracts";
 import type { Logger } from "@tessel/logger";
+import { createHash } from "node:crypto";
 import express, { type Express, type Request } from "express";
+import { rateLimit } from "express-rate-limit";
 import { z } from "zod";
 
 /** Calls the Tessel API with the client's personal access token. */
@@ -169,12 +171,15 @@ export function createMcpServerApp({
   apiUrl,
   logger,
   fetchFn = fetch,
+  requestsPerMinute = 120,
 }: {
   service: string;
   /** The API as this server reaches it, e.g. http://api:4000. */
   apiUrl: string;
   logger: Logger;
   fetchFn?: typeof fetch;
+  /** Per token, on top of the API's own per-user limits. */
+  requestsPerMinute?: number;
 }): Express {
   const app = express();
   app.disable("x-powered-by");
@@ -189,7 +194,25 @@ export function createMcpServerApp({
     res.json(body);
   });
 
-  app.post("/mcp", async (req, res) => {
+  // Keyed by a hash of the token, so one busy client can't crowd out others.
+  const perToken = rateLimit({
+    windowMs: 60_000,
+    limit: requestsPerMinute,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    keyGenerator: (req) =>
+      createHash("sha256")
+        .update(bearerOf(req) ?? req.ip ?? "anonymous")
+        .digest("hex"),
+    handler: (_req, res) => {
+      const body: ApiError = {
+        error: { code: "rate_limited", message: "Too many requests. Try again in a minute." },
+      };
+      res.status(429).json(body);
+    },
+  });
+
+  app.post("/mcp", perToken, async (req, res) => {
     const token = bearerOf(req);
     if (!token) return unauthorized(res, "Send a Tessel personal access token as a bearer token");
     const call = apiClient(apiUrl, token, fetchFn);

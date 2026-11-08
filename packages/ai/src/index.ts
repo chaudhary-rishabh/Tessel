@@ -1,4 +1,5 @@
 export * from "./ai";
+export * from "./cache";
 export * from "./chat-model";
 export * from "./embeddings";
 export * from "./env";

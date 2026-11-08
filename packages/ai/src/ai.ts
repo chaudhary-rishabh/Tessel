@@ -10,6 +10,7 @@ import {
 import { ChatOpenAI } from "@langchain/openai";
 import type { Logger } from "@tessel/logger";
 import OpenAI from "openai";
+import type { CacheStats, KeyValueCache } from "./cache";
 import { TesselChatModel, type ModelRoute } from "./chat-model";
 import { GatewayEmbeddings, type EmbeddingRoute } from "./embeddings";
 import type { AiEnv } from "./env";
@@ -56,11 +57,22 @@ export interface AiOptions {
   moderation: { mode: "model" | "off"; failure: "allow" | "block" };
   logger: Logger;
   timeoutMs?: number;
+  /** Caches embeddings of repeated text (queries, re-indexed chunks). */
+  cache?: KeyValueCache;
 }
+
+/** How long a cached embedding is kept. Same text, same model: same vector. */
+const EMBEDDING_CACHE_TTL_SECONDS = 7 * 86_400;
 
 export interface ChatModelOptions {
   maxOutputTokens?: number;
   temperature?: number;
+  /**
+   * A stable ID for the conversation (e.g. the thread), sent as the
+   * gateway's session affinity header so follow-up calls reach the provider
+   * that holds the prompt cache.
+   */
+  sessionId?: string;
 }
 
 export interface CompletionMessage {
@@ -109,6 +121,8 @@ export interface Ai {
   /** A chat model for `context`: capped, recorded, and with the emergency fallback. */
   chatModel(context: AiCallContext, modelId?: string, options?: ChatModelOptions): TesselChatModel;
   embeddings(context: AiCallContext, modelId?: string): GatewayEmbeddings;
+  /** Embedding cache hits and misses since start. */
+  embeddingCacheStats: CacheStats;
   /**
    * The checks before a user's message reaches a model: the model is
    * pickable (and can read images if any are attached), spend caps, and
@@ -124,6 +138,7 @@ const ANTHROPIC_DEFAULT_MAX_TOKENS = 8_192;
 
 export function createAi(options: AiOptions): Ai {
   const { gateway, fallback = {}, registry, spend, ledger, logger, timeoutMs = 120_000 } = options;
+  const embeddingCacheStats: CacheStats = { hits: 0, misses: 0 };
   const tracker = createUsageTracker({ ledger, spend, logger });
   const isConfigured = Boolean(gateway || fallback.openai || fallback.anthropic);
 
@@ -135,7 +150,14 @@ export function createAi(options: AiOptions): Ai {
         model: new ChatOpenAI({
           model: info.id,
           apiKey: gateway.apiKey,
-          configuration: { baseURL: gateway.baseURL },
+          configuration: {
+            baseURL: gateway.baseURL,
+            ...(chatOptions.sessionId
+              ? { defaultHeaders: { "x-session-affinity": chatOptions.sessionId } }
+              : {}),
+          },
+          // Prompt caching: the gateway adds cache markers for providers that need them (Anthropic).
+          modelKwargs: { providerOptions: { gateway: { caching: "auto" } } },
           // The gateway already retries across providers; fail over to the next route quickly.
           maxRetries: 1,
           timeout: timeoutMs,
@@ -227,7 +249,21 @@ export function createAi(options: AiOptions): Ai {
       });
     }
     if (routes.length === 0) throw new AiNotConfiguredError();
-    return new GatewayEmbeddings({ info, context, routes, tracker, spend, logger });
+    return new GatewayEmbeddings({
+      info,
+      context,
+      routes,
+      tracker,
+      spend,
+      logger,
+      cache: options.cache
+        ? {
+            store: options.cache,
+            ttlSeconds: EMBEDDING_CACHE_TTL_SECONDS,
+            stats: embeddingCacheStats,
+          }
+        : undefined,
+    });
   }
 
   const moderator =
@@ -336,6 +372,7 @@ export function createAi(options: AiOptions): Ai {
     registry,
     spend,
     moderator,
+    embeddingCacheStats,
     tracker,
     isConfigured,
     chatModel,
@@ -348,7 +385,10 @@ export function createAi(options: AiOptions): Ai {
 /** Builds the options for createAi from the shared AI environment variables. */
 export function aiOptionsFromEnv(
   env: AiEnv,
-  deps: Pick<AiOptions, "spend" | "ledger" | "logger"> & { registry?: ModelRegistry },
+  deps: Pick<AiOptions, "spend" | "ledger" | "logger"> & {
+    registry?: ModelRegistry;
+    cache?: KeyValueCache;
+  },
 ): AiOptions {
   const credentials = (apiKey?: string, baseURL?: string): ProviderCredentials | undefined =>
     apiKey ? { apiKey, ...(baseURL ? { baseURL } : {}) } : undefined;

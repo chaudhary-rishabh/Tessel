@@ -1,6 +1,13 @@
 import { Embeddings } from "@langchain/core/embeddings";
 import type { Logger } from "@tessel/logger";
 import type OpenAI from "openai";
+import {
+  cacheKeyHash,
+  packVector,
+  unpackVector,
+  type CacheStats,
+  type KeyValueCache,
+} from "./cache";
 import { shouldTryNextRoute } from "./chat-model";
 import type { ModelInfo } from "./registry";
 import type { SpendGuard } from "./spend";
@@ -39,6 +46,8 @@ export class GatewayEmbeddings extends Embeddings {
       tracker: UsageTracker;
       spend: SpendGuard;
       logger: Logger;
+      /** Embeddings of identical text are reused for this long; hits cost nothing. */
+      cache?: { store: KeyValueCache; ttlSeconds: number; stats: CacheStats } | undefined;
     },
   ) {
     super({ maxRetries: 0 });
@@ -58,7 +67,34 @@ export class GatewayEmbeddings extends Embeddings {
     return vector;
   }
 
+  /** Serves what the cache has, embeds the rest, and caches the new vectors. */
   private async embedBatch(input: string[]): Promise<number[][]> {
+    const cache = this.options.cache;
+    if (!cache) return this.callModel(input);
+    const { info } = this.options;
+    const keys = input.map(
+      (text) => `emb:${info.id}:${info.dimensions ?? "d"}:${cacheKeyHash(text)}`,
+    );
+    const cached = await cache.store.mget(keys);
+    const missing = input.flatMap((text, index) => (cached[index] ? [] : [{ text, index }]));
+    cache.stats.hits += input.length - missing.length;
+    cache.stats.misses += missing.length;
+    const vectors: (number[] | null)[] = cached.map((value) =>
+      value ? unpackVector(value) : null,
+    );
+    if (missing.length) {
+      const fresh = await this.callModel(missing.map((item) => item.text));
+      await Promise.all(
+        missing.map(({ index }, position) => {
+          vectors[index] = fresh[position]!;
+          return cache.store.set(keys[index]!, packVector(fresh[position]!), cache.ttlSeconds);
+        }),
+      );
+    }
+    return vectors as number[][];
+  }
+
+  private async callModel(input: string[]): Promise<number[][]> {
     const { info, context, routes, tracker, spend, logger } = this.options;
     await spend.assertWithinBudget(context);
 

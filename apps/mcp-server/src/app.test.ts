@@ -38,4 +38,20 @@ describe("mcp-server", () => {
   it("only takes POST on the MCP endpoint", async () => {
     expect((await request(app).get("/mcp")).status).toBe(405);
   });
+
+  it("limits requests per token", async () => {
+    const limited = createMcpServerApp({
+      service: "mcp-server",
+      apiUrl: "http://127.0.0.1:9",
+      logger,
+      requestsPerMinute: 2,
+      fetchFn: async () => new Response("{}", { status: 401 }),
+    });
+    const send = (token: string) =>
+      request(limited).post("/mcp").set("Authorization", `Bearer ${token}`).send({});
+    expect((await send("tsl_pat_a")).status).toBe(401);
+    expect((await send("tsl_pat_a")).status).toBe(401);
+    expect((await send("tsl_pat_a")).status).toBe(429);
+    expect((await send("tsl_pat_b")).status).toBe(401);
+  });
 });

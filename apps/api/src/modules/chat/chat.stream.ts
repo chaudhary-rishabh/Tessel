@@ -178,8 +178,9 @@ async function drive(run: Drive): Promise<void> {
     : createToolRegistry([]);
   const helper = { ...context, feature: "agent" as const };
   const options: OrchestratorOptions = {
-    model: deps.ai.chatModel(context, run.modelId),
-    thinker: deps.ai.chatModel(helper, run.modelId),
+    // The thread is the session: follow-up calls reuse the provider's prompt cache.
+    model: deps.ai.chatModel(context, run.modelId, { sessionId: run.threadId }),
+    thinker: deps.ai.chatModel(helper, run.modelId, { sessionId: run.threadId }),
     critic: deps.ai.chatModel(helper, deps.ai.registry.forRole("utility").id, { temperature: 0 }),
     tools,
     workers: connectors?.names.length
