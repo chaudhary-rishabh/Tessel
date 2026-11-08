@@ -89,8 +89,8 @@ export function createApi(client: ApiClient) {
         ),
     },
     chat: {
-      /** Sends a message and streams the reply. See ChatEvent for the event order. */
-      send: createChatStream(client),
+      /** send streams a reply; decide continues one waiting on a tool call. See ChatEvent. */
+      ...createChatStream(client),
       threads: async (workspaceId: string, before?: string): Promise<ThreadListResponse> =>
         parse(
           threadListResponseSchema,

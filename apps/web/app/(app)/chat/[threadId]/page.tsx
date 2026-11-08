@@ -11,7 +11,8 @@ import { MessageList } from "@/components/chat/message-list";
 import { useChatModel } from "@/hooks/use-chat-model";
 import { useChatPreferences } from "@/lib/chat-preferences";
 import { useCurrentWorkspace } from "@/hooks/use-current-workspace";
-import { useSendMessage } from "@/hooks/use-send-message";
+import { useReplyStream } from "@/hooks/use-send-message";
+import { chatErrorMessage } from "@/lib/chat-errors";
 import { useStickToBottom } from "@/hooks/use-stick-to-bottom";
 import { replyControllers, useChatStore } from "@/lib/chat-store";
 
@@ -22,7 +23,8 @@ export default function ThreadPage() {
   const thread = useThread(workspaceId, threadId);
   const live = useChatStore((state) => state.replies[threadId]);
   const knowledge = useChatPreferences((state) => state.knowledge);
-  const send = useSendMessage(workspaceId);
+  const { send, decide } = useReplyStream(workspaceId);
+  const [decisionError, setDecisionError] = useState<string>();
   const { modelId: defaultModel } = useChatModel(thread.data?.thread.modelId);
   // A pick made in this chat applies to its next messages.
   const [picked, setPicked] = useState<string>();
@@ -33,7 +35,7 @@ export default function ThreadPage() {
     onScroll,
     pin,
   } = useStickToBottom<HTMLDivElement>(
-    `${messages.length}:${live?.text.length ?? 0}:${live?.status}`,
+    `${messages.length}:${live?.text.length ?? 0}:${live?.toolCalls.length ?? 0}:${live?.status}`,
   );
 
   if (!workspaceId || thread.isPending) {
@@ -57,6 +59,7 @@ export default function ThreadPage() {
 
   const onSend = (content: string, attachments: Attachment[]) => {
     pin();
+    setDecisionError(undefined);
     return send({
       threadId,
       content,
@@ -71,7 +74,24 @@ export default function ThreadPage() {
       <h1 className="sr-only">{thread.data.thread.title ?? "New chat"}</h1>
       <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-3xl px-4 pt-6 pb-10 sm:px-6">
-          <MessageList workspaceId={workspaceId} messages={messages} live={live} />
+          <MessageList
+            workspaceId={workspaceId}
+            messages={messages}
+            live={live}
+            onDecide={async (message, callId, approved) => {
+              setDecisionError(undefined);
+              pin();
+              const result = await decide(threadId, message, callId, approved);
+              if (!result.ok && result.error) {
+                setDecisionError(chatErrorMessage(result.error.code, result.error.message));
+              }
+            }}
+          />
+          {decisionError ? (
+            <p role="alert" className="text-danger mt-4 text-sm">
+              {decisionError}
+            </p>
+          ) : null}
         </div>
       </div>
       <div className="bg-surface mx-auto w-full max-w-3xl px-3 pt-1 pb-3 sm:px-6 sm:pb-5">

@@ -3,6 +3,7 @@ import {
   chatEventSchema,
   type ChatEvent,
   type SendMessageRequest,
+  type ToolDecisionRequest,
 } from "@tessel/contracts";
 import { createParser } from "eventsource-parser";
 import type { ApiClient } from "./client";
@@ -28,14 +29,14 @@ async function toError(response: Response): Promise<ApiClientError> {
 }
 
 /**
- * Sends a chat message and reads the reply as server-sent events. axios
- * can't stream response bodies in the browser, so this uses fetch, with the
- * same token handling: one refresh and retry on a 401.
+ * Reads chat replies as server-sent events. axios can't stream response
+ * bodies in the browser, so this uses fetch, with the same token handling:
+ * one refresh and retry on a 401.
  */
 export function createChatStream(client: ApiClient) {
-  async function post(workspaceId: string, body: SendMessageRequest, signal?: AbortSignal) {
+  async function post(path: string, body: unknown, signal?: AbortSignal) {
     const token = client.getAccessToken();
-    return fetch(`${client.baseURL}/workspaces/${workspaceId}/chat`, {
+    return fetch(`${client.baseURL}${path}`, {
       method: "POST",
       credentials: "include",
       headers: {
@@ -48,14 +49,14 @@ export function createChatStream(client: ApiClient) {
     });
   }
 
-  return async function streamChat(
-    workspaceId: string,
-    body: SendMessageRequest,
+  async function stream(
+    path: string,
+    body: unknown,
     { signal, onEvent }: StreamChatOptions,
   ): Promise<void> {
     let response: Response;
     try {
-      response = await post(workspaceId, body, signal);
+      response = await post(path, body, signal);
       if (response.status === 401) {
         try {
           await client.refreshSession();
@@ -63,7 +64,7 @@ export function createChatStream(client: ApiClient) {
           if (error instanceof ApiClientError && error.status === 401) client.onSessionExpired();
           throw error;
         }
-        response = await post(workspaceId, body, signal);
+        response = await post(path, body, signal);
       }
     } catch (error) {
       if (signal?.aborted || error instanceof ApiClientError) throw error;
@@ -87,5 +88,27 @@ export function createChatStream(client: ApiClient) {
       if (done) break;
       parser.feed(value);
     }
+  }
+
+  return {
+    /** Sends a message and streams the reply. */
+    send: (workspaceId: string, body: SendMessageRequest, options: StreamChatOptions) =>
+      stream(`/workspaces/${workspaceId}/chat`, body, options),
+    /**
+     * Approves or declines a tool call a reply is waiting on, and streams the
+     * rest of the reply, starting with a "resume" event.
+     */
+    decide: (
+      workspaceId: string,
+      threadId: string,
+      callId: string,
+      approved: boolean,
+      options: StreamChatOptions,
+    ) =>
+      stream(
+        `/workspaces/${workspaceId}/threads/${threadId}/tool-calls/${encodeURIComponent(callId)}/decision`,
+        { approved } satisfies ToolDecisionRequest,
+        options,
+      ),
   };
 }

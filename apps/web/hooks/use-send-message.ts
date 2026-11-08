@@ -4,12 +4,13 @@ import { ApiClientError, toApiClientError } from "@tessel/api-client";
 import { queryKeys, upsertThreadInList, useApi } from "@tessel/api-client/react";
 import type {
   Attachment,
+  ChatEvent,
   ChatMessage,
   KnowledgeMode,
   ThreadListResponse,
   ThreadResponse,
 } from "@tessel/contracts";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useCallback } from "react";
 import { replyControllers, useChatStore } from "@/lib/chat-store";
@@ -24,18 +25,118 @@ export interface SendInput {
 
 export type SendResult = { ok: true } | { ok: false; error: ApiClientError | null };
 
+function setThreadMessages(
+  queryClient: QueryClient,
+  workspaceId: string,
+  threadId: string,
+  update: (messages: ChatMessage[]) => ChatMessage[],
+) {
+  queryClient.setQueryData<ThreadResponse>(queryKeys.thread(workspaceId, threadId), (current) =>
+    current ? { ...current, messages: update(current.messages) } : current,
+  );
+}
+
+const putMessage = (message: ChatMessage) => (messages: ChatMessage[]) => {
+  const index = messages.findIndex((item) => item.id === message.id);
+  if (index === -1) return [...messages, message];
+  return messages.map((item, position) => (position === index ? message : item));
+};
+
 /**
- * Sends a message and streams the reply into the live reply store and the
- * thread's cached data. Returns once the reply has finished, stopped, or
- * been refused; a refused message comes back as an error so the composer
- * can put the text back.
+ * The server cancels a pending action when the user sends a new message
+ * instead of deciding; mirror that in the cached thread.
  */
-export function useSendMessage(workspaceId: string | undefined) {
+const closeWaiting = (messages: ChatMessage[]) =>
+  messages.map((message) =>
+    message.status === "waiting"
+      ? {
+          ...message,
+          status: "complete" as const,
+          toolCalls: message.toolCalls.map((call) =>
+            call.status === "waiting" ? { ...call, status: "cancelled" as const } : call,
+          ),
+        }
+      : message,
+  );
+
+/**
+ * Streams replies into the live reply store and the thread's cached data:
+ * `send` posts a new message, `decide` approves or declines the tool call a
+ * reply is waiting on and streams the rest of it. Both return once the reply
+ * has finished, paused, stopped, or been refused; a refused message comes back
+ * as an error so the composer can put the text back.
+ */
+export function useReplyStream(workspaceId: string | undefined) {
   const api = useApi();
   const queryClient = useQueryClient();
   const router = useRouter();
 
-  return useCallback(
+  const handle = useCallback(
+    (workspaceId: string, liveKey: () => string, event: ChatEvent) => {
+      const store = useChatStore.getState();
+      const key = liveKey();
+      switch (event.type) {
+        case "status":
+          store.update(key, { stage: event.stage });
+          break;
+        case "sources":
+          store.update(key, { sources: event.sources });
+          break;
+        case "token":
+          store.append(key, event.text);
+          break;
+        case "tool":
+          store.tool(key, event.call);
+          break;
+        case "done":
+          setThreadMessages(queryClient, workspaceId, key, putMessage(event.message));
+          store.finish(key);
+          break;
+        case "error":
+          if (event.assistantMessage) {
+            setThreadMessages(queryClient, workspaceId, key, putMessage(event.assistantMessage));
+          }
+          store.finish(key);
+          break;
+        case "title": {
+          const rename = <T extends { id: string; title: string | null }>(thread: T): T =>
+            thread.id === event.threadId ? { ...thread, title: event.title } : thread;
+          queryClient.setQueryData<ThreadListResponse>(queryKeys.threads(workspaceId), (current) =>
+            current ? { ...current, threads: current.threads.map(rename) } : current,
+          );
+          queryClient.setQueryData<ThreadResponse>(
+            queryKeys.thread(workspaceId, event.threadId),
+            (current) => (current ? { ...current, thread: rename(current.thread) } : current),
+          );
+          break;
+        }
+        default:
+          break;
+      }
+    },
+    [queryClient],
+  );
+
+  /** What the reply showed when it was stopped; the server saves the same. */
+  const stoppedMessage = (key: string, id: string, modelId: string | null): ChatMessage => {
+    const live = useChatStore.getState().replies[key];
+    return {
+      id,
+      role: "assistant",
+      content: live?.text ?? "",
+      status: "stopped",
+      modelId,
+      errorCode: null,
+      createdAt: new Date().toISOString(),
+      attachments: [],
+      sources: live?.sources ?? [],
+      toolCalls: (live?.toolCalls ?? []).map((call) =>
+        call.status === "running" ? { ...call, status: "cancelled" as const } : call,
+      ),
+    };
+  };
+
+  const send = useCallback(
     async ({
       threadId,
       content,
@@ -44,24 +145,12 @@ export function useSendMessage(workspaceId: string | undefined) {
       knowledge,
     }: SendInput): Promise<SendResult> => {
       if (!workspaceId) return { ok: false, error: null };
-      const store = useChatStore.getState();
       const temporaryKey = threadId ?? `new-${crypto.randomUUID()}`;
       let liveKey = temporaryKey;
       let started = false;
       let assistantMessageId = "";
-      let text = "";
 
-      const appendMessage = (id: string, message: ChatMessage) =>
-        queryClient.setQueryData<ThreadResponse>(queryKeys.thread(workspaceId, id), (current) =>
-          current
-            ? {
-                ...current,
-                messages: [...current.messages.filter((m) => m.id !== message.id), message],
-              }
-            : current,
-        );
-
-      store.begin(temporaryKey, content, attachments);
+      useChatStore.getState().begin(temporaryKey, content, attachments);
       const controller = new AbortController();
       replyControllers.set(temporaryKey, controller);
 
@@ -78,65 +167,26 @@ export function useSendMessage(workspaceId: string | undefined) {
           {
             signal: controller.signal,
             onEvent: (event) => {
-              switch (event.type) {
-                case "start": {
-                  started = true;
-                  liveKey = event.thread.id;
-                  assistantMessageId = event.assistantMessageId;
-                  replyControllers.move(temporaryKey, liveKey);
-                  queryClient.setQueryData<ThreadResponse>(
-                    queryKeys.thread(workspaceId, liveKey),
-                    (current) => ({
-                      thread: event.thread,
-                      messages: [...(current?.messages ?? []), event.userMessage],
-                    }),
-                  );
-                  upsertThreadInList(queryClient, workspaceId, event.thread);
-                  if (!queryClient.getQueryData(queryKeys.threads(workspaceId))) {
-                    void queryClient.invalidateQueries({
-                      queryKey: queryKeys.threads(workspaceId),
-                    });
-                  }
-                  useChatStore
-                    .getState()
-                    .started(temporaryKey, liveKey, event.userMessage, event.assistantMessageId);
-                  if (!threadId) router.push(`/chat/${liveKey}`);
-                  break;
-                }
-                case "status":
-                  useChatStore.getState().update(liveKey, { stage: event.stage });
-                  break;
-                case "sources":
-                  useChatStore.getState().update(liveKey, { sources: event.sources });
-                  break;
-                case "token":
-                  text += event.text;
-                  useChatStore.getState().append(liveKey, event.text);
-                  break;
-                case "done":
-                  appendMessage(liveKey, event.message);
-                  useChatStore.getState().finish(liveKey);
-                  break;
-                case "error":
-                  if (event.assistantMessage) appendMessage(liveKey, event.assistantMessage);
-                  useChatStore.getState().finish(liveKey);
-                  break;
-                case "title": {
-                  const rename = <T extends { id: string; title: string | null }>(thread: T): T =>
-                    thread.id === event.threadId ? { ...thread, title: event.title } : thread;
-                  queryClient.setQueryData<ThreadListResponse>(
-                    queryKeys.threads(workspaceId),
-                    (current) =>
-                      current ? { ...current, threads: current.threads.map(rename) } : current,
-                  );
-                  queryClient.setQueryData<ThreadResponse>(
-                    queryKeys.thread(workspaceId, event.threadId),
-                    (current) =>
-                      current ? { ...current, thread: rename(current.thread) } : current,
-                  );
-                  break;
-                }
+              if (event.type !== "start") return handle(workspaceId, () => liveKey, event);
+              started = true;
+              liveKey = event.thread.id;
+              assistantMessageId = event.assistantMessageId;
+              replyControllers.move(temporaryKey, liveKey);
+              queryClient.setQueryData<ThreadResponse>(
+                queryKeys.thread(workspaceId, liveKey),
+                (current) => ({
+                  thread: event.thread,
+                  messages: [...closeWaiting(current?.messages ?? []), event.userMessage],
+                }),
+              );
+              upsertThreadInList(queryClient, workspaceId, event.thread);
+              if (!queryClient.getQueryData(queryKeys.threads(workspaceId))) {
+                void queryClient.invalidateQueries({ queryKey: queryKeys.threads(workspaceId) });
               }
+              useChatStore
+                .getState()
+                .started(temporaryKey, liveKey, event.userMessage, event.assistantMessageId);
+              if (!threadId) router.push(`/chat/${liveKey}`);
             },
           },
         );
@@ -146,18 +196,12 @@ export function useSendMessage(workspaceId: string | undefined) {
           return { ok: false, error: controller.signal.aborted ? null : toApiClientError(error) };
         }
         if (controller.signal.aborted) {
-          // The server saves what was streamed as a stopped reply; show the same now.
-          appendMessage(liveKey, {
-            id: assistantMessageId,
-            role: "assistant",
-            content: text,
-            status: "stopped",
-            modelId: model ?? null,
-            errorCode: null,
-            createdAt: new Date().toISOString(),
-            attachments: [],
-            sources: useChatStore.getState().replies[liveKey]?.sources ?? [],
-          });
+          setThreadMessages(
+            queryClient,
+            workspaceId,
+            liveKey,
+            putMessage(stoppedMessage(liveKey, assistantMessageId, model ?? null)),
+          );
         } else {
           // The connection dropped mid-reply: load whatever the server saved.
           void queryClient.invalidateQueries({ queryKey: queryKeys.thread(workspaceId, liveKey) });
@@ -171,8 +215,71 @@ export function useSendMessage(workspaceId: string | undefined) {
         void queryClient.invalidateQueries({ queryKey: ["workspaces", workspaceId, "usage"] });
       }
     },
-    [api, queryClient, router, workspaceId],
+    [api, handle, queryClient, router, workspaceId],
   );
+
+  const decide = useCallback(
+    async (
+      threadId: string,
+      message: ChatMessage,
+      callId: string,
+      approved: boolean,
+    ): Promise<SendResult> => {
+      if (!workspaceId) return { ok: false, error: null };
+      // Show the reply as live straight away; the saved copy comes back when it ends.
+      setThreadMessages(queryClient, workspaceId, threadId, (messages) =>
+        messages.filter((item) => item.id !== message.id),
+      );
+      useChatStore.getState().resume(threadId, {
+        ...message,
+        toolCalls: message.toolCalls.map((call) =>
+          call.id === callId && approved ? { ...call, status: "running" as const } : call,
+        ),
+      });
+      const controller = new AbortController();
+      replyControllers.set(threadId, controller);
+      let resumed = false;
+
+      try {
+        await api.chat.decide(workspaceId, threadId, callId, approved, {
+          signal: controller.signal,
+          onEvent: (event) => {
+            if (event.type === "resume") {
+              resumed = true;
+              return;
+            }
+            handle(workspaceId, () => threadId, event);
+          },
+        });
+        return { ok: true };
+      } catch (error) {
+        if (resumed && controller.signal.aborted) {
+          setThreadMessages(
+            queryClient,
+            workspaceId,
+            threadId,
+            putMessage(stoppedMessage(threadId, message.id, message.modelId)),
+          );
+          return { ok: true };
+        }
+        // Refused (e.g. already decided elsewhere) or dropped: show what the server has.
+        void queryClient.invalidateQueries({ queryKey: queryKeys.thread(workspaceId, threadId) });
+        return { ok: false, error: controller.signal.aborted ? null : toApiClientError(error) };
+      } finally {
+        useChatStore.getState().finish(threadId);
+        replyControllers.delete(threadId);
+        void queryClient.invalidateQueries({ queryKey: ["workspaces", workspaceId, "usage"] });
+      }
+    },
+    [api, handle, queryClient, workspaceId],
+  );
+
+  return { send, decide };
+}
+
+/** Sends a message and streams the reply. See useReplyStream. */
+export function useSendMessage(workspaceId: string | undefined) {
+  return useReplyStream(workspaceId).send;
 }
 
 export { ApiClientError };
