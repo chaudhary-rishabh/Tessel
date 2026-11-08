@@ -2,6 +2,8 @@
 
 import { useApi } from "@tessel/api-client/react";
 import type {
+  LoginResponse,
+  PhoneVerifyRequest,
   ChangePasswordRequest,
   LoginRequest,
   ResetPasswordRequest,
@@ -22,15 +24,45 @@ function useStartSession() {
   };
 }
 
+/** Starts the session when a sign-in step finishes it; a two-step challenge is left to the caller. */
+function useFinishSignIn() {
+  const startSession = useStartSession();
+  return (result: LoginResponse) => {
+    if ("accessToken" in result) startSession(result);
+  };
+}
+
+/** Trades the ticket from a Google or GitHub sign-in for a session. */
+export function useExchangeTicket() {
+  const api = useApi();
+  const finish = useFinishSignIn();
+  return useMutation({
+    mutationFn: (ticket: string) => api.auth.exchangeTicket(ticket),
+    onSuccess: finish,
+  });
+}
+
+export function useStartPhoneSignIn() {
+  const api = useApi();
+  return useMutation({ mutationFn: (phone: string) => api.auth.startPhoneSignIn(phone) });
+}
+
+export function useVerifyPhoneSignIn() {
+  const api = useApi();
+  const finish = useFinishSignIn();
+  return useMutation({
+    mutationFn: (input: PhoneVerifyRequest) => api.auth.verifyPhoneSignIn(input),
+    onSuccess: finish,
+  });
+}
+
 /** Signs in, or hands back a challenge token when a second step is needed. */
 export function useLogin() {
   const api = useApi();
-  const startSession = useStartSession();
+  const finish = useFinishSignIn();
   return useMutation({
     mutationFn: (input: LoginRequest) => api.auth.login(input),
-    onSuccess: (result) => {
-      if ("accessToken" in result) startSession(result);
-    },
+    onSuccess: finish,
   });
 }
 

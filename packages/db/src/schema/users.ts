@@ -1,4 +1,13 @@
-import { index, integer, pgEnum, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import {
+  index,
+  integer,
+  pgEnum,
+  pgTable,
+  text,
+  timestamp,
+  unique,
+  uuid,
+} from "drizzle-orm/pg-core";
 
 export const userRole = pgEnum("user_role", ["user", "admin"]);
 
@@ -22,6 +31,9 @@ export const users = pgTable("users", {
   totpEnabledAt: timestamp("totp_enabled_at", { withTimezone: true }),
   /** The last time step a code was accepted for, so a code can't be used twice. */
   totpLastStep: integer("totp_last_step"),
+  /** A verified mobile number in E.164 form (+919876543210), for signing in with a text code. */
+  phone: text("phone").unique(),
+  phoneVerifiedAt: timestamp("phone_verified_at", { withTimezone: true }),
   role: userRole("role").notNull().default("user"),
   lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -84,3 +96,65 @@ export const recoveryCodes = pgTable(
 );
 
 export type SignupChallengeRow = typeof signupChallenges.$inferSelect;
+
+export const identityProvider = pgEnum("identity_provider", ["google", "github"]);
+
+/** Google or GitHub accounts a user signs in with. One of each per user. */
+export const userIdentities = pgTable(
+  "user_identities",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    provider: identityProvider("provider").notNull(),
+    /** The provider's stable ID for the account (Google `sub`, GitHub user ID). */
+    providerUserId: text("provider_user_id").notNull(),
+    /** The email the provider reported, for display. */
+    email: text("email").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("user_identities_provider_account_unique").on(table.provider, table.providerUserId),
+    unique("user_identities_user_provider_unique").on(table.userId, table.provider),
+  ],
+);
+
+/**
+ * One-time tickets that hand a Google or GitHub sign-in from the API's
+ * callback to the web app, which exchanges the ticket for a session.
+ */
+export const loginTickets = pgTable("login_tickets", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  ticketHash: text("ticket_hash").notNull().unique(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  usedAt: timestamp("used_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const phoneChallengePurpose = pgEnum("phone_challenge_purpose", ["verify", "login"]);
+
+/**
+ * A code texted to a phone: to confirm a number being added (`verify`), or
+ * to sign in with it (`login`). Sign-in challenges for numbers no account has
+ * get no code, so they can never be completed.
+ */
+export const phoneChallenges = pgTable(
+  "phone_challenges",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    purpose: phoneChallengePurpose("purpose").notNull(),
+    phone: text("phone").notNull(),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
+    codeHash: text("code_hash"),
+    attempts: integer("attempts").notNull().default(0),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("phone_challenges_phone_idx").on(table.phone)],
+);
+
+export type UserIdentityRow = typeof userIdentities.$inferSelect;

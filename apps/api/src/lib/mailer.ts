@@ -86,6 +86,11 @@ export const emails = {
     subject: "Your Tessel password was changed",
     text: `Your password was just changed, and you were signed out everywhere else. If this wasn't you, reset your password right away.${signature}`,
   }),
+  signInMethodAdded: (to: string, method: string): MailMessage => ({
+    to,
+    subject: "A new way to sign in was added to your Tessel account",
+    text: `You can now sign in to Tessel with ${method}. If this wasn't you, change your password and remove it in Settings right away.${signature}`,
+  }),
   twoFactorChanged: (to: string, enabled: boolean): MailMessage => ({
     to,
     subject: enabled ? "Two-step sign-in is on" : "Two-step sign-in was turned off",

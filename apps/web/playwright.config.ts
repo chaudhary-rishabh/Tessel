@@ -6,6 +6,8 @@ const API_URL = "http://localhost:4000";
 const MOCK_GATEWAY_URL = "http://127.0.0.1:4300/v1";
 // A GitHub-like mock MCP server that takes a token; another on 4401 signs in with OAuth.
 const MOCK_GITHUB_MCP_URL = "http://127.0.0.1:4400/mcp";
+// A mock Google and GitHub for "Continue with Google / GitHub".
+const MOCK_OAUTH_URL = "http://127.0.0.1:4500";
 
 /**
  * End-to-end tests run the real web app against the real API, on a desktop
@@ -54,6 +56,14 @@ export default defineConfig({
       timeout: 30_000,
     },
     {
+      command: "pnpm mock-oauth",
+      cwd: "../api",
+      url: `${MOCK_OAUTH_URL}/health`,
+      reuseExistingServer: !isCI,
+      env: { MOCK_OAUTH_PORT: "4500" },
+      timeout: 30_000,
+    },
+    {
       command: "pnpm exec tsx src/server.ts",
       cwd: "../api",
       url: `${API_URL}/health`,
@@ -64,6 +74,12 @@ export default defineConfig({
         AI_GATEWAY_API_KEY: "mock",
         AI_GATEWAY_URL: MOCK_GATEWAY_URL,
         GITHUB_MCP_URL: MOCK_GITHUB_MCP_URL,
+        GOOGLE_CLIENT_ID: "e2e-google",
+        GOOGLE_CLIENT_SECRET: "e2e-google-secret",
+        GITHUB_CLIENT_ID: "e2e-github",
+        GITHUB_CLIENT_SECRET: "e2e-github-secret",
+        SOCIAL_LOGIN_MOCK_URL: MOCK_OAUTH_URL,
+        SMS_TRANSPORT: "outbox",
       },
       timeout: 60_000,
     },

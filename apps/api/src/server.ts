@@ -19,6 +19,8 @@ import { createLogger } from "@tessel/logger";
 import { RedisStore } from "rate-limit-redis";
 import { createApp } from "./app";
 import { createOutboxMailer, createSesMailer } from "./lib/mailer";
+import { createOutboxSms, createSnsSms } from "./lib/sms";
+import { createSocialProviders } from "./modules/auth/social-providers";
 import { connectorCatalog } from "./modules/connectors/connectors.catalog";
 import { configFromEnv } from "./config";
 import { envSchema } from "./env";
@@ -94,6 +96,19 @@ await Promise.all([vectorIndex.ensureCollection(), episodes.ensureCollection()])
   (error: unknown) => logger.error({ err: error }, "Could not prepare the search indexes"),
 );
 
+/** Phone sign-in: SNS in production when turned on, an outbox in development. */
+function smsFromEnv() {
+  const transport = env.SMS_TRANSPORT ?? (config.isProduction ? "off" : "outbox");
+  if (transport === "off") return undefined;
+  if (transport === "outbox") return createOutboxSms({ logger });
+  return createSnsSms({
+    region: env.AWS_REGION,
+    senderId: env.SMS_SENDER_ID,
+    dltEntityId: env.SMS_DLT_ENTITY_ID,
+    dltTemplateId: env.SMS_DLT_TEMPLATE_ID,
+  });
+}
+
 const app = createApp({
   config,
   logger,
@@ -107,6 +122,21 @@ const app = createApp({
     env.MAIL_TRANSPORT === "ses"
       ? createSesMailer({ region: env.AWS_REGION, from: env.MAIL_FROM })
       : createOutboxMailer({ logger }),
+  signIn: {
+    apiPublicUrl: env.API_PUBLIC_URL,
+    providers: createSocialProviders({
+      google:
+        env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET
+          ? { clientId: env.GOOGLE_CLIENT_ID, clientSecret: env.GOOGLE_CLIENT_SECRET }
+          : undefined,
+      github:
+        env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET
+          ? { clientId: env.GITHUB_CLIENT_ID, clientSecret: env.GITHUB_CLIENT_SECRET }
+          : undefined,
+      mockBaseUrl: env.SOCIAL_LOGIN_MOCK_URL,
+    }),
+    sms: smsFromEnv(),
+  },
   connectors: {
     box: createSecretBox(env.ENCRYPTION_KEY),
     catalog: connectorCatalog({

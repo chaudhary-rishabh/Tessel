@@ -41,6 +41,8 @@ const NO_REFRESH_PATHS = [
   "/auth/login",
   "/auth/signup",
   "/auth/password",
+  "/auth/oauth/exchange",
+  "/auth/phone",
   "/auth/refresh",
   "/auth/logout",
 ];

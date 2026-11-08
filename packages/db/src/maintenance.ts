@@ -9,12 +9,14 @@ export interface MaintenanceReport {
   oauthStatesCleared: number;
   signupsDeleted: number;
   passwordResetsDeleted: number;
+  loginTicketsDeleted: number;
+  phoneCodesDeleted: number;
 }
 
 /**
- * Daily housekeeping (see 0013_maintenance.sql, extended in 0014): old refresh and access
+ * Daily housekeeping (see 0013_maintenance.sql, extended in 0014 and 0015): old refresh and access
  * tokens, approvals nobody answered for a week, old agent checkpoints, and
- * abandoned connector sign-ins, and expired signup codes and reset links.
+ * abandoned connector sign-ins, and expired signup codes, reset links, sign-in tickets, and phone codes.
  */
 export async function runMaintenance(db: Database): Promise<MaintenanceReport> {
   const result = await db.execute<{ report: MaintenanceReport }>(

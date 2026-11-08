@@ -13,7 +13,6 @@ import {
   passwordResets,
   recoveryCodes,
   refreshTokens,
-  setUserContext,
   signupChallenges,
   users,
   type Database,
@@ -25,7 +24,7 @@ import type { Logger } from "@tessel/logger";
 import { AppError, errors, isUniqueViolation } from "../../lib/errors";
 import { usersRepository } from "../users/users.repository";
 import { toPublicUser } from "../users/users.mapper";
-import { workspacesRepository } from "../workspaces/workspaces.repository";
+import { createAccount } from "./accounts";
 import { refreshTokenRepository } from "./auth.repository";
 import type { PasswordHasher } from "./password";
 import { emails, type Mailer } from "../../lib/mailer";
@@ -139,6 +138,21 @@ export function createAuthService({
     return { auth: await buildAuthResponse(user), refreshToken: refresh.token };
   }
 
+  /**
+   * Signs a user in after their first factor (password, Google, GitHub, or a
+   * texted code), or asks for their authenticator code first.
+   */
+  async function beginSession(user: UserRow, meta: SessionMeta): Promise<LoginOutcome> {
+    if (user.totpEnabledAt) {
+      return {
+        kind: "two_factor",
+        challengeToken: await accessTokens.signTwoFactorChallenge(user.id),
+      };
+    }
+    await usersRepository.touchLastLogin(db, user.id, now());
+    return { kind: "session", session: await issueSession(user, meta) };
+  }
+
   return {
     /**
      * Starts a signup: nothing is created until the emailed code is entered.
@@ -210,18 +224,11 @@ export function createAuthService({
           return { kind: "invalid" as const };
         }
         try {
-          const created = await usersRepository.insert(tx, {
+          const created = await createAccount(tx, {
             email: challenge.email,
             name: challenge.name,
             passwordHash: challenge.passwordHash,
             emailVerifiedAt: now(),
-          });
-          // Act as the new user so row-level security allows creating their workspace.
-          await setUserContext(tx, created.id);
-          await workspacesRepository.createWithOwner(tx, {
-            name: `${challenge.name.split(/\s+/)[0]}'s workspace`,
-            ownerId: created.id,
-            isPersonal: true,
           });
           await tx.delete(signupChallenges).where(eq(signupChallenges.email, challenge.email));
           return { kind: "created" as const, user: created };
@@ -244,15 +251,10 @@ export function createAuthService({
       if (!user || !valid) {
         throw INVALID_CREDENTIALS();
       }
-      if (user.totpEnabledAt) {
-        return {
-          kind: "two_factor",
-          challengeToken: await accessTokens.signTwoFactorChallenge(user.id),
-        };
-      }
-      await usersRepository.touchLastLogin(db, user.id, now());
-      return { kind: "session", session: await issueSession(user, meta) };
+      return beginSession(user, meta);
     },
+
+    beginSession,
 
     /** The second sign-in step: an authenticator code, or a one-time recovery code. */
     async completeTwoFactor(

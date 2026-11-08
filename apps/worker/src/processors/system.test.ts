@@ -36,6 +36,8 @@ describe("processSystemJob", () => {
       oauthStatesCleared: 0,
       signupsDeleted: 0,
       passwordResetsDeleted: 0,
+      loginTicketsDeleted: 0,
+      phoneCodesDeleted: 0,
     };
     await expect(
       processSystemJob({ name: "maintenance", data: {} }, logger, {

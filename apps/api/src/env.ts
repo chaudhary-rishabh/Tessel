@@ -6,6 +6,7 @@ import { storageEnvShape } from "@tessel/storage";
 import { z } from "zod";
 
 const DEV_SECRET_MARKER = "dev-only";
+const optional = z.preprocess((value) => (value === "" ? undefined : value), z.string().optional());
 
 export const envSchema = z
   .object({
@@ -48,6 +49,19 @@ export const envSchema = z
     /** ses sends with Amazon SES; outbox keeps emails in memory (development and tests). */
     MAIL_TRANSPORT: z.enum(["ses", "outbox"]).default("outbox"),
     MAIL_FROM: z.string().min(3).default("Tessel <no-reply@localhost>"),
+    /** OAuth apps for "Continue with Google / GitHub". Each is off without its ID and secret. */
+    GOOGLE_CLIENT_ID: optional,
+    GOOGLE_CLIENT_SECRET: optional,
+    GITHUB_CLIENT_ID: optional,
+    GITHUB_CLIENT_SECRET: optional,
+    /** Development and tests: a mock Google and GitHub (see src/testing/mock-oauth.ts). */
+    SOCIAL_LOGIN_MOCK_URL: optional,
+    /** sns texts with Amazon SNS; outbox keeps texts in memory; off hides phone sign-in. */
+    SMS_TRANSPORT: z.enum(["sns", "outbox", "off"]).optional(),
+    SMS_SENDER_ID: optional,
+    /** India's DLT registration, needed to text Indian numbers through SNS. */
+    SMS_DLT_ENTITY_ID: optional,
+    SMS_DLT_TEMPLATE_ID: optional,
     ...aiEnvShape,
     ...storageEnvShape,
     ...connectorsEnvShape,
@@ -60,6 +74,29 @@ export const envSchema = z
         path: ["MAIL_TRANSPORT"],
         message: "Production must send email with SES",
       });
+    }
+    if (env.NODE_ENV === "production" && env.SOCIAL_LOGIN_MOCK_URL) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["SOCIAL_LOGIN_MOCK_URL"],
+        message: "The mock sign-in provider is for development only",
+      });
+    }
+    if (env.NODE_ENV === "production" && env.SMS_TRANSPORT === "outbox") {
+      ctx.addIssue({
+        code: "custom",
+        path: ["SMS_TRANSPORT"],
+        message: "Production must text with SNS, or turn phone sign-in off",
+      });
+    }
+    for (const provider of ["GOOGLE", "GITHUB"] as const) {
+      if (Boolean(env[`${provider}_CLIENT_ID`]) !== Boolean(env[`${provider}_CLIENT_SECRET`])) {
+        ctx.addIssue({
+          code: "custom",
+          path: [`${provider}_CLIENT_SECRET`],
+          message: `Set both ${provider}_CLIENT_ID and ${provider}_CLIENT_SECRET, or neither`,
+        });
+      }
     }
     if (env.NODE_ENV === "production" && env.CONNECTORS_ALLOW_PRIVATE_NETWORKS) {
       ctx.addIssue({
@@ -75,7 +112,7 @@ export const envSchema = z
       ctx.addIssue({
         code: "custom",
         path: ["ENCRYPTION_KEY"],
-        message: "Replace the development connector key before running in production",
+        message: "Replace the development encryption key before running in production",
       });
     }
     if (env.NODE_ENV === "production" && env.JWT_ACCESS_SECRET.includes(DEV_SECRET_MARKER)) {
