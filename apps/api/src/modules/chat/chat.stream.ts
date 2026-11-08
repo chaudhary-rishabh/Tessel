@@ -1,5 +1,13 @@
-import type { AIMessageChunk } from "@langchain/core/messages";
-import { AiError, usageFromMetadata } from "@tessel/ai";
+import { SystemMessage, type AIMessageChunk, type BaseMessage } from "@langchain/core/messages";
+import {
+  AiError,
+  citedSourceIds,
+  sourcesPrompt,
+  usageFromMetadata,
+  type RagPipeline,
+  type Source,
+} from "@tessel/ai";
+import type { MessageSource } from "@tessel/db";
 import type { ChatEvent } from "@tessel/contracts";
 import type { Logger } from "@tessel/logger";
 import type { Response } from "express";
@@ -41,8 +49,20 @@ function publicError(error: unknown): { code: string; message: string } {
  * saved once at the end, as complete, stopped (the client went away), or
  * error. Usage is recorded by the model itself, including for stopped replies.
  */
+/** Adds the sources to the system prompt; one system message keeps every provider happy. */
+function withSources(history: BaseMessage[], prompt: string): BaseMessage[] {
+  const [system, ...rest] = history;
+  return [new SystemMessage(`${system?.text ?? ""}\n\n${prompt}`), ...rest];
+}
+
+const markCited = (sources: Source[], content: string): MessageSource[] => {
+  const cited = new Set(citedSourceIds(content, sources));
+  return sources.map((source) => ({ ...source, cited: cited.has(source.id) }));
+};
+
 export async function streamReply({
   ai,
+  rag,
   service,
   logger,
   actor,
@@ -52,6 +72,7 @@ export async function streamReply({
   signal,
 }: {
   ai: Ai;
+  rag: RagPipeline;
   service: ChatService;
   logger: Logger;
   actor: Actor;
@@ -70,9 +91,38 @@ export async function streamReply({
 
   let content = "";
   let final: AIMessageChunk | undefined;
+  let sources: Source[] = [];
   try {
+    let history = prepared.history;
+    const { knowledge } = prepared;
+    if (knowledge.hasDocuments && knowledge.mode !== "off") {
+      stream.send({ type: "status", stage: "searching" });
+      try {
+        const result = await rag.prepare(
+          prepared.context,
+          {
+            history: knowledge.turns,
+            message: prepared.userMessage.content,
+            mode: knowledge.mode,
+            hasDocuments: true,
+          },
+          signal,
+        );
+        if (result.route === "documents") {
+          sources = result.sources;
+          history = withSources(history, sourcesPrompt(sources));
+          stream.send({ type: "sources", sources: markCited(sources, "") });
+        }
+      } catch (error) {
+        if (error instanceof AiError || signal.aborted) throw error;
+        // Search trouble shouldn't cost the user their answer.
+        logger.warn({ err: error }, "Document search failed, answering without it");
+      }
+      stream.send({ type: "status", stage: "writing" });
+    }
+
     const model = ai.chatModel(prepared.context, prepared.model.id);
-    for await (const chunk of await model.stream(prepared.history, { signal })) {
+    for await (const chunk of await model.stream(history, { signal })) {
       final = final ? final.concat(chunk) : chunk;
       if (chunk.text) {
         content += chunk.text;
@@ -85,6 +135,7 @@ export async function streamReply({
       status: "complete",
       inputTokens: usage?.inputTokens ?? null,
       outputTokens: usage?.outputTokens ?? null,
+      sources: markCited(sources, content),
     });
     stream.send({ type: "done", status: "complete", message });
 
@@ -96,7 +147,11 @@ export async function streamReply({
     if (signal.aborted) {
       // The user pressed stop or closed the tab: keep what they already saw.
       await service
-        .finishReply(actor, prepared.assistantMessageId, { content, status: "stopped" })
+        .finishReply(actor, prepared.assistantMessageId, {
+          content,
+          status: "stopped",
+          sources: markCited(sources, content),
+        })
         .catch((saveError: unknown) =>
           logger.error({ err: saveError }, "Failed to save a stopped reply"),
         );
@@ -111,6 +166,7 @@ export async function streamReply({
           content,
           status: "error",
           errorCode: code,
+          sources: markCited(sources, content),
         })
         .catch((saveError: unknown) => {
           logger.error({ err: saveError }, "Failed to save a failed reply");

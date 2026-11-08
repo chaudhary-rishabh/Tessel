@@ -1,4 +1,4 @@
-import type { Ai, VectorIndex } from "@tessel/ai";
+import { createRagPipeline, type Ai, type VectorIndex } from "@tessel/ai";
 import type { Database } from "@tessel/db";
 import type { Logger } from "@tessel/logger";
 import type { ObjectStore, UploadEventQueue } from "@tessel/storage";
@@ -130,6 +130,7 @@ export function createApp({
   const chatController = createChatController({
     service: createChatService({ db, ai, logger, objects: storage.objects }),
     ai,
+    rag: createRagPipeline({ ai, index: vectorIndex, logger }),
     logger,
   });
   const documentsController = createDocumentsController(

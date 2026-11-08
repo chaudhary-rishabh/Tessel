@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { HumanMessage, SystemMessage, type BaseMessage } from "@langchain/core/messages";
-import type { Ai, AiCallContext, ModelInfo } from "@tessel/ai";
+import type { Ai, AiCallContext, KnowledgeMode, ModelInfo } from "@tessel/ai";
 import type {
   Attachment,
   ChatMessage,
@@ -10,7 +10,7 @@ import type {
   ThreadSummary,
 } from "@tessel/contracts";
 import { sendMessageRequestSchema } from "@tessel/contracts";
-import { withUserContext, type Database, type MessageStatus } from "@tessel/db";
+import { withUserContext, type Database, type MessageSource, type MessageStatus } from "@tessel/db";
 import type { Logger } from "@tessel/logger";
 import { storageKeys, type ObjectStore } from "@tessel/storage";
 import { errors } from "../../lib/errors";
@@ -33,7 +33,14 @@ export interface PreparedReply {
   isNewThread: boolean;
   userMessage: ChatMessage;
   assistantMessageId: string;
+  /** System prompt first, then the turns that fit. */
   history: BaseMessage[];
+  /** What the RAG router needs: recent turns as text, and the search settings. */
+  knowledge: {
+    mode: KnowledgeMode;
+    hasDocuments: boolean;
+    turns: { role: "user" | "assistant"; content: string }[];
+  };
 }
 
 const TITLE_PROMPT =
@@ -236,7 +243,10 @@ export function createChatService({
           tx,
           history.filter((row) => row.role === "user").map((row) => row.id),
         );
-        return { thread, userRow, assistantRow, history, historyRows };
+        const hasDocuments =
+          request.knowledge !== "off" &&
+          (await chatRepository.hasReadyDocuments(tx, actor.workspaceId));
+        return { thread, userRow, assistantRow, history, historyRows, hasDocuments };
       });
 
       // Files are read after the transaction, so storage latency never holds a connection.
@@ -254,6 +264,14 @@ export function createChatService({
         ),
         assistantMessageId: saved.assistantRow.id,
         history: buildModelMessages(saved.history, historyFiles, now),
+        knowledge: {
+          mode: request.knowledge,
+          hasDocuments: saved.hasDocuments,
+          // Earlier turns only; the new message is passed separately.
+          turns: saved.history
+            .filter((row) => row.id !== saved.userRow.id && row.content && row.status !== "error")
+            .map((row) => ({ role: row.role, content: row.content })),
+        },
       };
     },
 
@@ -266,6 +284,7 @@ export function createChatService({
         errorCode?: string | null;
         inputTokens?: number | null;
         outputTokens?: number | null;
+        sources?: MessageSource[];
       },
     ): Promise<ChatMessage> {
       return withUserContext(db, actor.userId, async (tx) => {
