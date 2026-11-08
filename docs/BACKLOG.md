@@ -29,3 +29,6 @@ Things noticed along the way that are not needed yet. Each item names the step w
 - **Upload scanning:** Malware scanning of uploaded files before they are parsed. (Phase 3)
 - **Qdrant snapshots:** Back up the search index too (it can also be rebuilt from S3 by re-indexing). (Step 20)
 - **Dead-letter alerts:** Alarm when messages land in the upload dead-letter queue. (Step 20, with CloudWatch)
+- **Choose documents for a message:** Let users pick which documents a question searches; the pipeline already accepts document IDs. (Step 20)
+- **RAG evaluations:** A question set with expected passages, scoring retrieval recall, citation accuracy, and faithfulness, run in CI. (Phase 3)
+- **Dedicated reranker:** Try a reranking model through the gateway and compare cost and quality with the utility model (D-041). (Phase 3)

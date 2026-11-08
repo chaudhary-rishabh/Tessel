@@ -202,6 +202,22 @@ sequenceDiagram
 | Search       | `POST /workspaces/:workspaceId/search`: both vectors, fused with reciprocal rank fusion, filtered by workspace and optionally by document. Recorded in the ledger as feature `search`.       |
 | Reliability  | SQS messages are deleted only after their job is queued; failing messages move to a dead-letter queue. Jobs retry three times with backoff, and re-running a job gives the same result.      |
 
+### Answering from documents
+
+```mermaid
+flowchart LR
+  msg["New message"] --> route{"route<br/>(utility model)"}
+  route -- "documents won't help" --> answer["Stream the answer"]
+  route -- "up to 3 rewritten queries" --> retrieve["retrieve<br/>hybrid search per query,<br/>fused (top 20)"]
+  retrieve --> rerank["rerank<br/>(utility model scores 0–3,<br/>keeps best 6)"]
+  rerank --> answer
+```
+
+- Runs before the answer streams, as a LangGraph graph in `@tessel/ai` (`createRagPipeline`). The stream sends `status: searching`, then `sources`, then `status: writing`.
+- The composer's documents setting chooses when to search: when it helps (the router decides), always, or never. Workspaces with nothing indexed skip search without any model call.
+- The answer cites sources as `[n]`. Each reply is saved with its sources and which ones it cited (`messages.sources`).
+- Router, query embeddings, and reranker are recorded in the ledger as feature `rag`.
+
 Endpoints: `GET|POST /workspaces/:workspaceId/documents`, `GET|DELETE …/documents/:documentId`, `POST …/documents/:documentId/complete`, `POST …/documents/:documentId/reprocess`, `GET …/documents/:documentId/download`, `POST /workspaces/:workspaceId/search`.
 
 ## Web app
