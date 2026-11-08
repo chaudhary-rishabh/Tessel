@@ -8,10 +8,12 @@ import {
 } from "@tessel/ai";
 import { loadEnvFiles, parseEnv } from "@tessel/config/env";
 import { createDatabase, createUsageLedger, pingDatabase } from "@tessel/db";
+import { createSecretBox } from "@tessel/mcp";
 import { createS3ObjectStore, createSqsUploadQueue } from "@tessel/storage";
 import { createLogger } from "@tessel/logger";
 import { RedisStore } from "rate-limit-redis";
 import { createApp } from "./app";
+import { connectorCatalog } from "./modules/connectors/connectors.catalog";
 import { configFromEnv } from "./config";
 import { envSchema } from "./env";
 import { createCheck, httpProbe } from "./modules/health/checks";
@@ -76,6 +78,21 @@ const app = createApp({
   ai,
   storage: { objects, uploads, uploadEvents: env.UPLOAD_EVENTS },
   vectorIndex,
+  connectors: {
+    box: createSecretBox(env.CONNECTOR_SECRET_KEY),
+    catalog: connectorCatalog({
+      githubUrl: env.GITHUB_MCP_URL,
+      githubClient: env.GITHUB_MCP_CLIENT_ID
+        ? {
+            clientId: env.GITHUB_MCP_CLIENT_ID,
+            ...(env.GITHUB_MCP_CLIENT_SECRET ? { clientSecret: env.GITHUB_MCP_CLIENT_SECRET } : {}),
+          }
+        : undefined,
+    }),
+    redirectUrl: new URL("/connectors/oauth/callback", env.API_PUBLIC_URL).toString(),
+    webOrigin: env.WEB_ORIGIN[0]!,
+    allowPrivate: env.CONNECTORS_ALLOW_PRIVATE_NETWORKS,
+  },
   // Shared counters, so limits hold across every API instance.
   rateLimitStoreFactory: (name) =>
     new RedisStore({

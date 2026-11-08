@@ -4,6 +4,8 @@ const isCI = Boolean(process.env.CI);
 const WEB_URL = "http://localhost:3000";
 const API_URL = "http://localhost:4000";
 const MOCK_GATEWAY_URL = "http://127.0.0.1:4300/v1";
+// A GitHub-like mock MCP server that takes a token; another on 4401 signs in with OAuth.
+const MOCK_GITHUB_MCP_URL = "http://127.0.0.1:4400/mcp";
 
 /**
  * End-to-end tests run the real web app against the real API, on a desktop
@@ -36,6 +38,22 @@ export default defineConfig({
       timeout: 30_000,
     },
     {
+      command: "pnpm mock-server",
+      cwd: "../../packages/mcp",
+      url: "http://127.0.0.1:4400/health",
+      reuseExistingServer: !isCI,
+      env: { MOCK_MCP_PORT: "4400", MOCK_MCP_AUTH: "token" },
+      timeout: 30_000,
+    },
+    {
+      command: "pnpm mock-server",
+      cwd: "../../packages/mcp",
+      url: "http://127.0.0.1:4401/health",
+      reuseExistingServer: !isCI,
+      env: { MOCK_MCP_PORT: "4401", MOCK_MCP_AUTH: "oauth" },
+      timeout: 30_000,
+    },
+    {
       command: "pnpm exec tsx src/server.ts",
       cwd: "../api",
       url: `${API_URL}/health`,
@@ -45,6 +63,7 @@ export default defineConfig({
         RATE_LIMIT_SCALE: "100",
         AI_GATEWAY_API_KEY: "mock",
         AI_GATEWAY_URL: MOCK_GATEWAY_URL,
+        GITHUB_MCP_URL: MOCK_GITHUB_MCP_URL,
       },
       timeout: 60_000,
     },

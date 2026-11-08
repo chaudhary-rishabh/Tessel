@@ -219,3 +219,23 @@ A skill belongs to the workspace: every member can read and use it, write their 
 ## D-054 Built-in skills live in code
 
 Tessel ships four skills (meeting notes, email draft, document summary, decision memo) as code in `@tessel/ai`, so they're versioned and reviewed with the prompts that use them and need no seed data. They're always on for now; switching them off per workspace is in the backlog.
+
+## D-055 Connectors are remote MCP servers, per user
+
+Tessel connects to apps through the Model Context Protocol over Streamable HTTP, with the official TypeScript SDK. Only remote servers are supported: running local (stdio) servers would mean running users' commands on shared machines. Each connection belongs to one user in one workspace and is invisible to everyone else (row-level security), because it signs in as that user; teammates connect their own accounts. The catalog offers GitHub, Notion, and Linear, and any other server can be added by URL.
+
+## D-056 OAuth through the SDK, with a server-side callback
+
+Sign-in follows the MCP authorization spec, and the SDK does the work: protected-resource and authorization-server discovery, dynamic client registration, PKCE, the code exchange, and token refresh. Tessel supplies a provider that keeps the results on the connection. The app's sign-in page redirects to the API (`/connectors/oauth/callback`), not the web app, so codes and tokens never touch the browser's JavaScript. A single-use, hashed `state` that expires after ten minutes finds the connection; a narrow `SECURITY DEFINER` function looks it up before the user is known. Apps without dynamic registration (GitHub) use a configured OAuth app, or a personal access token when none is configured.
+
+## D-057 Connector credentials are encrypted at rest
+
+Tokens, refresh tokens, and client registrations are stored with AES-256-GCM under `CONNECTOR_SECRET_KEY`, never returned by the API, and never logged. The version prefix leaves room for key rotation or moving the key to AWS KMS. Production refuses the development key.
+
+## D-058 Connector URLs can't reach private networks
+
+Users choose the URLs Tessel connects to, so every request (including OAuth discovery and each redirect hop) goes through a guard that requires HTTPS and refuses addresses on loopback, private, link-local, and metadata ranges. This blocks server-side request forgery, such as reaching the EC2 metadata endpoint. Local development and tests turn the guard off with `CONNECTORS_ALLOW_PRIVATE_NETWORKS`, which production refuses.
+
+## D-059 Server hints decide approval only when they're safe
+
+A connector tool runs without asking only when its server marks it read-only, or when the user chose "Always allow" for it. Anything else asks first, and tools the server doesn't describe count as destructive, following the MCP spec's defaults. Users can set each tool to ask first, always allow, or off. Tool results come back marked as data, like every other tool's.

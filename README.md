@@ -19,7 +19,7 @@ An AI workspace for teams. Tessel lets a team chat with AI over its own document
 - **Use tools and ask first**: the assistant searches documents, calculates, and creates or deletes documents through a ReAct loop. Anything that changes the workspace waits for Allow or Decline, and a pending question survives reloads and restarts.
 - **Pick how it works**: answer straight away, plan and work through steps, draft and review, or hand parts of the task to a team of specialists. Every stage shows live, and approvals work in every mode.
 - **Use skills**: built-in and team-written instructions for repeat work (meeting notes, release notes, decision memos) that the agent loads when a request matches.
-- **Connect tools through MCP**, both as a client (GitHub, Notion, Slack) and as a server for outside MCP clients.
+- **Connect your apps through MCP**: GitHub, Notion, Linear, or any remote MCP server, signed in with OAuth or a token, with per-tool approval choices. Tessel will also be an MCP server for outside clients.
 - **Remember context** across conversations with short-term, summary, long-term, and episodic memory.
 
 ## Architecture
@@ -70,8 +70,9 @@ packages/
   contracts/    Zod schemas shared by frontend and backend
   db/           Drizzle schema, migrations, database client
   queue/        Queue names, job schemas, Redis connection
-  ai/           Model gateway, registry, spend caps, moderation, ledger, chunking, hybrid search
+  ai/           Model gateway, registry, spend caps, moderation, ledger, RAG, agents, skills
   storage/      S3 files, SQS upload events, object key layout
+  mcp/          MCP client for connectors: OAuth, encrypted credentials, URL guard
   api-client/   axios client with token refresh, typed endpoints, query hooks
   ui/           Shared React components and the Tessel mark
 infra/docker/   Dockerfiles and local data services

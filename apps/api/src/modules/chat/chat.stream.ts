@@ -25,6 +25,7 @@ import type { AgentRunRow, MessageSource } from "@tessel/db";
 import type { Logger } from "@tessel/logger";
 import { AppError } from "../../lib/errors";
 import type { Response } from "express";
+import type { ConnectorsService } from "../connectors/connectors.service";
 import type { DocumentsService } from "../documents/documents.service";
 import type { SkillsService } from "../skills/skills.service";
 import type { Actor, ChatService, PreparedReply } from "./chat.service";
@@ -66,6 +67,7 @@ export interface ReplyDependencies {
   service: ChatService;
   documents: DocumentsService;
   skills: SkillsService;
+  connectors: ConnectorsService;
   logger: Logger;
 }
 
@@ -133,6 +135,12 @@ async function drive(run: Drive): Promise<void> {
   let content = run.initialText;
   let activity = run.initialActivity;
   const toolCalls = new Map(run.initialToolCalls.map((call) => [call.id, call]));
+  const connectors = run.canUseTools
+    ? await deps.connectors.forAgent(actor).catch((error: unknown) => {
+        deps.logger.warn({ err: error }, "Connectors failed to load, answering without them");
+        return undefined;
+      })
+    : undefined;
   const tools = run.canUseTools
     ? createToolRegistry(
         workspaceTools({
@@ -141,7 +149,9 @@ async function drive(run: Drive): Promise<void> {
           userId: actor.userId,
           ...(actor.requestId ? { requestId: actor.requestId } : {}),
           sources: run.sources,
-        }).concat(run.skills.length ? [loadSkillTool(run.skills)] : []),
+        })
+          .concat(run.skills.length ? [loadSkillTool(run.skills)] : [])
+          .concat(connectors?.tools ?? []),
       )
     : createToolRegistry([]);
   const helper = { ...context, feature: "agent" as const };
@@ -150,7 +160,18 @@ async function drive(run: Drive): Promise<void> {
     thinker: deps.ai.chatModel(helper, run.modelId),
     critic: deps.ai.chatModel(helper, deps.ai.registry.forRole("utility").id, { temperature: 0 }),
     tools,
-    workers: teamWorkers,
+    workers: connectors?.names.length
+      ? [
+          ...teamWorkers,
+          {
+            name: "integrations",
+            title: "Integrations specialist",
+            description:
+              "Works in the user's connected apps (such as GitHub or Notion) through their tools.",
+            tools: connectors.names,
+          },
+        ]
+      : teamWorkers,
     context,
     signal,
     logger: deps.logger,
@@ -174,82 +195,90 @@ async function drive(run: Drive): Promise<void> {
   const reply = { threadId: run.threadId, messageId: run.messageId, modelId: run.modelId };
 
   try {
-    const result = await run.start(options);
-    if (result.status === "waiting") {
-      const message = await deps.service.pauseReply(actor, reply, {
-        content: result.text,
-        toolCalls: result.toolCalls,
-        sources: markCited(run.sources, result.text),
-        activity: result.activity,
-        checkpoint: result.checkpoint as unknown as Record<string, unknown>,
-      });
-      stream.send({ type: "done", status: "waiting", message });
-    } else if (!(await allowedOutput(deps, context, result.text))) {
-      const assistantMessage = await deps.service.finishReply(actor, run.messageId, {
-        content: "",
-        status: "error",
-        errorCode: BLOCKED_REPLY.code,
-        toolCalls: result.toolCalls,
-        activity: result.activity,
-        sources: [],
-      });
-      if (run.runId) await deps.service.setRunStatus(actor, run.runId, "completed");
-      stream.send({ type: "error", ...BLOCKED_REPLY, assistantMessage });
-    } else {
-      const message = await deps.service.finishReply(actor, run.messageId, {
-        content: result.text,
-        status: "complete",
-        toolCalls: result.toolCalls,
-        activity: result.activity,
-        sources: markCited(run.sources, result.text),
-      });
-      if (run.runId) await deps.service.setRunStatus(actor, run.runId, "completed");
-      stream.send({ type: "done", status: "complete", message });
-    }
-    await run.after?.();
-  } catch (error) {
-    if (signal.aborted) {
-      // The user pressed stop or closed the tab: keep what they already saw.
-      await deps.service
+    await settleReply();
+  } finally {
+    await connectors?.close();
+  }
+
+  async function settleReply() {
+    try {
+      const result = await run.start(options);
+      if (result.status === "waiting") {
+        const message = await deps.service.pauseReply(actor, reply, {
+          content: result.text,
+          toolCalls: result.toolCalls,
+          sources: markCited(run.sources, result.text),
+          activity: result.activity,
+          checkpoint: result.checkpoint as unknown as Record<string, unknown>,
+        });
+        stream.send({ type: "done", status: "waiting", message });
+      } else if (!(await allowedOutput(deps, context, result.text))) {
+        const assistantMessage = await deps.service.finishReply(actor, run.messageId, {
+          content: "",
+          status: "error",
+          errorCode: BLOCKED_REPLY.code,
+          toolCalls: result.toolCalls,
+          activity: result.activity,
+          sources: [],
+        });
+        if (run.runId) await deps.service.setRunStatus(actor, run.runId, "completed");
+        stream.send({ type: "error", ...BLOCKED_REPLY, assistantMessage });
+      } else {
+        const message = await deps.service.finishReply(actor, run.messageId, {
+          content: result.text,
+          status: "complete",
+          toolCalls: result.toolCalls,
+          activity: result.activity,
+          sources: markCited(run.sources, result.text),
+        });
+        if (run.runId) await deps.service.setRunStatus(actor, run.runId, "completed");
+        stream.send({ type: "done", status: "complete", message });
+      }
+      await run.after?.();
+    } catch (error) {
+      if (signal.aborted) {
+        // The user pressed stop or closed the tab: keep what they already saw.
+        await deps.service
+          .finishReply(actor, run.messageId, {
+            content,
+            status: "stopped",
+            toolCalls: finalToolCalls(),
+            activity: settle(activity, "skipped"),
+            sources: markCited(run.sources, content),
+          })
+          .catch((saveError: unknown) =>
+            deps.logger.error({ err: saveError }, "Failed to save a stopped reply"),
+          );
+        if (run.runId)
+          await deps.service.setRunStatus(actor, run.runId, "cancelled").catch(() => undefined);
+        if (content) await run.after?.().catch(() => undefined);
+        return;
+      }
+      const { code, message } = publicError(error);
+      if (!(error instanceof AiError)) deps.logger.error({ err: error }, "Chat reply failed");
+      const assistantMessage = await deps.service
         .finishReply(actor, run.messageId, {
           content,
-          status: "stopped",
+          status: "error",
+          errorCode: code,
           toolCalls: finalToolCalls(),
-          activity: settle(activity, "skipped"),
+          activity: settle(activity, "failed"),
           sources: markCited(run.sources, content),
         })
-        .catch((saveError: unknown) =>
-          deps.logger.error({ err: saveError }, "Failed to save a stopped reply"),
-        );
+        .catch((saveError: unknown) => {
+          deps.logger.error({ err: saveError }, "Failed to save a failed reply");
+          return undefined;
+        });
       if (run.runId)
         await deps.service.setRunStatus(actor, run.runId, "cancelled").catch(() => undefined);
-      if (content) await run.after?.().catch(() => undefined);
-      return;
-    }
-    const { code, message } = publicError(error);
-    if (!(error instanceof AiError)) deps.logger.error({ err: error }, "Chat reply failed");
-    const assistantMessage = await deps.service
-      .finishReply(actor, run.messageId, {
-        content,
-        status: "error",
-        errorCode: code,
-        toolCalls: finalToolCalls(),
-        activity: settle(activity, "failed"),
-        sources: markCited(run.sources, content),
-      })
-      .catch((saveError: unknown) => {
-        deps.logger.error({ err: saveError }, "Failed to save a failed reply");
-        return undefined;
+      stream.send({
+        type: "error",
+        code,
+        message,
+        ...(assistantMessage ? { assistantMessage } : {}),
       });
-    if (run.runId)
-      await deps.service.setRunStatus(actor, run.runId, "cancelled").catch(() => undefined);
-    stream.send({
-      type: "error",
-      code,
-      message,
-      ...(assistantMessage ? { assistantMessage } : {}),
-    });
-    await run.after?.().catch(() => undefined);
+      await run.after?.().catch(() => undefined);
+    }
   }
 }
 

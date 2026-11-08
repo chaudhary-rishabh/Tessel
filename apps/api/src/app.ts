@@ -27,6 +27,14 @@ import { createChatRouter } from "./modules/chat/chat.routes";
 import { createChatService } from "./modules/chat/chat.service";
 import { createDocumentsController } from "./modules/documents/documents.controller";
 import { createDocumentsRouter } from "./modules/documents/documents.routes";
+import {
+  createConnectorCallbackRouter,
+  createConnectorsRouter,
+} from "./modules/connectors/connectors.routes";
+import {
+  createConnectorsService,
+  type ConnectorsSettings,
+} from "./modules/connectors/connectors.service";
 import { createSkillsRouter } from "./modules/skills/skills.routes";
 import { createSkillsService } from "./modules/skills/skills.service";
 import { createDocumentsService } from "./modules/documents/documents.service";
@@ -52,6 +60,8 @@ export interface AppDependencies {
   /** Qdrant: document chunks for search. */
   vectorIndex: VectorIndex;
   readinessChecks: DependencyCheckFn[];
+  /** MCP connectors: the catalog, credential encryption, and OAuth redirects. */
+  connectors: ConnectorsSettings;
   /** Rate limit storage per limiter. Defaults to in-memory (single instance only). */
   rateLimitStoreFactory?: RateLimitStoreFactory;
   /** Override for tests, which use cheaper hashing settings. */
@@ -68,6 +78,7 @@ export function createApp({
   storage,
   vectorIndex,
   readinessChecks,
+  connectors,
   rateLimitStoreFactory,
   passwordHasher = createPasswordHasher(),
 }: AppDependencies): Express {
@@ -140,9 +151,11 @@ export function createApp({
   });
   const documentsController = createDocumentsController(documentsService);
   const skillsService = createSkillsService({ db, ai });
+  const connectorsService = createConnectorsService({ db, logger, settings: connectors });
   const chatController = createChatController({
     documents: documentsService,
     skills: skillsService,
+    connectors: connectorsService,
     service: createChatService({ db, ai, logger, objects: storage.objects }),
     ai,
     rag: createRagPipeline({ ai, index: vectorIndex, logger }),
@@ -211,6 +224,11 @@ export function createApp({
     "/workspaces/:workspaceId/skills",
     createSkillsRouter({ service: skillsService, authenticate }),
   );
+  app.use(
+    "/workspaces/:workspaceId/connectors",
+    createConnectorsRouter({ service: connectorsService, authenticate }),
+  );
+  app.use("/connectors", createConnectorCallbackRouter({ service: connectorsService }));
   app.use("/models", createModelsRouter({ controller: aiController, authenticate }));
 
   app.use(notFoundHandler);

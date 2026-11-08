@@ -1,0 +1,23 @@
+{
+  "name": "@tessel/mcp",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./testing": "./src/testing/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "mock-server": "tsx src/testing/mock-server-cli.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "@tessel/ai": "workspace:*",
+    "@tessel/logger": "workspace:*",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@tessel/config": "workspace:*"
+  }
+}

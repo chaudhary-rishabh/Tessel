@@ -1,7 +1,12 @@
 "use client";
 
 import type {
+  ConnectorConnection,
+  ConnectorListResponse,
+  CreateConnectionRequest,
+  CreateConnectionResponse,
   CreateSkillRequest,
+  UpdateConnectionRequest,
   DocumentSummary,
   Skill,
   UpdateSkillRequest,
@@ -37,6 +42,7 @@ export const queryKeys = {
   models: ["models"] as const,
   documents: (workspaceId: string) => ["workspaces", workspaceId, "documents"] as const,
   skills: (workspaceId: string) => ["workspaces", workspaceId, "skills"] as const,
+  connectors: (workspaceId: string) => ["workspaces", workspaceId, "connectors"] as const,
   threads: (workspaceId: string) => ["workspaces", workspaceId, "threads"] as const,
   thread: (workspaceId: string, threadId: string) =>
     ["workspaces", workspaceId, "threads", threadId] as const,
@@ -277,6 +283,92 @@ export function useDeleteSkill(workspaceId: string) {
     onSuccess: (_result, skillId) =>
       queryClient.setQueryData<Skill[]>(queryKeys.skills(workspaceId), (current) =>
         current?.filter((skill) => skill.id !== skillId),
+      ),
+  });
+}
+
+export function useConnectors(workspaceId: string | undefined) {
+  const api = useApi();
+  return useQuery({
+    queryKey: queryKeys.connectors(workspaceId ?? "none"),
+    queryFn: () => api.connectors.list(workspaceId!),
+    enabled: Boolean(workspaceId),
+  });
+}
+
+function putConnection(
+  current: ConnectorListResponse | undefined,
+  connection: ConnectorConnection,
+): ConnectorListResponse | undefined {
+  if (!current) return current;
+  const exists = current.connections.some((item) => item.id === connection.id);
+  return {
+    ...current,
+    connections: exists
+      ? current.connections.map((item) => (item.id === connection.id ? connection : item))
+      : [...current.connections, connection],
+  };
+}
+
+export function useCreateConnection(workspaceId: string) {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<CreateConnectionResponse, ApiClientError, CreateConnectionRequest>({
+    mutationFn: (input) => api.connectors.create(workspaceId, input),
+    onSuccess: ({ connection }) =>
+      queryClient.setQueryData<ConnectorListResponse>(
+        queryKeys.connectors(workspaceId),
+        (current) => putConnection(current, connection),
+      ),
+  });
+}
+
+export function useRefreshConnection(workspaceId: string) {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<CreateConnectionResponse, ApiClientError, string>({
+    mutationFn: (connectionId) => api.connectors.refresh(workspaceId, connectionId),
+    onSuccess: ({ connection }) =>
+      queryClient.setQueryData<ConnectorListResponse>(
+        queryKeys.connectors(workspaceId),
+        (current) => putConnection(current, connection),
+      ),
+  });
+}
+
+export function useUpdateConnection(workspaceId: string) {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<
+    ConnectorConnection,
+    ApiClientError,
+    { connectionId: string; input: UpdateConnectionRequest }
+  >({
+    mutationFn: ({ connectionId, input }) =>
+      api.connectors.update(workspaceId, connectionId, input),
+    onSuccess: (connection) =>
+      queryClient.setQueryData<ConnectorListResponse>(
+        queryKeys.connectors(workspaceId),
+        (current) => putConnection(current, connection),
+      ),
+  });
+}
+
+export function useDeleteConnection(workspaceId: string) {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<void, ApiClientError, string>({
+    mutationFn: (connectionId) => api.connectors.remove(workspaceId, connectionId),
+    onSuccess: (_result, connectionId) =>
+      queryClient.setQueryData<ConnectorListResponse>(
+        queryKeys.connectors(workspaceId),
+        (current) =>
+          current
+            ? {
+                ...current,
+                connections: current.connections.filter((item) => item.id !== connectionId),
+              }
+            : current,
       ),
   });
 }

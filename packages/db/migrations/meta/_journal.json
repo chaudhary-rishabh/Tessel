@@ -71,6 +71,13 @@
       "when": 1794172317411,
       "tag": "0009_skills",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1794173021569,
+      "tag": "0010_connectors",
+      "breakpoints": true
     }
   ]
 }

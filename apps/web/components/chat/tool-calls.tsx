@@ -132,6 +132,16 @@ export function ToolCallList({ calls }: { calls: ToolCallView[] }) {
   );
 }
 
+const lowerFirst = (text: string) => text.charAt(0).toLowerCase() + text.slice(1);
+
+/** "Create a document" → "Allow Tessel to create a document?"; "GitHub: Create issue" → "…create issue in GitHub?" */
+export function approvalQuestion(title: string): string {
+  const app = /^(.+?): (.+)$/.exec(title);
+  return app
+    ? `Allow Tessel to ${lowerFirst(app[2]!)} in ${app[1]}?`
+    : `Allow Tessel to ${lowerFirst(title)}?`;
+}
+
 /**
  * Asks the user to allow an action that changes the workspace. Nothing
  * happens until they choose; a new message instead cancels it.
@@ -162,7 +172,7 @@ export function ApprovalCard({
         <Hand className="text-accent mt-0.5 size-5 shrink-0" aria-hidden />
         <div className="flex min-w-0 flex-col gap-1">
           <h2 id={headingId} className="font-semibold">
-            Allow Tessel to {call.title.charAt(0).toLowerCase() + call.title.slice(1)}?
+            {approvalQuestion(call.title)}
           </h2>
           {call.description ? (
             <p className="text-muted text-sm [overflow-wrap:anywhere]">{call.description}</p>
