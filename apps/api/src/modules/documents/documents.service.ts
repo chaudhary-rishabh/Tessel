@@ -107,6 +107,37 @@ export function createDocumentsService({
       return { document: toDocument(row), upload };
     },
 
+    /**
+     * Saves text as a new document (used by the agent's create_document
+     * tool) and queues it for indexing like an upload.
+     */
+    async createFromText(actor: Actor, filename: string, text: string): Promise<DocumentSummary> {
+      const id = randomUUID();
+      const storageKey = storageKeys.documentOriginal(actor.workspaceId, id);
+      const mediaType = documentMediaType(filename);
+      const body = Buffer.from(text, "utf8");
+      await withUserContext(db, actor.userId, async (tx) => {
+        await membership(tx, actor);
+        await documentsRepository.insert(tx, {
+          id,
+          workspaceId: actor.workspaceId,
+          userId: actor.userId,
+          filename,
+          mediaType,
+          sizeBytes: body.length,
+          storageKey,
+        });
+      });
+      await objects.put(storageKey, body, mediaType);
+      const queued = await withUserContext(db, actor.userId, (tx) =>
+        documentsRepository.transition(tx, id, ["uploading"], "queued"),
+      );
+      // In AWS the put above already raised an S3 event.
+      if (uploadEvents === "api") await announce(storageKey, body.length);
+      if (!queued) throw new Error("Document disappeared while it was being created");
+      return toDocument(queued);
+    },
+
     /** Called by the browser after its upload finishes. Checks the file arrived, then queues it. */
     async complete(actor: Actor, documentId: string): Promise<DocumentSummary> {
       const row = await withUserContext(db, actor.userId, (tx) =>

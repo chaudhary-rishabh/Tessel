@@ -220,6 +220,25 @@ flowchart LR
 
 Endpoints: `GET|POST /workspaces/:workspaceId/documents`, `GET|DELETE …/documents/:documentId`, `POST …/documents/:documentId/complete`, `POST …/documents/:documentId/reprocess`, `GET …/documents/:documentId/download`, `POST /workspaces/:workspaceId/search`.
 
+## Tools and approvals
+
+```mermaid
+flowchart LR
+  model["Model step<br/>(tools bound)"] -- "no tool calls" --> done["Save reply"]
+  model -- "tool calls" --> check{"risk?"}
+  check -- "read" --> run["Run tool<br/>(as the user, 30 s limit)"]
+  run --> model
+  check -- "write / destructive" --> wait["Save checkpoint in agent_runs,<br/>reply status waiting"]
+  wait -- "Allow / Decline" --> resume["resumeAgent"]
+  resume --> model
+```
+
+- The tool registry and ReAct loop live in `@tessel/ai` (`defineTool`, `runAgent`, `resumeAgent`); the API's workspace tools are in `chat.tools.ts`: search documents, list documents, create a document, delete a document, calculate, check the time.
+- Tool calls stream as `tool` events and are saved on the reply (`messages.tool_calls`). Passages found by `search_documents` become citable sources like those from the RAG pipeline.
+- A paused reply ends its stream with `done` status `waiting`. `POST /workspaces/:workspaceId/threads/:threadId/tool-calls/:callId/decision` with `{ approved }` claims the run and streams the rest of the reply, starting with `resume`.
+- A new message in the chat cancels a waiting run. Runs are private to the chat's owner (row-level security on `agent_runs`).
+- Model steps are recorded in the ledger as feature `chat`, like any other reply step, under the reply's spend caps.
+
 ## Web app
 
 | Concern          | Approach                                                                                                                                                                                                                                                                                                                                                                        |

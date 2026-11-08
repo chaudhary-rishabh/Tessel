@@ -9,3 +9,4 @@ export * from "./spend";
 export * from "./usage";
 export { UsageCallbackHandler, usageFromMetadata } from "./usage-handler";
 export * from "./rag/index";
+export * from "./agent/index";

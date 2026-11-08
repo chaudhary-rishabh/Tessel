@@ -1,4 +1,4 @@
-import type { Attachment, ChatMessage, MessageSource } from "@tessel/contracts";
+import type { Attachment, ChatMessage, MessageSource, ToolCallView } from "@tessel/contracts";
 import { create } from "zustand";
 
 export type LiveStatus = "sending" | "streaming";
@@ -12,13 +12,15 @@ export interface LiveReply {
   /** The thread's ID, or a temporary key until the server creates the thread. */
   key: string;
   threadId: string | null;
-  userMessage: ChatMessage;
+  /** The message being answered, until the server confirms it. Null when continuing a reply. */
+  userMessage: ChatMessage | null;
   assistantMessageId: string | null;
   text: string;
   status: LiveStatus;
   /** Set while the documents are searched, before any text arrives. */
   stage: "searching" | "writing" | null;
   sources: MessageSource[];
+  toolCalls: ToolCallView[];
 }
 
 interface ChatStore {
@@ -32,6 +34,10 @@ interface ChatStore {
   ) => void;
   append: (threadId: string, text: string) => void;
   update: (threadId: string, patch: Partial<Pick<LiveReply, "stage" | "sources">>) => void;
+  /** Adds a tool call, or replaces the earlier state of the same call. */
+  tool: (threadId: string, call: ToolCallView) => void;
+  /** Continues a saved reply live, e.g. after the user approves a tool call. */
+  resume: (threadId: string, message: ChatMessage) => void;
   finish: (key: string) => void;
 }
 
@@ -56,12 +62,14 @@ export const useChatStore = create<ChatStore>()((set) => ({
             createdAt: new Date().toISOString(),
             attachments,
             sources: [],
+            toolCalls: [],
           },
           assistantMessageId: null,
           text: "",
           status: "sending",
           stage: null,
           sources: [],
+          toolCalls: [],
         },
       },
     })),
@@ -95,6 +103,33 @@ export const useChatStore = create<ChatStore>()((set) => ({
       if (!reply) return state;
       return { replies: { ...state.replies, [threadId]: { ...reply, ...patch } } };
     }),
+  tool: (threadId, call) =>
+    set((state) => {
+      const reply = state.replies[threadId];
+      if (!reply) return state;
+      const exists = reply.toolCalls.some((item) => item.id === call.id);
+      const toolCalls = exists
+        ? reply.toolCalls.map((item) => (item.id === call.id ? call : item))
+        : [...reply.toolCalls, call];
+      return { replies: { ...state.replies, [threadId]: { ...reply, toolCalls, stage: null } } };
+    }),
+  resume: (threadId, message) =>
+    set((state) => ({
+      replies: {
+        ...state.replies,
+        [threadId]: {
+          key: threadId,
+          threadId,
+          userMessage: null,
+          assistantMessageId: message.id,
+          text: message.content,
+          status: "streaming",
+          stage: null,
+          sources: message.sources,
+          toolCalls: message.toolCalls,
+        },
+      },
+    })),
   finish: (key) =>
     set((state) => {
       const { [key]: _done, ...rest } = state.replies;

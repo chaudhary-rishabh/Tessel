@@ -127,23 +127,23 @@ export function createApp({
   const usageController = createUsageController(
     createUsageService({ db, spend: ai.spend, registry: ai.registry }),
   );
+  const documentsService = createDocumentsService({
+    db,
+    ai,
+    objects: storage.objects,
+    uploads: storage.uploads,
+    uploadEvents: storage.uploadEvents,
+    index: vectorIndex,
+    logger,
+  });
+  const documentsController = createDocumentsController(documentsService);
   const chatController = createChatController({
+    documents: documentsService,
     service: createChatService({ db, ai, logger, objects: storage.objects }),
     ai,
     rag: createRagPipeline({ ai, index: vectorIndex, logger }),
     logger,
   });
-  const documentsController = createDocumentsController(
-    createDocumentsService({
-      db,
-      ai,
-      objects: storage.objects,
-      uploads: storage.uploads,
-      uploadEvents: storage.uploadEvents,
-      index: vectorIndex,
-      logger,
-    }),
-  );
   const authenticate = requireAuth(accessTokens);
 
   // Feature modules

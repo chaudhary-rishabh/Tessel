@@ -8,6 +8,7 @@ import type { LiveReply } from "@/lib/chat-store";
 import { AttachmentChip } from "./attachment-chip";
 import { SourceList } from "./citations";
 import { CopyButton, Markdown } from "./markdown";
+import { ApprovalCard, ToolCallList } from "./tool-calls";
 
 function UserMessage({ workspaceId, message }: { workspaceId: string; message: ChatMessage }) {
   return (
@@ -45,24 +46,45 @@ function Thinking({ searching = false }: { searching?: boolean }) {
   );
 }
 
+export type DecideHandler = (
+  message: ChatMessage,
+  callId: string,
+  approved: boolean,
+) => Promise<void> | void;
+
 function AssistantMessage({
   message,
   streaming,
   searching,
   modelLabel,
+  onDecide,
 }: {
-  message: Pick<ChatMessage, "content" | "status" | "errorCode" | "sources">;
+  message: Pick<ChatMessage, "content" | "status" | "errorCode" | "sources" | "toolCalls">;
   streaming?: boolean;
   searching?: boolean;
   modelLabel?: string | undefined;
+  onDecide?: ((callId: string, approved: boolean) => Promise<void> | void) | undefined;
 }) {
   const hasText = message.content.length > 0;
+  const pending =
+    message.status === "waiting"
+      ? message.toolCalls.find((call) => call.status === "waiting")
+      : undefined;
+  // While a step runs, its row shows progress; the dots are for before anything happens.
+  const busy = message.toolCalls.some((call) => call.status === "running");
   return (
     <div className="group flex flex-col gap-1.5" aria-busy={streaming || undefined}>
+      <ToolCallList calls={message.toolCalls} />
       {hasText ? (
         <Markdown text={message.content} sources={message.sources} />
-      ) : streaming ? (
+      ) : streaming && !busy ? (
         <Thinking searching={searching ?? false} />
+      ) : null}
+      {pending ? (
+        <ApprovalCard
+          call={pending}
+          onDecide={onDecide ? (approved) => onDecide(pending.id, approved) : undefined}
+        />
       ) : null}
       {!streaming ? <SourceList sources={message.sources} /> : null}
       {message.status === "error" ? (
@@ -90,16 +112,20 @@ export function MessageList({
   workspaceId,
   messages,
   live,
+  onDecide,
 }: {
   workspaceId: string;
   messages: ChatMessage[];
   live?: LiveReply | undefined;
+  /** Approves or declines the action a reply is waiting on. */
+  onDecide?: DecideHandler | undefined;
 }) {
   const models = useModels();
   const labelFor = (id: string | null) =>
     models.data?.models.find((model) => model.id === id)?.label;
   // Until the server confirms, the user's message is shown from the live reply.
-  const pendingUser = live && live.status === "sending" ? live.userMessage : undefined;
+  const pendingUser =
+    live && live.status === "sending" ? (live.userMessage ?? undefined) : undefined;
 
   return (
     <ol className="flex flex-col gap-8" aria-label="Messages">
@@ -108,7 +134,16 @@ export function MessageList({
           {message.role === "user" ? (
             <UserMessage workspaceId={workspaceId} message={message} />
           ) : (
-            <AssistantMessage message={message} modelLabel={labelFor(message.modelId)} />
+            <AssistantMessage
+              message={message}
+              modelLabel={labelFor(message.modelId)}
+              // Only one decision at a time, and not while another reply streams.
+              onDecide={
+                onDecide && !live
+                  ? (callId, approved) => onDecide(message, callId, approved)
+                  : undefined
+              }
+            />
           )}
         </li>
       ))}
@@ -125,6 +160,7 @@ export function MessageList({
               status: "streaming",
               errorCode: null,
               sources: live.sources,
+              toolCalls: live.toolCalls,
             }}
             streaming
             searching={live.stage === "searching"}
