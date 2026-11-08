@@ -37,4 +37,4 @@ createServer((req, res) => {
     return;
   }
   reply(404, { message: "Not found" });
-}).listen(port, () => console.log(`Mock SES listening on ${port}`));
+}).listen(port, () => process.stdout.write(`Mock SES listening on ${port}\n`));
