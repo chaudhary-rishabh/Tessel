@@ -1,0 +1,25 @@
+{
+  "name": "@tessel/worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --clear-screen=false src/worker.ts",
+    "build": "tsdown",
+    "start": "node dist/worker.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@tessel/config": "workspace:*",
+    "@tessel/logger": "workspace:*",
+    "@tessel/queue": "workspace:*",
+    "bullmq": "^6.7.2",
+    "dotenv": "^18.0.9",
+    "ioredis": "^5.11.1",
+    "pino": "^10.4.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "tsdown": "^0.23.7"
+  }
+}
