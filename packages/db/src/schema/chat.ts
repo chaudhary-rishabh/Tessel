@@ -70,6 +70,12 @@ export const threads = pgTable(
     title: text("title"),
     /** The model the last reply used; new replies default to it. */
     modelId: text("model_id").notNull(),
+    /** Summary memory: a running summary of turns too old to send in full. */
+    summary: text("summary"),
+    /** The last message the summary covers. */
+    summaryThrough: timestamp("summary_through", { withTimezone: true }),
+    /** The last message long-term memory has looked at. */
+    memoryThrough: timestamp("memory_through", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     /** Last activity, for ordering the chat list. */
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

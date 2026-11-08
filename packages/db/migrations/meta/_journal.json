@@ -85,6 +85,13 @@
       "when": 1794173722903,
       "tag": "0011_access_tokens",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1794174322100,
+      "tag": "0012_memory",
+      "breakpoints": true
     }
   ]
 }
