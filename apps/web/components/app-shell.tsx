@@ -1,7 +1,7 @@
 "use client";
 
 import { Button, cn, Sheet } from "@tessel/ui";
-import { FileText, Menu, MessageSquare, Settings, SquarePen } from "lucide-react";
+import { FileText, Menu, MessageSquare, Settings, Sparkles, SquarePen } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, type ReactNode } from "react";
@@ -13,6 +13,7 @@ import { WorkspaceSwitcher } from "./workspace-switcher";
 const NAV = [
   { href: "/chat", label: "Chat", icon: MessageSquare },
   { href: "/documents", label: "Documents", icon: FileText },
+  { href: "/skills", label: "Skills", icon: Sparkles },
   { href: "/settings", label: "Settings", icon: Settings },
 ] as const;
 
