@@ -1,0 +1,4 @@
+{
+  "extends": "@tessel/config/tsconfig/base.json",
+  "include": ["src"]
+}
