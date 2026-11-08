@@ -7,11 +7,13 @@
     "dev": "tsx watch --clear-screen=false src/server.ts",
     "build": "tsdown",
     "start": "node dist/server.mjs",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "mock-oauth": "tsx src/testing/mock-oauth-cli.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1164.0",
     "@aws-sdk/client-sesv2": "^3.1164.0",
+    "@aws-sdk/client-sns": "^3.1164.0",
     "@aws-sdk/client-sqs": "^3.1164.0",
     "@aws-sdk/s3-request-presigner": "^3.1164.0",
     "@langchain/anthropic": "^1.6.1",

@@ -16,6 +16,7 @@ import { createLogger } from "@tessel/logger";
 import { memoryGraphStore } from "@tessel/graph";
 import { createSecretBox } from "@tessel/mcp";
 import { createOutboxMailer } from "../src/lib/mailer";
+import { createOutboxSms } from "../src/lib/sms";
 import { memoryEpisodeIndex, type ThreadMemoryJob } from "@tessel/memory";
 import type { Express } from "express";
 import request from "supertest";
@@ -147,6 +148,7 @@ export function createTestApp(
     readinessChecks: [],
     connectors: testConnectors(),
     mailer: testOutbox,
+    signIn: { apiPublicUrl: "http://localhost:4000", sms: testSms },
     memory: { episodes: memoryEpisodeIndex(), queue: recordingMemoryQueue() },
     graph: memoryGraphStore(),
     passwordHasher: fastHasher,
@@ -173,6 +175,16 @@ export function findRefreshCookie(setCookie: string[] | string | undefined): str
 
 /** The emails every test app sends (signup codes, reset links). */
 export const testOutbox = createOutboxMailer();
+
+/** The texts every test app sends (phone sign-in codes). */
+export const testSms = createOutboxSms();
+
+/** The newest six-digit code texted to a number. */
+export function textedCode(phone: string): string {
+  const code = /\b(\d{6})\b/.exec(testSms.latest(phone)?.text ?? "")?.[1];
+  if (!code) throw new Error(`No code was texted to ${phone}`);
+  return code;
+}
 
 /** The newest six-digit code emailed to an address. */
 export function emailedCode(email: string): string {

@@ -1,4 +1,13 @@
 import {
+  identityListResponseSchema,
+  oauthLinkResponseSchema,
+  phoneCodeSentResponseSchema,
+  signInOptionsSchema,
+  type Identity,
+  type IdentityProvider,
+  type PhoneCodeSentResponse,
+  type PhoneVerifyRequest,
+  type SignInOptions,
   authResponseSchema,
   loginResponseSchema,
   recoveryCodesResponseSchema,
@@ -100,6 +109,20 @@ export function createApi(client: ApiClient) {
       /** A session, or a request for the second sign-in step. */
       login: async (input: LoginRequest): Promise<LoginResponse> =>
         parse(loginResponseSchema, (await http.post("/auth/login", input)).data),
+      options: async (): Promise<SignInOptions> =>
+        parse(signInOptionsSchema, (await http.get("/auth/options")).data),
+      /** Where the browser goes to sign in with Google or GitHub (a full-page navigation). */
+      oauthStartUrl: (provider: IdentityProvider, next?: string): string => {
+        const url = new URL(`/auth/oauth/${provider}/start`, client.baseURL);
+        if (next) url.searchParams.set("next", next);
+        return url.toString();
+      },
+      exchangeTicket: async (ticket: string): Promise<LoginResponse> =>
+        parse(loginResponseSchema, (await http.post("/auth/oauth/exchange", { ticket })).data),
+      startPhoneSignIn: async (phone: string): Promise<PhoneCodeSentResponse> =>
+        parse(phoneCodeSentResponseSchema, (await http.post("/auth/phone/start", { phone })).data),
+      verifyPhoneSignIn: async (input: PhoneVerifyRequest): Promise<LoginResponse> =>
+        parse(loginResponseSchema, (await http.post("/auth/phone/verify", input)).data),
       completeTwoFactor: async (input: TwoFactorLoginRequest): Promise<AuthResponse> =>
         parse(authResponseSchema, (await http.post("/auth/login/two-factor", input)).data),
       forgotPassword: async (email: string): Promise<void> => {
@@ -123,6 +146,20 @@ export function createApi(client: ApiClient) {
         parse(publicUserSchema, (await http.get("/users/me")).data),
       changePassword: async (input: ChangePasswordRequest): Promise<AuthResponse> =>
         parse(authResponseSchema, (await http.post("/users/me/password", input)).data),
+      identities: async (): Promise<Identity[]> =>
+        parse(identityListResponseSchema, (await http.get("/users/me/identities")).data).identities,
+      /** The provider URL to send the browser to; the callback links the account. */
+      linkIdentity: async (provider: IdentityProvider): Promise<string> =>
+        parse(oauthLinkResponseSchema, (await http.post(`/auth/oauth/${provider}/link`)).data).url,
+      unlinkIdentity: async (provider: IdentityProvider): Promise<void> => {
+        await http.delete(`/users/me/identities/${provider}`);
+      },
+      addPhone: async (phone: string): Promise<PhoneCodeSentResponse> =>
+        parse(phoneCodeSentResponseSchema, (await http.post("/users/me/phone", { phone })).data),
+      confirmPhone: async (input: PhoneVerifyRequest): Promise<PublicUser> =>
+        parse(publicUserSchema, (await http.post("/users/me/phone/verify", input)).data),
+      removePhone: async (): Promise<PublicUser> =>
+        parse(publicUserSchema, (await http.delete("/users/me/phone")).data),
       twoFactor: {
         setup: async (): Promise<TwoFactorSetupResponse> =>
           parse(twoFactorSetupResponseSchema, (await http.post("/users/me/two-factor/setup")).data),

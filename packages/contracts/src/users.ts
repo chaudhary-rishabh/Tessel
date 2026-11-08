@@ -27,7 +27,23 @@ export const publicUserSchema = z.object({
   twoFactorEnabled: z.boolean(),
   /** False for accounts that only sign in with Google, GitHub, or a phone. */
   hasPassword: z.boolean(),
+  /** A verified mobile number for signing in with a text code. */
+  phone: z.string().nullable(),
 });
+
+/**
+ * A mobile number in international (E.164) form. Spaces, dashes, dots, and
+ * brackets are dropped, so "+91 98765-43210" becomes "+919876543210".
+ */
+export const phoneSchema = z
+  .string()
+  .trim()
+  .transform((value) => value.replace(/[\s().-]/g, ""))
+  .pipe(
+    z
+      .string()
+      .regex(/^\+[1-9]\d{7,14}$/, "Enter the number with its country code, like +91 98765 43210"),
+  );
 
 export const changePasswordRequestSchema = z.object({
   currentPassword: z.string().min(1, "Current password is required").max(128),

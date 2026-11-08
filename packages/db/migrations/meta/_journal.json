@@ -106,6 +106,13 @@
       "when": 1794176282636,
       "tag": "0014_account_security",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1794178113912,
+      "tag": "0015_sign_in_methods",
+      "breakpoints": true
     }
   ]
 }

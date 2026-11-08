@@ -1,0 +1,17 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "SendTextMessages",
+      "Effect": "Allow",
+      "Action": ["sns:Publish"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "NoTopicPublishing",
+      "Effect": "Deny",
+      "Action": ["sns:Publish"],
+      "Resource": "arn:aws:sns:*:*:*"
+    }
+  ]
+}

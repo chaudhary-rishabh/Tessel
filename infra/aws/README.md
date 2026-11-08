@@ -111,6 +111,21 @@ Tessel emails signup codes, password reset links, and security notices through S
 
 The instance role's `SendEmail` statement only allows mail from identities in this account.
 
+### Optional: Google and GitHub sign-in
+
+"Continue with Google" and "Continue with GitHub" appear once their OAuth apps are set (section 5). Each callback URL is on the API domain.
+
+- **Google:** in Google Cloud Console, open **APIs & Services → Credentials → Create credentials → OAuth client ID**, type **Web application**. Authorized redirect URI: `https://api.example.com/auth/oauth/google/callback`. Configure the consent screen with the scopes `openid`, `email`, and `profile`, and publish it. Store `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
+- **GitHub:** in **Settings → Developer settings → OAuth Apps → New OAuth App**, set the callback URL to `https://api.example.com/auth/oauth/github/callback`. Store `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`. This is a different app from the GitHub connector's (`GITHUB_MCP_CLIENT_ID`).
+
+### Optional: sign-in by text message (Amazon SNS)
+
+Phone sign-in stays hidden until `SMS_TRANSPORT=sns` is set.
+
+1. Attach [`iam/ec2-sms-policy.json`](iam/ec2-sms-policy.json) to the `tessel-ec2` role as a second inline policy. It allows texting phone numbers and nothing else (publishing to topics is denied).
+2. New accounts are in the SMS sandbox, which only texts verified numbers. In the SNS console, open **Text messaging (SMS)** and request production access, and raise the monthly spending limit from its 1 USD default.
+3. Indian numbers need DLT registration: register your business and a template such as `{#var#} is your Tessel sign-in code. It expires in 10 minutes. Don't share it.`, then store `SMS_DLT_ENTITY_ID`, `SMS_DLT_TEMPLATE_ID`, and the registered `SMS_SENDER_ID`. Tessel sends two texts (sign-in and confirming a number); register both wordings from `apps/api/src/lib/sms.ts`.
+
 ## 4. EC2 host
 
 1. Create an IAM role for EC2 named `tessel-ec2` with:

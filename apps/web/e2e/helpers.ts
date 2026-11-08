@@ -47,6 +47,25 @@ export async function latestEmail(
   return found!;
 }
 
+/** The newest six-digit code texted to a number, from the development outbox. */
+export async function latestTextedCode(page: Page, phone: string): Promise<string> {
+  let code: string | undefined;
+  await expect
+    .poll(
+      async () => {
+        const response = await page.request.get(
+          `${API_URL}/dev/outbox?to=${encodeURIComponent(phone)}`,
+        );
+        const { texts } = (await response.json()) as { texts: { text: string }[] };
+        code = /\b(\d{6})\b/.exec(texts.at(-1)?.text ?? "")?.[1];
+        return Boolean(code);
+      },
+      { message: `a text to ${phone}` },
+    )
+    .toBe(true);
+  return code!;
+}
+
 /** Signs up the way a person does: fill in the form, then enter the emailed code. */
 export async function signUp(page: Page, { name = "Ada Lovelace", email = uniqueEmail() } = {}) {
   await page.goto("/signup");

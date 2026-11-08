@@ -1,6 +1,10 @@
 "use client";
 
 import type {
+  Identity,
+  IdentityProvider,
+  PhoneVerifyRequest,
+  PublicUser,
   DisableTwoFactorRequest,
   Session,
   TwoFactorSetupResponse,
@@ -47,6 +51,8 @@ export function useApi(): Api {
 export const queryKeys = {
   me: ["users", "me"] as const,
   sessions: ["auth", "sessions"] as const,
+  signInOptions: ["auth", "options"] as const,
+  identities: ["users", "me", "identities"] as const,
   workspaces: ["workspaces"] as const,
   workspace: (id: string) => ["workspaces", id] as const,
   models: ["models"] as const,
@@ -521,6 +527,50 @@ export function useTwoFactorActions() {
     }),
     regenerate: useMutation<string[], ApiClientError, string>({
       mutationFn: (code) => api.users.twoFactor.regenerateRecoveryCodes(code),
+    }),
+  };
+}
+
+export function useSignInOptions() {
+  const api = useApi();
+  return useQuery({
+    queryKey: queryKeys.signInOptions,
+    queryFn: api.auth.options,
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useIdentities() {
+  const api = useApi();
+  return useQuery({ queryKey: queryKeys.identities, queryFn: api.users.identities });
+}
+
+export function useUnlinkIdentity() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<void, ApiClientError, IdentityProvider>({
+    mutationFn: (provider) => api.users.unlinkIdentity(provider),
+    onSuccess: (_result, provider) =>
+      queryClient.setQueryData<Identity[]>(queryKeys.identities, (current) =>
+        current?.filter((identity) => identity.provider !== provider),
+      ),
+  });
+}
+
+/** Adding, confirming, and removing the phone number used for signing in. */
+export function usePhoneActions() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  const setMe = (user: PublicUser) => queryClient.setQueryData(queryKeys.me, user);
+  return {
+    add: useMutation({ mutationFn: (phone: string) => api.users.addPhone(phone) }),
+    confirm: useMutation<PublicUser, ApiClientError, PhoneVerifyRequest>({
+      mutationFn: (input) => api.users.confirmPhone(input),
+      onSuccess: setMe,
+    }),
+    remove: useMutation<PublicUser, ApiClientError, void>({
+      mutationFn: () => api.users.removePhone(),
+      onSuccess: setMe,
     }),
   };
 }

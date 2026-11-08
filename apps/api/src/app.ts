@@ -6,7 +6,9 @@ import cookieParser from "cookie-parser";
 import cors from "cors";
 import type { GraphStore } from "@tessel/graph";
 import { createMemoryStore, type EpisodeIndex } from "@tessel/memory";
+import type { IdentityProvider } from "@tessel/contracts";
 import type { Mailer, OutboxMailer } from "./lib/mailer";
+import type { OutboxSms, SmsSender } from "./lib/sms";
 import express, { type Express } from "express";
 import helmet from "helmet";
 import type { AppConfig } from "./config";
@@ -48,6 +50,10 @@ import { createMemoryService, type MemoryQueue } from "./modules/memory/memory.s
 import { createGraphRouter } from "./modules/graph/graph.routes";
 import { createGraphService } from "./modules/graph/graph.service";
 import { createTwoFactorService } from "./modules/auth/two-factor.service";
+import { createPhoneService } from "./modules/auth/phone.service";
+import { createSignInMethodsRouter, createSignInRouter } from "./modules/auth/sign-in.routes";
+import type { SocialProvider } from "./modules/auth/social-providers";
+import { createSocialService } from "./modules/auth/social.service";
 import { createSkillsRouter } from "./modules/skills/skills.routes";
 import { createSkillsService } from "./modules/skills/skills.service";
 import { createDocumentsService } from "./modules/documents/documents.service";
@@ -79,6 +85,14 @@ export interface AppDependencies {
   memory: { episodes: EpisodeIndex; queue: MemoryQueue };
   /** Sends account emails: signup codes, password resets, security notices. */
   mailer: Mailer;
+  /** Other ways to sign in. Each is off when its part is missing. */
+  signIn?: {
+    /** Where browsers reach the API, for the Google and GitHub callbacks. */
+    apiPublicUrl: string;
+    providers?: Partial<Record<IdentityProvider, SocialProvider>>;
+    /** Texts sign-in codes; without it, phone sign-in is off. */
+    sms?: SmsSender | undefined;
+  };
   /** MCP connectors: the catalog, credential encryption, and OAuth redirects. */
   connectors: ConnectorsSettings;
   /** Rate limit storage per limiter. Defaults to in-memory (single instance only). */
@@ -101,6 +115,7 @@ export function createApp({
   memory,
   graph,
   mailer,
+  signIn = { apiPublicUrl: "http://localhost:4000" },
   rateLimitStoreFactory,
   passwordHasher = createPasswordHasher(),
 }: AppDependencies): Express {
@@ -166,6 +181,24 @@ export function createApp({
     mailer,
     logger,
   });
+  const socialService = createSocialService({
+    db,
+    logger,
+    box: connectors.box,
+    mailer,
+    providers: signIn.providers ?? {},
+    callbackUrl: (provider) =>
+      new URL(`/auth/oauth/${provider}/callback`, signIn.apiPublicUrl).toString(),
+    webOrigin: config.corsOrigins[0]!,
+    beginSession: authService.beginSession,
+  });
+  const phoneService = createPhoneService({
+    db,
+    logger,
+    sms: signIn.sms,
+    mailer,
+    beginSession: authService.beginSession,
+  });
   const usersService = createUsersService({ db });
   const workspacesService = createWorkspacesService({ db });
   const aiController = createAiController(createAiService({ db, ai }));
@@ -213,6 +246,29 @@ export function createApp({
   const authenticate = requireAuth(accessTokens, accessTokensService.resolve);
 
   // Feature modules
+  app.use(
+    "/auth",
+    createSignInRouter({
+      social: socialService,
+      phone: phoneService,
+      refreshCookie,
+      authenticate,
+      cookieSecure: config.auth.cookieSecure,
+      rateLimits: config.rateLimits,
+      storeFactory: rateLimitStoreFactory,
+      allowedOrigins: config.corsOrigins,
+    }),
+  );
+  app.use(
+    "/users/me",
+    createSignInMethodsRouter({
+      social: socialService,
+      phone: phoneService,
+      authenticate,
+      rateLimits: config.rateLimits,
+      storeFactory: rateLimitStoreFactory,
+    }),
+  );
   app.use(
     "/auth",
     createAuthRouter({
@@ -292,13 +348,17 @@ export function createApp({
   );
   app.use("/access-tokens", createCurrentTokenRouter({ db, authenticate }));
   app.use("/connectors", createConnectorCallbackRouter({ service: connectorsService }));
-  // Development only: read emails the outbox mailer kept (signup codes, reset links).
-  if (!config.isProduction && "messages" in mailer) {
-    const outbox = mailer as OutboxMailer;
+  // Development only: read the emails and texts the outboxes kept (codes, reset links).
+  if (!config.isProduction) {
+    const emailOutbox = "messages" in mailer ? (mailer as OutboxMailer) : undefined;
+    const smsOutbox =
+      signIn.sms && "messages" in signIn.sms ? (signIn.sms as OutboxSms) : undefined;
     app.get("/dev/outbox", (req, res) => {
       const to = typeof req.query.to === "string" ? req.query.to.toLowerCase() : undefined;
+      const matches = (message: { to: string }) => !to || message.to.toLowerCase() === to;
       res.json({
-        messages: outbox.messages.filter((message) => !to || message.to === to).slice(-20),
+        messages: (emailOutbox?.messages ?? []).filter(matches).slice(-20),
+        texts: (smsOutbox?.messages ?? []).filter(matches).slice(-20),
       });
     });
   }

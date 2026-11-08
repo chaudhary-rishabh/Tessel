@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { CodeForm } from "@/components/auth/code-form";
+import { SocialButtons } from "@/components/auth/social-buttons";
 import { FormError } from "@/components/form-error";
 import { useResendSignup, useSignup, useVerifySignup } from "@/hooks/use-auth";
 import { applyApiError } from "@/lib/form-errors";
@@ -37,6 +38,8 @@ export default function SignupPage() {
     <>
       <h1 className="text-3xl font-semibold tracking-tight">Create your account</h1>
       <p className="text-muted mt-2">You&apos;ll get a personal workspace to start in.</p>
+
+      <SocialButtons />
 
       <form onSubmit={onSubmit} noValidate className="mt-8 flex flex-col gap-5">
         <FormError message={errors.root?.server?.message} />

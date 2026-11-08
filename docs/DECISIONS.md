@@ -314,3 +314,15 @@ A reset link is a 256-bit token stored as a hash, valid once for 30 minutes; ask
 ## D-077 Email through Amazon SES, with an outbox elsewhere
 
 Production sends with SES (`@aws-sdk/client-sesv2`) using the instance role, so no mail credentials are stored; startup refuses any other transport in production. Development and tests use an in-memory outbox that logs each message and serves it at `GET /dev/outbox?to=` (never mounted in production), which is how end-to-end tests read signup codes and reset links.
+
+## D-078 Google and GitHub through the API, handed over with a ticket
+
+The browser goes to the API's `/auth/oauth/:provider/start`, which redirects to the provider with PKCE and a random state, both kept in a cookie sealed with `ENCRYPTION_KEY`. That cookie is `SameSite=Lax` because the provider sends the browser back from its own site, where a `Strict` cookie wouldn't be sent. The callback doesn't set the session cookie itself: it redirects to the web app with a one-time, two-minute ticket in the URL fragment (so it never reaches a server log or a `Referer`), and the app exchanges it with an ordinary same-site request. That keeps the refresh cookie `Strict` and lets two-step sign-in ask for its code exactly as after a password. The redirect URL never comes from the request, and `next` must be a path in the app.
+
+## D-079 Accounts are matched by verified email
+
+A provider account is found by its stable ID first. On first sign-in it joins the Tessel account with the same email only when the provider says the email is verified (Google's `email_verified`, GitHub's verified address); otherwise sign-in is refused, since an unverified email would let anyone claim an existing account. Since signups verify their email too (D-074), both sides of the match are proven. Joining or linking emails the account owner. New accounts made this way have no password; they can set one with the reset link.
+
+## D-080 Sign-in by texted code, through SNS
+
+A number is added only after a texted code confirms it, and each number belongs to one account. Signing in by text answers the same whether or not the number has an account, and sends nothing when it doesn't. SNS sends transactional texts with the instance role; DLT IDs are passed for Indian numbers. It's off in production until `SMS_TRANSPORT=sns`, because SMS needs SNS production access and costs money per text. A text is one factor like a password, so two-step sign-in still applies after it.

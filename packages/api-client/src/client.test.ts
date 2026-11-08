@@ -21,6 +21,7 @@ function authResponse(accessToken: string): AuthResponse {
       emailVerified: true,
       twoFactorEnabled: false,
       hasPassword: true,
+      phone: null,
     },
   };
 }

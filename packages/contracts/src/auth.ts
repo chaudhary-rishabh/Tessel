@@ -1,5 +1,11 @@
 import { z } from "zod";
-import { emailSchema, passwordSchema, personNameSchema, publicUserSchema } from "./users";
+import {
+  emailSchema,
+  passwordSchema,
+  personNameSchema,
+  phoneSchema,
+  publicUserSchema,
+} from "./users";
 
 export const signupRequestSchema = z.object({
   email: emailSchema,
@@ -103,6 +109,54 @@ export const disableTwoFactorRequestSchema = z.object({
   password: z.string().max(128).optional(),
   code: oneTimeCodeSchema,
 });
+
+/** Which sign-in methods this deployment offers, for the login page. */
+export const signInOptionsSchema = z.object({
+  google: z.boolean(),
+  github: z.boolean(),
+  phone: z.boolean(),
+});
+
+export const identityProviderSchema = z.enum(["google", "github"]);
+
+/** A Google or GitHub account linked for signing in. */
+export const identitySchema = z.object({
+  provider: identityProviderSchema,
+  email: z.string(),
+  createdAt: z.iso.datetime(),
+});
+export const identityListResponseSchema = z.object({ identities: z.array(identitySchema) });
+export const identityParamsSchema = z.object({ provider: identityProviderSchema });
+
+/** Where to go after a Google or GitHub sign-in finishes. */
+export const oauthStartQuerySchema = z.object({
+  next: z
+    .string()
+    .max(500)
+    .regex(/^\/(?![/\\])/, "Must be a path in this app")
+    .optional(),
+});
+
+/** The one-time ticket the web app exchanges for a session after Google or GitHub. */
+export const oauthExchangeRequestSchema = z.object({ ticket: z.string().min(20).max(200) });
+export const oauthLinkResponseSchema = z.object({ url: z.url() });
+
+/** Sign-in and number confirmation both start by texting a code. */
+export const phoneCodeRequestSchema = z.object({ phone: phoneSchema });
+export const phoneCodeSentResponseSchema = z.object({
+  status: z.literal("code_sent"),
+  challengeId: z.uuid(),
+});
+export const phoneVerifyRequestSchema = z.object({
+  challengeId: z.uuid(),
+  code: oneTimeCodeSchema,
+});
+
+export type SignInOptions = z.infer<typeof signInOptionsSchema>;
+export type IdentityProvider = z.infer<typeof identityProviderSchema>;
+export type Identity = z.infer<typeof identitySchema>;
+export type PhoneCodeSentResponse = z.infer<typeof phoneCodeSentResponseSchema>;
+export type PhoneVerifyRequest = z.infer<typeof phoneVerifyRequestSchema>;
 
 export type SignupRequest = z.infer<typeof signupRequestSchema>;
 export type SignupStartedResponse = z.infer<typeof signupStartedResponseSchema>;

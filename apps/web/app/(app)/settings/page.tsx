@@ -2,15 +2,16 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ApiClientError } from "@tessel/api-client";
-import { useRenameWorkspace } from "@tessel/api-client/react";
+import { useMe, useRenameWorkspace } from "@tessel/api-client/react";
 import { changePasswordRequestSchema, updateWorkspaceRequestSchema } from "@tessel/contracts";
 import { Button, TextField } from "@tessel/ui";
-import { useEffect, useState, type ReactNode } from "react";
+import { Suspense, useEffect, useState, type ReactNode } from "react";
 import { useForm } from "react-hook-form";
 import { FormError, FormSuccess } from "@/components/form-error";
 import { AccessTokensSection } from "@/components/settings/access-tokens-section";
 import { MemorySection } from "@/components/settings/memory-section";
 import { SessionsSection } from "@/components/settings/sessions-section";
+import { SignInMethodsSection } from "@/components/settings/sign-in-methods-section";
 import { TwoFactorSection } from "@/components/settings/two-factor-section";
 import { UsageSection } from "@/components/settings/usage-section";
 import { useChangePassword } from "@/hooks/use-auth";
@@ -153,6 +154,7 @@ function UsageSettings() {
 }
 
 function PasswordSection() {
+  const me = useMe();
   const changePassword = useChangePassword();
   const [saved, setSaved] = useState<string>();
   const form = useForm({
@@ -175,6 +177,9 @@ function PasswordSection() {
       applyApiError(error, form.setError, ["currentPassword", "newPassword"]);
     }
   });
+
+  // Accounts without a password set one from Sign-in methods instead.
+  if (me.data && !me.data.hasPassword) return null;
 
   return (
     <Section id="password" title="Password" description="Changing it logs you out everywhere else.">
@@ -237,6 +242,15 @@ function AccessTokenSettings() {
 function SecuritySettings() {
   return (
     <>
+      <Section
+        id="sign-in-methods"
+        title="Sign-in methods"
+        description="Ways you can log in to Tessel. Keep at least one."
+      >
+        <Suspense fallback={null}>
+          <SignInMethodsSection />
+        </Suspense>
+      </Section>
       <Section
         id="two-factor"
         title="Two-step sign-in"
