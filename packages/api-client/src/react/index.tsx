@@ -1,6 +1,9 @@
 "use client";
 
 import type {
+  Memory,
+  MemoryResponse,
+  UpdateMemorySettingsRequest,
   AccessToken,
   CreateAccessTokenRequest,
   CreateAccessTokenResponse,
@@ -47,6 +50,7 @@ export const queryKeys = {
   skills: (workspaceId: string) => ["workspaces", workspaceId, "skills"] as const,
   connectors: (workspaceId: string) => ["workspaces", workspaceId, "connectors"] as const,
   accessTokens: (workspaceId: string) => ["workspaces", workspaceId, "access-tokens"] as const,
+  memory: (workspaceId: string) => ["workspaces", workspaceId, "memory"] as const,
   threads: (workspaceId: string) => ["workspaces", workspaceId, "threads"] as const,
   thread: (workspaceId: string, threadId: string) =>
     ["workspaces", workspaceId, "threads", threadId] as const,
@@ -408,4 +412,60 @@ export function useRevokeAccessToken(workspaceId: string) {
         current?.filter((token) => token.id !== tokenId),
       ),
   });
+}
+
+export function useMemory(workspaceId: string | undefined) {
+  const api = useApi();
+  return useQuery({
+    queryKey: queryKeys.memory(workspaceId ?? "none"),
+    queryFn: () => api.memory.get(workspaceId!),
+    enabled: Boolean(workspaceId),
+  });
+}
+
+export function useMemoryActions(workspaceId: string) {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  const key = queryKeys.memory(workspaceId);
+  const patch = (update: (current: MemoryResponse) => MemoryResponse) =>
+    queryClient.setQueryData<MemoryResponse>(key, (current) =>
+      current ? update(current) : current,
+    );
+  const put = (memory: Memory) =>
+    patch((current) => ({
+      ...current,
+      memories: current.memories.some((item) => item.id === memory.id)
+        ? current.memories.map((item) => (item.id === memory.id ? memory : item))
+        : [memory, ...current.memories],
+    }));
+  return {
+    saveSettings: useMutation<
+      MemoryResponse["settings"],
+      ApiClientError,
+      UpdateMemorySettingsRequest
+    >({
+      mutationFn: (input) => api.memory.saveSettings(workspaceId, input),
+      onSuccess: (settings) => patch((current) => ({ ...current, settings })),
+    }),
+    add: useMutation<Memory, ApiClientError, string>({
+      mutationFn: (content) => api.memory.add(workspaceId, content),
+      onSuccess: put,
+    }),
+    update: useMutation<Memory, ApiClientError, { memoryId: string; content: string }>({
+      mutationFn: ({ memoryId, content }) => api.memory.update(workspaceId, memoryId, content),
+      onSuccess: put,
+    }),
+    remove: useMutation<void, ApiClientError, string>({
+      mutationFn: (memoryId) => api.memory.remove(workspaceId, memoryId),
+      onSuccess: (_result, memoryId) =>
+        patch((current) => ({
+          ...current,
+          memories: current.memories.filter((item) => item.id !== memoryId),
+        })),
+    }),
+    clear: useMutation<void, ApiClientError, void>({
+      mutationFn: () => api.memory.clear(workspaceId),
+      onSuccess: () => patch((current) => ({ ...current, memories: [] })),
+    }),
+  };
 }

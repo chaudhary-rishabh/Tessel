@@ -9,6 +9,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useForm } from "react-hook-form";
 import { FormError, FormSuccess } from "@/components/form-error";
 import { AccessTokensSection } from "@/components/settings/access-tokens-section";
+import { MemorySection } from "@/components/settings/memory-section";
 import { UsageSection } from "@/components/settings/usage-section";
 import { useChangePassword } from "@/hooks/use-auth";
 import { useCurrentWorkspace } from "@/hooks/use-current-workspace";
@@ -203,6 +204,20 @@ function PasswordSection() {
   );
 }
 
+function MemorySettings() {
+  const { current } = useCurrentWorkspace();
+  if (!current) return null;
+  return (
+    <Section
+      id="memory"
+      title="Memory"
+      description="What Tessel remembers about you in this workspace. Only you can see it."
+    >
+      <MemorySection workspaceId={current.id} />
+    </Section>
+  );
+}
+
 function AccessTokenSettings() {
   const { current } = useCurrentWorkspace();
   if (!current) return null;
@@ -224,6 +239,7 @@ export default function SettingsPage() {
       <div className="mt-6">
         <ProfileSection />
         <WorkspaceSection />
+        <MemorySettings />
         <UsageSettings />
         <AccessTokenSettings />
         <PasswordSection />
