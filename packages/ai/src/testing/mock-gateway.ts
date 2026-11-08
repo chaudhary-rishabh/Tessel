@@ -17,6 +17,8 @@ import type { AddressInfo } from "node:net";
 export interface MockReply {
   text?: string;
   toolCall?: { name: string; args: unknown };
+  /** Several tool calls in one reply. */
+  toolCalls?: { name: string; args: unknown }[];
   /** Respond with this HTTP status and an error body. */
   status?: number;
   /** Drop the connection without responding. */
@@ -91,6 +93,19 @@ function defaultReply(body: Record<string, unknown>): MockReply {
       relevance: text!.includes("MOCK_IRRELEVANT") ? 0 : 3,
     }));
     return { toolCall: { name: "rank_passages", args: { passages } } };
+  }
+  // Agent tests: after a tool result, report it; MOCK_TOOLS <json> in the user's
+  // message asks for those tool calls (only while the tools are on offer).
+  const last = messages.at(-1);
+  if (last?.role === "tool") {
+    const result = textOf(last.content)
+      .replace(/<\/?tool_result[^>]*>/g, "")
+      .trim();
+    return { text: `Tool result: ${result}` };
+  }
+  const requested = /MOCK_TOOLS (\[.*\])/s.exec(lastUser)?.[1];
+  if (requested && tools.length > 0) {
+    return { toolCalls: JSON.parse(requested) as { name: string; args: unknown }[] };
   }
   const system = textOf(messages.find((message) => message.role === "system")?.content);
   if (system.startsWith("Write a short title")) {
@@ -202,20 +217,20 @@ export async function startMockGateway({ port = 0 }: { port?: number } = {}): Pr
       const created = Math.floor(Date.now() / 1000);
       const model = body.model;
       const text = reply.text ?? "";
-      const toolCalls = reply.toolCall
-        ? [
-            {
-              id: `call_mock_${counter}`,
-              type: "function",
-              function: {
-                name: reply.toolCall.name,
-                arguments: JSON.stringify(reply.toolCall.args),
-              },
-            },
-          ]
+      const requested = reply.toolCalls ?? (reply.toolCall ? [reply.toolCall] : []);
+      const toolCalls = requested.length
+        ? requested.map((call, index) => ({
+            id: `call_mock_${counter}_${index}`,
+            type: "function",
+            function: { name: call.name, arguments: JSON.stringify(call.args) },
+          }))
         : undefined;
       const finishReason = toolCalls ? "tool_calls" : "stop";
-      const usage = usageFor(body, reply, text || JSON.stringify(reply.toolCall?.args ?? ""));
+      const usage = usageFor(
+        body,
+        reply,
+        text || JSON.stringify(requested.map((call) => call.args)),
+      );
 
       if (!body.stream) {
         return sendJson(res, 200, {
