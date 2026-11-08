@@ -2,6 +2,8 @@ import {
   aiOptionsFromEnv,
   createAi,
   createQdrantIndex,
+  redisKeyValueCache,
+  withSearchCache,
   createSpendGuard,
   redisSpendStore,
   spendLimitsFromEnv,
@@ -47,19 +49,24 @@ const spend = createSpendGuard({
   logger,
   ledgerFallback: ledger.spentSince,
 });
-const ai = createAi(aiOptionsFromEnv(env, { spend, ledger, logger }));
+// Embeddings and search results are cached in the cache Redis (failing open).
+const cache = redisKeyValueCache(redisCache, { prefix: "tessel:" });
+const ai = createAi(aiOptionsFromEnv(env, { spend, ledger, logger, cache }));
 if (!ai.isConfigured) {
   logger.warn("AI is off: set AI_GATEWAY_API_KEY (or a fallback provider key) to turn it on");
 }
 
 const objects = createS3ObjectStore(env);
 const uploads = createSqsUploadQueue(env);
-const vectorIndex = createQdrantIndex({
-  url: env.QDRANT_URL,
-  collection: env.QDRANT_COLLECTION,
-  dimensions: ai.registry.forRole("embedding").dimensions ?? 1536,
-  ...(env.QDRANT_API_KEY ? { apiKey: env.QDRANT_API_KEY } : {}),
-});
+const vectorIndex = withSearchCache(
+  createQdrantIndex({
+    url: env.QDRANT_URL,
+    collection: env.QDRANT_COLLECTION,
+    dimensions: ai.registry.forRole("embedding").dimensions ?? 1536,
+    ...(env.QDRANT_API_KEY ? { apiKey: env.QDRANT_API_KEY } : {}),
+  }),
+  cache,
+);
 
 const episodes = createQdrantEpisodeIndex({
   url: env.QDRANT_URL,

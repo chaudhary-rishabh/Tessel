@@ -26,4 +26,22 @@ describe("processSystemJob", () => {
       processSystemJob({ name: "ping", data: { source: "api" } }, logger),
     ).rejects.toBeInstanceOf(UnrecoverableError);
   });
+
+  it("runs maintenance and reports what it cleaned up", async () => {
+    const report = {
+      refreshTokensDeleted: 3,
+      accessTokensDeleted: 0,
+      waitingRunsExpired: 1,
+      agentRunsDeleted: 2,
+      oauthStatesCleared: 0,
+    };
+    await expect(
+      processSystemJob({ name: "maintenance", data: {} }, logger, {
+        maintenance: async () => report,
+      }),
+    ).resolves.toEqual({ ok: true, report });
+    await expect(
+      processSystemJob({ name: "maintenance", data: {} }, logger),
+    ).rejects.toBeInstanceOf(UnrecoverableError);
+  });
 });

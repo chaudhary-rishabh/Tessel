@@ -86,10 +86,11 @@ export interface TestAiOptions {
   gatewayUrl?: string;
   limits?: SpendLimits;
   moderation?: AiOptions["moderation"];
+  cache?: AiOptions["cache"];
 }
 
 /** AI wired like production (Postgres ledger, row-level security), but with a mock gateway. */
-export function createTestAi({ gatewayUrl, limits, moderation }: TestAiOptions = {}): Ai {
+export function createTestAi({ gatewayUrl, limits, moderation, cache }: TestAiOptions = {}): Ai {
   const ledger = createUsageLedger(connect().db);
   return createAi({
     ...(gatewayUrl ? { gateway: { apiKey: "test-gateway-key", baseURL: gatewayUrl } } : {}),
@@ -102,6 +103,7 @@ export function createTestAi({ gatewayUrl, limits, moderation }: TestAiOptions =
       ledgerFallback: ledger.spentSince,
     }),
     moderation: moderation ?? { mode: "model", failure: "allow" },
+    ...(cache ? { cache } : {}),
     logger: silentLogger,
     timeoutMs: 5_000,
   });

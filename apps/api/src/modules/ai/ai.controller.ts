@@ -5,6 +5,8 @@ import type { AiService } from "./ai.service";
 
 export function createAiController(service: AiService) {
   const listModels: RequestHandler = (_req, res) => {
+    // The list only changes with a deploy; browsers revalidate with the ETag after five minutes.
+    res.set("Cache-Control", "private, max-age=300");
     res.json(service.listModels());
   };
 

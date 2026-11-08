@@ -1,3 +1,4 @@
+import type { MaintenanceReport } from "@tessel/db";
 import type { Logger } from "@tessel/logger";
 import { isSystemJobName, jobSchemas } from "@tessel/queue";
 import { UnrecoverableError } from "bullmq";
@@ -13,7 +14,11 @@ export interface JobLike {
  * job with an unknown name or an invalid payload can never succeed, so those
  * fail immediately instead of using up retries.
  */
-export async function processSystemJob(job: JobLike, logger: Logger): Promise<{ ok: true }> {
+export async function processSystemJob(
+  job: JobLike,
+  logger: Logger,
+  deps: { maintenance?: () => Promise<MaintenanceReport> } = {},
+): Promise<{ ok: true; report?: MaintenanceReport }> {
   if (!isSystemJobName(job.name)) {
     throw new UnrecoverableError(`Unknown system job "${job.name}"`);
   }
@@ -26,6 +31,12 @@ export async function processSystemJob(job: JobLike, logger: Logger): Promise<{ 
       }
       logger.info({ jobId: job.id, ...parsed.data }, "Ping received");
       return { ok: true };
+    }
+    case "maintenance": {
+      if (!deps.maintenance) throw new UnrecoverableError("Maintenance isn't available here");
+      const report = await deps.maintenance();
+      logger.info({ jobId: job.id, ...report }, "Maintenance finished");
+      return { ok: true, report };
     }
   }
 }

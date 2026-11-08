@@ -2,15 +2,22 @@ import {
   aiOptionsFromEnv,
   createAi,
   createQdrantIndex,
+  redisKeyValueCache,
+  withSearchCache,
   createSpendGuard,
   redisSpendStore,
   spendLimitsFromEnv,
 } from "@tessel/ai";
 import { loadEnvFiles, parseEnv } from "@tessel/config/env";
-import { createDatabase, createUsageLedger } from "@tessel/db";
+import { createDatabase, createUsageLedger, runMaintenance } from "@tessel/db";
 import { createLogger } from "@tessel/logger";
 import { createMemoryStore, createQdrantEpisodeIndex, processThreadMemory } from "@tessel/memory";
-import { createQueueConnection, jobSchemas, QUEUE_NAMES } from "@tessel/queue";
+import {
+  createQueueConnection,
+  jobSchemas,
+  MAINTENANCE_SCHEDULE,
+  QUEUE_NAMES,
+} from "@tessel/queue";
 import { createS3ObjectStore, createSqsUploadQueue } from "@tessel/storage";
 import { Queue, UnrecoverableError, Worker } from "bullmq";
 import { Redis } from "ioredis";
@@ -45,15 +52,20 @@ const spend = createSpendGuard({
   logger,
   ledgerFallback: ledger.spentSince,
 });
-const ai = createAi(aiOptionsFromEnv(env, { spend, ledger, logger }));
+// Shares the API's cache: re-indexing bumps the workspace's search version there.
+const cache = redisKeyValueCache(redisCache, { prefix: "tessel:" });
+const ai = createAi(aiOptionsFromEnv(env, { spend, ledger, logger, cache }));
 const objects = createS3ObjectStore(env);
 const uploads = createSqsUploadQueue(env);
-const index = createQdrantIndex({
-  url: env.QDRANT_URL,
-  collection: env.QDRANT_COLLECTION,
-  dimensions: ai.registry.forRole("embedding").dimensions ?? 1536,
-  ...(env.QDRANT_API_KEY ? { apiKey: env.QDRANT_API_KEY } : {}),
-});
+const index = withSearchCache(
+  createQdrantIndex({
+    url: env.QDRANT_URL,
+    collection: env.QDRANT_COLLECTION,
+    dimensions: ai.registry.forRole("embedding").dimensions ?? 1536,
+    ...(env.QDRANT_API_KEY ? { apiKey: env.QDRANT_API_KEY } : {}),
+  }),
+  cache,
+);
 const episodes = createQdrantEpisodeIndex({
   url: env.QDRANT_URL,
   collection: env.QDRANT_EPISODES_COLLECTION,
@@ -69,10 +81,20 @@ if (env.STORAGE_AUTO_CREATE) {
     .catch((error: unknown) => logger.error({ err: error }, "Could not create the upload queue"));
 }
 
-const systemWorker = new Worker(QUEUE_NAMES.system, (job) => processSystemJob(job, logger), {
-  connection,
-  concurrency: env.WORKER_CONCURRENCY,
-});
+const systemWorker = new Worker(
+  QUEUE_NAMES.system,
+  (job) => processSystemJob(job, logger, { maintenance: () => runMaintenance(database.db) }),
+  { connection, concurrency: env.WORKER_CONCURRENCY },
+);
+// One schedule however many workers run: the scheduler is keyed by name.
+const systemQueue = new Queue(QUEUE_NAMES.system, { connection });
+await systemQueue
+  .upsertJobScheduler(
+    "maintenance",
+    { pattern: MAINTENANCE_SCHEDULE, tz: "UTC" },
+    { name: "maintenance", data: {} },
+  )
+  .catch((error: unknown) => logger.error({ err: error }, "Could not schedule maintenance"));
 
 const store = createDocumentStore(database.db);
 const documentsWorker = new Worker(
@@ -142,7 +164,7 @@ async function shutdown(signal: string): Promise<void> {
   healthServer.close();
   await consumer.stop();
   await Promise.all([systemWorker.close(), documentsWorker.close(), memoryWorker.close()]);
-  await documentsQueue.close();
+  await Promise.all([documentsQueue.close(), systemQueue.close()]);
   await Promise.allSettled([connection.quit(), redisCache.quit(), database.close()]);
   logger.info("Shutdown complete");
   process.exit(0);
