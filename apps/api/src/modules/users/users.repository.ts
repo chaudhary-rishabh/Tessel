@@ -4,7 +4,8 @@ import { eq } from "drizzle-orm";
 export interface NewUser {
   email: string;
   name: string;
-  passwordHash: string;
+  passwordHash: string | null;
+  emailVerifiedAt?: Date | null;
 }
 
 export const usersRepository = {

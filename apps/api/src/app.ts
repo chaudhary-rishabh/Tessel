@@ -6,6 +6,7 @@ import cookieParser from "cookie-parser";
 import cors from "cors";
 import type { GraphStore } from "@tessel/graph";
 import { createMemoryStore, type EpisodeIndex } from "@tessel/memory";
+import type { Mailer, OutboxMailer } from "./lib/mailer";
 import express, { type Express } from "express";
 import helmet from "helmet";
 import type { AppConfig } from "./config";
@@ -46,6 +47,7 @@ import { createMemoryRouter } from "./modules/memory/memory.routes";
 import { createMemoryService, type MemoryQueue } from "./modules/memory/memory.service";
 import { createGraphRouter } from "./modules/graph/graph.routes";
 import { createGraphService } from "./modules/graph/graph.service";
+import { createTwoFactorService } from "./modules/auth/two-factor.service";
 import { createSkillsRouter } from "./modules/skills/skills.routes";
 import { createSkillsService } from "./modules/skills/skills.service";
 import { createDocumentsService } from "./modules/documents/documents.service";
@@ -75,6 +77,8 @@ export interface AppDependencies {
   graph?: GraphStore | undefined;
   /** Episodic memory (past chats) and the queue for memory work after replies. */
   memory: { episodes: EpisodeIndex; queue: MemoryQueue };
+  /** Sends account emails: signup codes, password resets, security notices. */
+  mailer: Mailer;
   /** MCP connectors: the catalog, credential encryption, and OAuth redirects. */
   connectors: ConnectorsSettings;
   /** Rate limit storage per limiter. Defaults to in-memory (single instance only). */
@@ -96,6 +100,7 @@ export function createApp({
   connectors,
   memory,
   graph,
+  mailer,
   rateLimitStoreFactory,
   passwordHasher = createPasswordHasher(),
 }: AppDependencies): Express {
@@ -150,6 +155,16 @@ export function createApp({
     accessTokens,
     refreshTokenTtlMs,
     refreshRotationGraceMs: config.auth.refreshRotationGraceMs,
+    mailer,
+    webOrigin: config.corsOrigins[0]!,
+    box: connectors.box,
+  });
+  const twoFactorService = createTwoFactorService({
+    db,
+    box: connectors.box,
+    passwords: passwordHasher,
+    mailer,
+    logger,
   });
   const usersService = createUsersService({ db });
   const workspacesService = createWorkspacesService({ db });
@@ -205,12 +220,13 @@ export function createApp({
       rateLimits: config.rateLimits,
       storeFactory: rateLimitStoreFactory,
       allowedOrigins: config.corsOrigins,
+      authenticate,
     }),
   );
   app.use(
     "/users",
     createUsersRouter({
-      controller: createUsersController(usersService, authService, refreshCookie),
+      controller: createUsersController(usersService, authService, refreshCookie, twoFactorService),
       authenticate,
       passwordRateLimit: config.rateLimits.password,
       storeFactory: rateLimitStoreFactory,
@@ -276,6 +292,16 @@ export function createApp({
   );
   app.use("/access-tokens", createCurrentTokenRouter({ db, authenticate }));
   app.use("/connectors", createConnectorCallbackRouter({ service: connectorsService }));
+  // Development only: read emails the outbox mailer kept (signup codes, reset links).
+  if (!config.isProduction && "messages" in mailer) {
+    const outbox = mailer as OutboxMailer;
+    app.get("/dev/outbox", (req, res) => {
+      const to = typeof req.query.to === "string" ? req.query.to.toLowerCase() : undefined;
+      res.json({
+        messages: outbox.messages.filter((message) => !to || message.to === to).slice(-20),
+      });
+    });
+  }
   app.use("/models", createModelsRouter({ controller: aiController, authenticate }));
 
   app.use(notFoundHandler);

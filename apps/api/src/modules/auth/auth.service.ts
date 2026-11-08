@@ -1,6 +1,26 @@
-import { randomUUID } from "node:crypto";
-import type { AuthResponse, LoginRequest, SignupRequest } from "@tessel/contracts";
-import { setUserContext, type Database, type UserRow } from "@tessel/db";
+import { createHash, randomBytes, randomInt, randomUUID, timingSafeEqual } from "node:crypto";
+import type {
+  AuthResponse,
+  LoginRequest,
+  ResetPasswordRequest,
+  Session,
+  SignupRequest,
+  SignupStartedResponse,
+  TwoFactorLoginRequest,
+  VerifySignupRequest,
+} from "@tessel/contracts";
+import {
+  passwordResets,
+  recoveryCodes,
+  refreshTokens,
+  setUserContext,
+  signupChallenges,
+  users,
+  type Database,
+  type UserRow,
+} from "@tessel/db";
+import type { SecretBox } from "@tessel/mcp";
+import { and, asc, eq, gt, isNull, lt, or, sql } from "drizzle-orm";
 import type { Logger } from "@tessel/logger";
 import { AppError, errors, isUniqueViolation } from "../../lib/errors";
 import { usersRepository } from "../users/users.repository";
@@ -8,7 +28,9 @@ import { toPublicUser } from "../users/users.mapper";
 import { workspacesRepository } from "../workspaces/workspaces.repository";
 import { refreshTokenRepository } from "./auth.repository";
 import type { PasswordHasher } from "./password";
+import { emails, type Mailer } from "../../lib/mailer";
 import { generateRefreshToken, hashToken, type AccessTokens } from "./tokens";
+import { verifyTotp } from "./totp";
 
 export interface SessionMeta {
   userAgent?: string | undefined;
@@ -28,8 +50,48 @@ export interface AuthServiceDependencies {
   accessTokens: AccessTokens;
   refreshTokenTtlMs: number;
   refreshRotationGraceMs: number;
+  mailer: Mailer;
+  /** The web app, for links in emails. */
+  webOrigin: string;
+  /** Decrypts two-factor secrets. */
+  box: SecretBox;
   now?: () => Date;
 }
+
+/** Login either signs in, or asks for the second factor first. */
+export type LoginOutcome =
+  { kind: "session"; session: IssuedSession } | { kind: "two_factor"; challengeToken: string };
+
+const SIGNUP_CODE_TTL_MS = 15 * 60_000;
+const MAX_CODE_ATTEMPTS = 5;
+const RESET_TTL_MS = 30 * 60_000;
+
+const INVALID_CODE = () =>
+  errors.badRequest(
+    "invalid_code",
+    "That code is wrong or has expired. Check the newest email, or start again.",
+  );
+const INVALID_RESET = () =>
+  errors.badRequest(
+    "invalid_reset_link",
+    "This link has expired or was already used. Ask for a new one.",
+  );
+const INVALID_TWO_FACTOR = () =>
+  errors.unauthorized(
+    "invalid_two_factor_code",
+    "That code didn't work. Try the newest one from your app.",
+  );
+
+const codeHash = (challengeId: string, code: string) =>
+  createHash("sha256").update(`${challengeId}:${code}`).digest("hex");
+
+const sameHash = (a: string, b: string) =>
+  a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
+
+/** Recovery codes ignore case, spaces, and dashes when checked. */
+export const normalizeRecoveryCode = (code: string) => code.toLowerCase().replace(/[^a-z0-9]/g, "");
+export const hashRecoveryCode = (code: string) =>
+  createHash("sha256").update(normalizeRecoveryCode(code)).digest("hex");
 
 const INVALID_CREDENTIALS = () =>
   errors.unauthorized("invalid_credentials", "Email or password is incorrect");
@@ -49,6 +111,9 @@ export function createAuthService({
   accessTokens,
   refreshTokenTtlMs,
   refreshRotationGraceMs,
+  mailer,
+  webOrigin,
+  box,
   now = () => new Date(),
 }: AuthServiceDependencies) {
   async function buildAuthResponse(user: UserRow): Promise<AuthResponse> {
@@ -75,46 +140,270 @@ export function createAuthService({
   }
 
   return {
-    /** Creates the account and its personal workspace in one transaction. */
-    async signup(input: SignupRequest, meta: SessionMeta): Promise<IssuedSession> {
+    /**
+     * Starts a signup: nothing is created until the emailed code is entered.
+     * The answer is the same whether or not the email has an account.
+     */
+    async startSignup(input: SignupRequest): Promise<SignupStartedResponse> {
       const passwordHash = await passwords.hash(input.password);
-      let user: UserRow;
-      try {
-        user = await db.transaction(async (tx) => {
+      const existing = await usersRepository.findByEmail(db, input.email);
+      const challengeId = randomUUID();
+      const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
+      await db.insert(signupChallenges).values({
+        id: challengeId,
+        email: input.email,
+        name: input.name,
+        passwordHash,
+        codeHash: existing ? null : codeHash(challengeId, code),
+        expiresAt: new Date(now().getTime() + SIGNUP_CODE_TTL_MS),
+      });
+      await mailer.send(
+        existing
+          ? emails.accountExists(input.email, webOrigin)
+          : emails.signupCode(input.email, code),
+      );
+      return { status: "verification_sent", challengeId };
+    },
+
+    /** Sends the code again (or the "you already have an account" note). */
+    async resendSignup(challengeId: string): Promise<SignupStartedResponse> {
+      const [challenge] = await db
+        .select()
+        .from(signupChallenges)
+        .where(and(eq(signupChallenges.id, challengeId), gt(signupChallenges.expiresAt, now())));
+      if (!challenge) throw INVALID_CODE();
+      if (!challenge.codeHash) {
+        await mailer.send(emails.accountExists(challenge.email, webOrigin));
+      } else {
+        const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
+        await db
+          .update(signupChallenges)
+          .set({
+            codeHash: codeHash(challengeId, code),
+            expiresAt: new Date(now().getTime() + SIGNUP_CODE_TTL_MS),
+          })
+          .where(eq(signupChallenges.id, challengeId));
+        await mailer.send(emails.signupCode(challenge.email, code));
+      }
+      return { status: "verification_sent", challengeId };
+    },
+
+    /** Finishes a signup with its code: creates the account (email verified) and its personal workspace. */
+    async verifySignup(input: VerifySignupRequest, meta: SessionMeta): Promise<IssuedSession> {
+      const outcome = await db.transaction(async (tx) => {
+        const [challenge] = await tx
+          .select()
+          .from(signupChallenges)
+          .where(eq(signupChallenges.id, input.challengeId))
+          .for("update");
+        if (!challenge || challenge.expiresAt <= now() || challenge.attempts >= MAX_CODE_ATTEMPTS) {
+          return { kind: "invalid" as const };
+        }
+        if (
+          !challenge.codeHash ||
+          !sameHash(challenge.codeHash, codeHash(challenge.id, input.code))
+        ) {
+          await tx
+            .update(signupChallenges)
+            .set({ attempts: challenge.attempts + 1 })
+            .where(eq(signupChallenges.id, challenge.id));
+          return { kind: "invalid" as const };
+        }
+        try {
           const created = await usersRepository.insert(tx, {
-            email: input.email,
-            name: input.name,
-            passwordHash,
+            email: challenge.email,
+            name: challenge.name,
+            passwordHash: challenge.passwordHash,
+            emailVerifiedAt: now(),
           });
           // Act as the new user so row-level security allows creating their workspace.
           await setUserContext(tx, created.id);
           await workspacesRepository.createWithOwner(tx, {
-            name: `${input.name.split(/\s+/)[0]}'s workspace`,
+            name: `${challenge.name.split(/\s+/)[0]}'s workspace`,
             ownerId: created.id,
             isPersonal: true,
           });
-          return created;
-        });
-      } catch (error) {
-        if (isUniqueViolation(error, "users_email_unique")) {
-          throw errors.conflict("email_taken", "An account with this email already exists");
+          await tx.delete(signupChallenges).where(eq(signupChallenges.email, challenge.email));
+          return { kind: "created" as const, user: created };
+        } catch (error) {
+          // Two signups for the same email raced; the other one won.
+          if (isUniqueViolation(error, "users_email_unique")) return { kind: "invalid" as const };
+          throw error;
         }
-        throw error;
-      }
-      logger.info({ userId: user.id }, "User signed up");
-      return issueSession(user, meta);
+      });
+      if (outcome.kind === "invalid") throw INVALID_CODE();
+      logger.info({ userId: outcome.user.id }, "User signed up");
+      return issueSession(outcome.user, meta);
     },
 
-    async login(input: LoginRequest, meta: SessionMeta): Promise<IssuedSession> {
+    async login(input: LoginRequest, meta: SessionMeta): Promise<LoginOutcome> {
       const user = await usersRepository.findByEmail(db, input.email);
-      const valid = user
+      const valid = user?.passwordHash
         ? await passwords.verify(user.passwordHash, input.password)
         : await passwords.verifyNothing(input.password);
       if (!user || !valid) {
         throw INVALID_CREDENTIALS();
       }
+      if (user.totpEnabledAt) {
+        return {
+          kind: "two_factor",
+          challengeToken: await accessTokens.signTwoFactorChallenge(user.id),
+        };
+      }
+      await usersRepository.touchLastLogin(db, user.id, now());
+      return { kind: "session", session: await issueSession(user, meta) };
+    },
+
+    /** The second sign-in step: an authenticator code, or a one-time recovery code. */
+    async completeTwoFactor(
+      input: TwoFactorLoginRequest,
+      meta: SessionMeta,
+    ): Promise<IssuedSession> {
+      let userId: string;
+      try {
+        userId = await accessTokens.verifyTwoFactorChallenge(input.challengeToken);
+      } catch {
+        throw errors.unauthorized(
+          "two_factor_expired",
+          "This sign-in took too long. Enter your password again.",
+        );
+      }
+      const user = await usersRepository.findById(db, userId);
+      if (!user?.totpSecret || !user.totpEnabledAt) throw INVALID_TWO_FACTOR();
+
+      if (input.code) {
+        const step = verifyTotp(box.open<string>(user.totpSecret), input.code, {
+          at: now(),
+          lastStep: user.totpLastStep,
+        });
+        if (step === null) throw INVALID_TWO_FACTOR();
+        // Only one request can move the step forward, so a code works once.
+        const claimed = await db
+          .update(users)
+          .set({ totpLastStep: step })
+          .where(
+            and(
+              eq(users.id, user.id),
+              or(isNull(users.totpLastStep), lt(users.totpLastStep, step)),
+            ),
+          )
+          .returning({ id: users.id });
+        if (claimed.length === 0) throw INVALID_TWO_FACTOR();
+      } else if (input.recoveryCode) {
+        const used = await db
+          .update(recoveryCodes)
+          .set({ usedAt: now() })
+          .where(
+            and(
+              eq(recoveryCodes.userId, user.id),
+              eq(recoveryCodes.codeHash, hashRecoveryCode(input.recoveryCode)),
+              isNull(recoveryCodes.usedAt),
+            ),
+          )
+          .returning({ id: recoveryCodes.id });
+        if (used.length === 0) throw INVALID_TWO_FACTOR();
+        logger.info({ userId: user.id }, "Signed in with a recovery code");
+      }
       await usersRepository.touchLastLogin(db, user.id, now());
       return issueSession(user, meta);
+    },
+
+    /** Emails a reset link if the account exists; answers the same either way. */
+    async forgotPassword(email: string): Promise<void> {
+      const user = await usersRepository.findByEmail(db, email);
+      if (!user) return;
+      const token = randomBytes(32).toString("base64url");
+      await db.transaction(async (tx) => {
+        // Only the newest link works.
+        await tx
+          .update(passwordResets)
+          .set({ usedAt: now() })
+          .where(and(eq(passwordResets.userId, user.id), isNull(passwordResets.usedAt)));
+        await tx.insert(passwordResets).values({
+          userId: user.id,
+          tokenHash: hashToken(token),
+          expiresAt: new Date(now().getTime() + RESET_TTL_MS),
+        });
+      });
+      await mailer.send(
+        emails.passwordReset(user.email, `${webOrigin}/reset-password?token=${token}`),
+      );
+    },
+
+    /**
+     * Sets a new password from a reset link, signs out every session, and
+     * marks the email verified (the link proved it). Two-step sign-in still
+     * applies at the next login.
+     */
+    async resetPassword(input: ResetPasswordRequest): Promise<void> {
+      const passwordHash = await passwords.hash(input.password);
+      const user = await db.transaction(async (tx) => {
+        const [reset] = await tx
+          .update(passwordResets)
+          .set({ usedAt: now() })
+          .where(
+            and(
+              eq(passwordResets.tokenHash, hashToken(input.token)),
+              isNull(passwordResets.usedAt),
+              gt(passwordResets.expiresAt, now()),
+            ),
+          )
+          .returning();
+        if (!reset) return undefined;
+        const [updated] = await tx
+          .update(users)
+          .set({ passwordHash, emailVerifiedAt: sql`coalesce(${users.emailVerifiedAt}, now())` })
+          .where(eq(users.id, reset.userId))
+          .returning();
+        await refreshTokenRepository.revokeAllForUser(tx, reset.userId, now());
+        return updated;
+      });
+      if (!user) throw INVALID_RESET();
+      logger.info({ userId: user.id }, "Password reset; all sessions revoked");
+      await mailer.send(emails.passwordChanged(user.email));
+    },
+
+    /** The user's signed-in browsers and devices, newest activity first. */
+    async listSessions(userId: string, currentToken: string | undefined): Promise<Session[]> {
+      const rows = await db
+        .select()
+        .from(refreshTokens)
+        .where(eq(refreshTokens.userId, userId))
+        .orderBy(asc(refreshTokens.createdAt));
+      const currentHash = currentToken ? hashToken(currentToken) : null;
+      const families = new Map<string, { started: Date; active?: (typeof rows)[number] }>();
+      for (const row of rows) {
+        const family = families.get(row.familyId) ?? { started: row.createdAt };
+        if (!row.revokedAt && row.expiresAt > now()) family.active = row;
+        families.set(row.familyId, family);
+      }
+      return [...families.entries()]
+        .filter(([, family]) => family.active)
+        .map(([id, family]) => ({
+          id,
+          userAgent: family.active!.userAgent ?? null,
+          ipAddress: family.active!.ipAddress ?? null,
+          createdAt: family.started.toISOString(),
+          lastUsedAt: family.active!.createdAt.toISOString(),
+          current: family.active!.tokenHash === currentHash,
+        }))
+        .sort((a, b) => b.lastUsedAt.localeCompare(a.lastUsedAt));
+    },
+
+    /** Signs one session out everywhere it's used. */
+    async revokeSession(userId: string, sessionId: string): Promise<void> {
+      const revoked = await db
+        .update(refreshTokens)
+        .set({ revokedAt: now() })
+        .where(
+          and(
+            eq(refreshTokens.userId, userId),
+            eq(refreshTokens.familyId, sessionId),
+            isNull(refreshTokens.revokedAt),
+          ),
+        )
+        .returning({ id: refreshTokens.id });
+      if (revoked.length === 0) throw errors.notFound("Session not found");
     },
 
     /**
@@ -197,7 +486,9 @@ export function createAuthService({
       const user = await usersRepository.findById(db, userId);
       if (!user) throw errors.unauthorized();
 
-      const valid = await passwords.verify(user.passwordHash, input.currentPassword);
+      const valid = user.passwordHash
+        ? await passwords.verify(user.passwordHash, input.currentPassword)
+        : false;
       if (!valid) {
         throw errors.badRequest("invalid_current_password", "Current password is incorrect");
       }
@@ -208,6 +499,7 @@ export function createAuthService({
         await refreshTokenRepository.revokeAllForUser(tx, user.id, now());
       });
       logger.info({ userId }, "Password changed; all sessions revoked");
+      await mailer.send(emails.passwordChanged(user.email));
       return issueSession({ ...user, passwordHash }, meta);
     },
   };

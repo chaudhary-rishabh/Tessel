@@ -1,4 +1,4 @@
-import { pgEnum, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { index, integer, pgEnum, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
 export const userRole = pgEnum("user_role", ["user", "admin"]);
 
@@ -11,7 +11,17 @@ export const users = pgTable("users", {
   /** Always stored trimmed and lowercased, so the unique constraint is case-insensitive. */
   email: text("email").notNull().unique(),
   name: text("name").notNull(),
-  passwordHash: text("password_hash").notNull(),
+  /** Null for accounts that only sign in another way (Google, GitHub, phone). */
+  passwordHash: text("password_hash"),
+  /** When the user proved they own the email (signup code or password reset). */
+  emailVerifiedAt: timestamp("email_verified_at", { withTimezone: true }),
+  /** Two-factor sign-in: the TOTP secret, encrypted, once confirmed. */
+  totpSecret: text("totp_secret"),
+  /** A secret being set up, until the user confirms it with a code. */
+  totpPendingSecret: text("totp_pending_secret"),
+  totpEnabledAt: timestamp("totp_enabled_at", { withTimezone: true }),
+  /** The last time step a code was accepted for, so a code can't be used twice. */
+  totpLastStep: integer("totp_last_step"),
   role: userRole("role").notNull().default("user"),
   lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -23,3 +33,54 @@ export const users = pgTable("users", {
 
 export type UserRow = typeof users.$inferSelect;
 export type NewUserRow = typeof users.$inferInsert;
+
+/**
+ * A signup waiting for its email code. The account is created only when the
+ * code is entered, so signing up never reveals whether an email is taken: an
+ * existing address gets a "you already have an account" email instead, and
+ * its challenge can never be completed.
+ */
+export const signupChallenges = pgTable(
+  "signup_challenges",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    email: text("email").notNull(),
+    name: text("name").notNull(),
+    passwordHash: text("password_hash").notNull(),
+    /** Null when the email already has an account. */
+    codeHash: text("code_hash"),
+    attempts: integer("attempts").notNull().default(0),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("signup_challenges_email_idx").on(table.email)],
+);
+
+/** Single-use password reset links; only a hash of the token is kept. */
+export const passwordResets = pgTable("password_resets", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  tokenHash: text("token_hash").notNull().unique(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  usedAt: timestamp("used_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** Two-factor recovery codes, hashed; each works once. */
+export const recoveryCodes = pgTable(
+  "recovery_codes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    codeHash: text("code_hash").notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("recovery_codes_user_idx").on(table.userId)],
+);
+
+export type SignupChallengeRow = typeof signupChallenges.$inferSelect;

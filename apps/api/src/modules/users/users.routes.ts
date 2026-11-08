@@ -25,6 +25,10 @@ export function createUsersRouter({
   router.use(authenticate);
   router.get("/me", controller.getMe);
   router.post("/me/password", passwordLimiter, controller.changePassword);
+  router.post("/me/two-factor/setup", passwordLimiter, controller.setupTwoFactor);
+  router.post("/me/two-factor/enable", passwordLimiter, controller.enableTwoFactor);
+  router.post("/me/two-factor/disable", passwordLimiter, controller.disableTwoFactor);
+  router.post("/me/two-factor/recovery-codes", passwordLimiter, controller.regenerateRecoveryCodes);
 
   return router;
 }

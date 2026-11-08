@@ -45,12 +45,22 @@ export const envSchema = z
     RATE_LIMIT_SCALE: z.coerce.number().positive().max(1000).default(1),
     /** Defaults to true in production. Set false only for local HTTP development. */
     COOKIE_SECURE: z.stringbool().optional(),
+    /** ses sends with Amazon SES; outbox keeps emails in memory (development and tests). */
+    MAIL_TRANSPORT: z.enum(["ses", "outbox"]).default("outbox"),
+    MAIL_FROM: z.string().min(3).default("Tessel <no-reply@localhost>"),
     ...aiEnvShape,
     ...storageEnvShape,
     ...connectorsEnvShape,
     ...graphEnvShape,
   })
   .superRefine((env, ctx) => {
+    if (env.NODE_ENV === "production" && env.MAIL_TRANSPORT !== "ses") {
+      ctx.addIssue({
+        code: "custom",
+        path: ["MAIL_TRANSPORT"],
+        message: "Production must send email with SES",
+      });
+    }
     if (env.NODE_ENV === "production" && env.CONNECTORS_ALLOW_PRIVATE_NETWORKS) {
       ctx.addIssue({
         code: "custom",
@@ -60,11 +70,11 @@ export const envSchema = z
     }
     if (
       env.NODE_ENV === "production" &&
-      Buffer.from(env.CONNECTOR_SECRET_KEY, "base64").toString("latin1").includes(DEV_SECRET_MARKER)
+      Buffer.from(env.ENCRYPTION_KEY, "base64").toString("latin1").includes(DEV_SECRET_MARKER)
     ) {
       ctx.addIssue({
         code: "custom",
-        path: ["CONNECTOR_SECRET_KEY"],
+        path: ["ENCRYPTION_KEY"],
         message: "Replace the development connector key before running in production",
       });
     }

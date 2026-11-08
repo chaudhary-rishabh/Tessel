@@ -9,5 +9,8 @@ export function toPublicUser(row: UserRow): PublicUser {
     name: row.name,
     role: row.role,
     createdAt: row.createdAt.toISOString(),
+    emailVerified: row.emailVerifiedAt !== null,
+    twoFactorEnabled: row.totpEnabledAt !== null,
+    hasPassword: row.passwordHash !== null,
   };
 }

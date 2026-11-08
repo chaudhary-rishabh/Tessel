@@ -12,7 +12,7 @@ export interface SecretBox {
 
 export function createSecretBox(base64Key: string): SecretBox {
   const key = Buffer.from(base64Key, "base64");
-  if (key.length !== 32) throw new Error("CONNECTOR_SECRET_KEY must be 32 bytes, base64-encoded");
+  if (key.length !== 32) throw new Error("ENCRYPTION_KEY must be 32 bytes, base64-encoded");
   return {
     seal(value) {
       const iv = randomBytes(12);

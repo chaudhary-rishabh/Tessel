@@ -1,7 +1,14 @@
 import { memoryKeyValueCache, memoryVectorIndex, sparseVector, withSearchCache } from "@tessel/ai";
 import { startMockGateway, type MockGateway } from "@tessel/ai/testing";
 import type { ChatEvent } from "@tessel/contracts";
-import { agentRuns, documents, messages, refreshTokens, runMaintenance } from "@tessel/db";
+import {
+  agentRuns,
+  documents,
+  messages,
+  refreshTokens,
+  runMaintenance,
+  signupChallenges,
+} from "@tessel/db";
 import { eq } from "drizzle-orm";
 import type { Express } from "express";
 import request from "supertest";
@@ -161,8 +168,25 @@ describe("maintenance", () => {
       .set({ updatedAt: new Date(Date.now() - 8 * day) })
       .where(eq(agentRuns.messageId, done.message.id));
 
+    // A signup nobody finished.
+    const staleSignup = `stale-${crypto.randomUUID()}@example.com`;
+    await ownerDb()
+      .insert(signupChallenges)
+      .values({
+        email: staleSignup,
+        name: "Stale",
+        passwordHash: "x",
+        expiresAt: new Date(Date.now() - 2 * day),
+      });
+
     // As the worker runs it: the app role, through the maintenance function.
     const report = await runMaintenance(connect().db);
+    expect(report.signupsDeleted).toBeGreaterThanOrEqual(1);
+    const leftover = await ownerDb()
+      .select()
+      .from(signupChallenges)
+      .where(eq(signupChallenges.email, staleSignup));
+    expect(leftover).toEqual([]);
     expect(report.refreshTokensDeleted).toBeGreaterThanOrEqual(2);
     expect(report.waitingRunsExpired).toBeGreaterThanOrEqual(1);
 

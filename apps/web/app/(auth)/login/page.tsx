@@ -4,13 +4,16 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { loginRequestSchema } from "@tessel/contracts";
 import { Button, TextField } from "@tessel/ui";
 import Link from "next/link";
+import { useState } from "react";
 import { useForm } from "react-hook-form";
+import { TwoFactorStep } from "@/components/auth/two-factor-step";
 import { FormError } from "@/components/form-error";
 import { useLogin } from "@/hooks/use-auth";
 import { applyApiError } from "@/lib/form-errors";
 
 export default function LoginPage() {
   const login = useLogin();
+  const [challengeToken, setChallengeToken] = useState<string | null>(null);
   const form = useForm({
     resolver: zodResolver(loginRequestSchema),
     defaultValues: { email: "", password: "" },
@@ -19,11 +22,18 @@ export default function LoginPage() {
 
   const onSubmit = form.handleSubmit(async (values) => {
     try {
-      await login.mutateAsync(values);
+      const result = await login.mutateAsync(values);
+      if ("challengeToken" in result) setChallengeToken(result.challengeToken);
     } catch (error) {
       applyApiError(error, form.setError, ["email", "password"]);
     }
   });
+
+  if (challengeToken) {
+    return (
+      <TwoFactorStep challengeToken={challengeToken} onExpired={() => setChallengeToken(null)} />
+    );
+  }
 
   return (
     <>
@@ -40,13 +50,21 @@ export default function LoginPage() {
           error={errors.email?.message}
           {...form.register("email")}
         />
-        <TextField
-          label="Password"
-          type="password"
-          autoComplete="current-password"
-          error={errors.password?.message}
-          {...form.register("password")}
-        />
+        <div className="flex flex-col gap-1.5">
+          <TextField
+            label="Password"
+            type="password"
+            autoComplete="current-password"
+            error={errors.password?.message}
+            {...form.register("password")}
+          />
+          <Link
+            href="/forgot-password"
+            className="text-accent w-fit text-sm font-medium underline-offset-4 hover:underline"
+          >
+            Forgot password?
+          </Link>
+        </div>
         <Button type="submit" loading={isSubmitting} className="mt-1">
           Log in
         </Button>

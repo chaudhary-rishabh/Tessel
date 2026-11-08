@@ -10,6 +10,8 @@ import { useForm } from "react-hook-form";
 import { FormError, FormSuccess } from "@/components/form-error";
 import { AccessTokensSection } from "@/components/settings/access-tokens-section";
 import { MemorySection } from "@/components/settings/memory-section";
+import { SessionsSection } from "@/components/settings/sessions-section";
+import { TwoFactorSection } from "@/components/settings/two-factor-section";
 import { UsageSection } from "@/components/settings/usage-section";
 import { useChangePassword } from "@/hooks/use-auth";
 import { useCurrentWorkspace } from "@/hooks/use-current-workspace";
@@ -232,6 +234,27 @@ function AccessTokenSettings() {
   );
 }
 
+function SecuritySettings() {
+  return (
+    <>
+      <Section
+        id="two-factor"
+        title="Two-step sign-in"
+        description="Ask for a code from your phone as well as your password."
+      >
+        <TwoFactorSection />
+      </Section>
+      <Section
+        id="sessions"
+        title="Where you're signed in"
+        description="Sign out of any browser or device you don't recognise."
+      >
+        <SessionsSection />
+      </Section>
+    </>
+  );
+}
+
 export default function SettingsPage() {
   return (
     <div className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-8 md:py-12">
@@ -243,6 +266,7 @@ export default function SettingsPage() {
         <UsageSettings />
         <AccessTokenSettings />
         <PasswordSection />
+        <SecuritySettings />
       </div>
     </div>
   );

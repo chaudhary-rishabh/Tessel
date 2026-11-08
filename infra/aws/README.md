@@ -87,7 +87,31 @@ flowchart LR
    }'
    ```
 
-## 3. EC2 host
+## 3. Email (Amazon SES)
+
+Tessel emails signup codes, password reset links, and security notices through SES.
+
+1. Verify your domain so mail can come from it (replace `example.com`):
+   ```bash
+   aws sesv2 create-email-identity --region ap-south-1 --email-identity example.com
+   ```
+   The output lists three DKIM `CNAME` records. Add them to your DNS; SES marks the domain verified within about an hour. Check with:
+   ```bash
+   aws sesv2 get-email-identity --region ap-south-1 --email-identity example.com \
+     --query VerifiedForSendingStatus
+   ```
+2. New SES accounts can only send to verified addresses. Ask AWS to lift that (production access):
+   ```bash
+   aws sesv2 put-account-details --region ap-south-1 --production-access-enabled \
+     --mail-type TRANSACTIONAL --website-url https://app.example.com \
+     --use-case-description "Account emails for Tessel users: sign-up codes, password resets, and security notices. Users only get mail for actions they take."
+   ```
+   Approval usually takes a day. Until then, verify your own address with `create-email-identity` to test.
+3. Set `MAIL_FROM` to an address on the verified domain, such as `Tessel <no-reply@example.com>` (section 5).
+
+The instance role's `SendEmail` statement only allows mail from identities in this account.
+
+## 4. EC2 host
 
 1. Create an IAM role for EC2 named `tessel-ec2` with:
    - the managed policy `AmazonSSMManagedInstanceCore` (lets deploys reach the host without SSH)
@@ -106,16 +130,17 @@ flowchart LR
 3. Attach an Elastic IP so the address survives restarts.
 4. Point DNS `A` records at the Elastic IP: `app.`, `api.`, and `mcp.` on your domain. Caddy requests HTTPS certificates for them on first start.
 
-## 4. Secrets
+## 5. Secrets
 
 Every app secret is an SSM `SecureString` under `/tessel/prod`. [`../deploy/secrets.example`](../deploy/secrets.example) lists each one. For example:
 
 ```bash
 put() { aws ssm put-parameter --region ap-south-1 --type SecureString --overwrite --name "/tessel/prod/$1" --value "$2"; }
 put JWT_ACCESS_SECRET "$(openssl rand -base64 48)"
-put CONNECTOR_SECRET_KEY "$(openssl rand -base64 32)"
+put ENCRYPTION_KEY "$(openssl rand -base64 32)"
 put API_PUBLIC_URL "https://api.example.com"
 put WEB_ORIGIN "https://app.example.com"
+put MAIL_FROM "Tessel <no-reply@example.com>"
 put S3_BUCKET "BUCKET_NAME"
 put SQS_UPLOADS_QUEUE_URL "https://sqs.ap-south-1.amazonaws.com/ACCOUNT_ID/tessel-uploads"
 put AI_GATEWAY_API_KEY "<your Vercel AI Gateway key>"
@@ -124,7 +149,7 @@ put AI_GATEWAY_API_KEY "<your Vercel AI Gateway key>"
 
 `deploy.sh` writes them to `/opt/tessel/.env` on each deploy (readable only by root).
 
-## 5. GitHub deploy role
+## 6. GitHub deploy role
 
 1. Add GitHub as an identity provider (once per AWS account):
    ```bash
@@ -136,7 +161,7 @@ put AI_GATEWAY_API_KEY "<your Vercel AI Gateway key>"
    - trust policy: [`iam/github-oidc-trust-policy.json`](iam/github-oidc-trust-policy.json) (only this repo's `production` environment can assume it)
    - inline policy: [`iam/github-deploy-policy.json`](iam/github-deploy-policy.json) (push to `tessel-*` repos, run commands on this one instance)
 
-## 6. GitHub variables
+## 7. GitHub variables
 
 In the repository, open **Settings → Secrets and variables → Actions → Variables** and add:
 
@@ -156,7 +181,7 @@ In the repository, open **Settings → Secrets and variables → Actions → Var
 
 None of these are secret. Deploys stay off until `AWS_DEPLOY_ROLE_ARN` is set.
 
-## 7. First deploy
+## 8. First deploy
 
 Run the **Deploy** workflow from the Actions tab (or push to `main`). It:
 

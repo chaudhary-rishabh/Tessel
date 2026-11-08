@@ -3,10 +3,7 @@
 Things noticed along the way that are not needed yet. Each item names the step where it fits best.
 
 - **TypeScript 7:** Upgrade when `typescript-eslint` supports it (see D-003).
-- **Signup email enumeration:** Signup returns `email_taken`. Switch to a neutral response once email verification exists. (Step 17)
-- **Session list:** Let users see and revoke their active sessions (data is already stored per refresh token family). (Step 17)
 - **Member management:** Endpoints to invite, change roles, and remove workspace members (RLS policies already cover these). (Step 18)
-- **Forgot password link:** Add to the login page with the reset flow. (Step 17)
 - **Theme switch:** Let users override the system light or dark setting. (Step 20)
 - **Toasts:** A shared notification pattern for actions that finish away from their form. (Step 18)
 - **Visual regression:** Screenshot comparisons in CI for key screens. (Phase 3)
@@ -45,3 +42,5 @@ Things noticed along the way that are not needed yet. Each item names the step w
 - **Entity resolution:** Merge entities that are the same thing under different names ("Payments" and "Payments Team") with embeddings and a review step. (Phase 3)
 - **Graph view:** Draw an entity's neighbourhood as an interactive diagram on the Documents page. (Phase 2)
 - **Community summaries:** Summaries of clusters of related entities for broad questions, as in GraphRAG. (Phase 3)
+- **Email bounces:** Subscribe to SES bounce and complaint notifications and stop mailing addresses that bounce. (Step 20)
+- **New sign-in alerts:** Email the user when a new device signs in. (Phase 3)

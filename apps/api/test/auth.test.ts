@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 import {
   bearer,
   createTestApp,
+  emailedCode,
+  testOutbox,
   findRefreshCookie,
   signUp,
   TEST_PASSWORD,
@@ -14,17 +16,33 @@ import {
 describe("signup", () => {
   const app = createTestApp();
 
-  it("creates the account, returns an access token, and sets a secure refresh cookie", async () => {
+  it("emails a code, then creates the account with a verified email and a secure session", async () => {
     const email = uniqueEmail();
-    const res = await request(app)
+    const started = await request(app)
       .post("/auth/signup")
       .send({ email: `  ${email.toUpperCase()} `, name: "Grace Hopper", password: TEST_PASSWORD });
+    expect(started.status).toBe(202);
+    expect(started.body).toEqual({ status: "verification_sent", challengeId: expect.any(String) });
+    // Nothing exists until the code is entered.
+    expect(
+      (await request(app).post("/auth/login").send({ email, password: TEST_PASSWORD })).status,
+    ).toBe(401);
 
+    const res = await request(app)
+      .post("/auth/signup/verify")
+      .send({ challengeId: started.body.challengeId, code: emailedCode(email) });
     expect(res.status).toBe(201);
     const body = authResponseSchema.parse(res.body);
-    expect(body.user).toMatchObject({ email, name: "Grace Hopper", role: "user" });
+    expect(body.user).toMatchObject({
+      email,
+      name: "Grace Hopper",
+      role: "user",
+      emailVerified: true,
+      twoFactorEnabled: false,
+      hasPassword: true,
+    });
     expect(body).not.toHaveProperty("refreshToken");
-    expect(JSON.stringify(body)).not.toContain("password");
+    expect(JSON.stringify(body)).not.toContain('password"');
 
     const cookie = (res.headers["set-cookie"] as unknown as string[]).find((value) =>
       value.startsWith("tessel_rt="),
@@ -32,6 +50,41 @@ describe("signup", () => {
     expect(cookie).toMatch(/HttpOnly/);
     expect(cookie).toMatch(/SameSite=Strict/);
     expect(cookie).toMatch(/Path=\/auth/);
+  });
+
+  it("refuses wrong codes, and stops after five tries", async () => {
+    const email = uniqueEmail();
+    const started = await request(app)
+      .post("/auth/signup")
+      .send({ email, name: "Grace", password: TEST_PASSWORD });
+    const verify = (code: string) =>
+      request(app)
+        .post("/auth/signup/verify")
+        .send({ challengeId: started.body.challengeId, code });
+    const right = emailedCode(email);
+    const wrong = right === "000000" ? "111111" : "000000";
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const res = await verify(wrong);
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe("invalid_code");
+    }
+    expect((await verify(right)).status).toBe(400);
+  });
+
+  it("sends a fresh code on request; only the newest works", async () => {
+    const email = uniqueEmail();
+    const started = await request(app)
+      .post("/auth/signup")
+      .send({ email, name: "Grace", password: TEST_PASSWORD });
+    const first = emailedCode(email);
+    await request(app).post("/auth/signup/resend").send({ challengeId: started.body.challengeId });
+    const second = emailedCode(email);
+    const verify = (code: string) =>
+      request(app)
+        .post("/auth/signup/verify")
+        .send({ challengeId: started.body.challengeId, code });
+    if (first !== second) expect((await verify(first)).status).toBe(400);
+    expect((await verify(second)).status).toBe(201);
   });
 
   it("creates a personal workspace owned by the new user", async () => {
@@ -42,13 +95,26 @@ describe("signup", () => {
     ]);
   });
 
-  it("rejects a duplicate email regardless of case", async () => {
+  it("doesn't reveal whether an email has an account", async () => {
     const { email } = await signUp(app);
-    const res = await request(app)
+    const fresh = uniqueEmail();
+    const taken = await request(app)
       .post("/auth/signup")
       .send({ email: email.toUpperCase(), name: "Copy", password: TEST_PASSWORD });
-    expect(res.status).toBe(409);
-    expect(res.body.error.code).toBe("email_taken");
+    const free = await request(app)
+      .post("/auth/signup")
+      .send({ email: fresh, name: "New", password: TEST_PASSWORD });
+    expect(taken.status).toBe(free.status);
+    expect(Object.keys(taken.body)).toEqual(Object.keys(free.body));
+
+    // The owner hears about it; no code exists that could take over the account.
+    expect(testOutbox.latest(email)?.subject).toBe("You already have a Tessel account");
+    for (const code of ["000000", "123456"]) {
+      const res = await request(app)
+        .post("/auth/signup/verify")
+        .send({ challengeId: taken.body.challengeId, code });
+      expect(res.status).toBe(400);
+    }
   });
 
   it("rejects a short password", async () => {

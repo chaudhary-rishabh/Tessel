@@ -6,11 +6,22 @@ export interface TextFieldProps extends InputHTMLAttributes<HTMLInputElement> {
   /** Shown under the field and announced to screen readers. */
   error?: string | undefined;
   hint?: string | undefined;
+  /** Classes for the input itself; `className` styles the wrapper. */
+  inputClassName?: string | undefined;
   ref?: Ref<HTMLInputElement>;
 }
 
 /** A labelled input with hint and error text wired up for assistive technology. */
-export function TextField({ label, error, hint, id, className, ref, ...props }: TextFieldProps) {
+export function TextField({
+  label,
+  error,
+  hint,
+  id,
+  className,
+  inputClassName,
+  ref,
+  ...props
+}: TextFieldProps) {
   const generatedId = useId();
   const inputId = id ?? generatedId;
   const hintId = hint ? `${inputId}-hint` : undefined;
@@ -32,6 +43,7 @@ export function TextField({ label, error, hint, id, className, ref, ...props }: 
           "placeholder:text-muted/70 focus:border-accent focus:outline-accent/25 focus:outline-2",
           "disabled:bg-paper disabled:text-muted",
           error && "border-danger focus:border-danger focus:outline-danger/25",
+          inputClassName,
         )}
         {...props}
       />

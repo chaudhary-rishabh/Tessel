@@ -14,7 +14,14 @@ export interface AccessTokens {
   readonly ttlSeconds: number;
   sign(context: AuthContext): Promise<string>;
   verify(token: string): Promise<AuthContext>;
+  /** A five-minute token proving the password was right, for the second sign-in step. */
+  signTwoFactorChallenge(userId: string): Promise<string>;
+  /** The user the challenge is for; throws if it's invalid or expired. */
+  verifyTwoFactorChallenge(token: string): Promise<string>;
 }
+
+const TWO_FACTOR_AUDIENCE = "tessel-two-factor";
+const TWO_FACTOR_TTL = "5m";
 
 /** Short-lived, stateless access tokens (JWT, HS256). */
 export function createAccessTokens({
@@ -47,6 +54,23 @@ export function createAccessTokens({
       });
       const claims = claimsSchema.parse(payload);
       return { userId: claims.sub, role: claims.role };
+    },
+    signTwoFactorChallenge: (userId) =>
+      new SignJWT({})
+        .setProtectedHeader({ alg: ALGORITHM, typ: "JWT" })
+        .setSubject(userId)
+        .setIssuer(ISSUER)
+        .setAudience(TWO_FACTOR_AUDIENCE)
+        .setIssuedAt()
+        .setExpirationTime(TWO_FACTOR_TTL)
+        .sign(key),
+    verifyTwoFactorChallenge: async (token) => {
+      const { payload } = await jwtVerify(token, key, {
+        algorithms: [ALGORITHM],
+        issuer: ISSUER,
+        audience: TWO_FACTOR_AUDIENCE,
+      });
+      return z.uuid().parse(payload.sub);
     },
   };
 }

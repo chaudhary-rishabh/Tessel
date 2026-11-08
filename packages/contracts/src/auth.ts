@@ -24,6 +24,97 @@ export const authResponseSchema = z.object({
   user: publicUserSchema,
 });
 
+/** A six-digit code from an email or an authenticator app. */
+export const oneTimeCodeSchema = z
+  .string()
+  .trim()
+  .transform((value) => value.replace(/\s+/g, ""))
+  .pipe(z.string().regex(/^\d{6}$/, "Enter the 6-digit code"));
+
+/**
+ * Signup never says whether an email is taken: it always answers that a code
+ * was sent. A new address gets the code; an address that already has an
+ * account gets a note saying so instead.
+ */
+export const signupStartedResponseSchema = z.object({
+  status: z.literal("verification_sent"),
+  challengeId: z.uuid(),
+});
+
+export const verifySignupRequestSchema = z.object({
+  challengeId: z.uuid(),
+  code: oneTimeCodeSchema,
+});
+
+export const resendSignupRequestSchema = z.object({ challengeId: z.uuid() });
+
+/** Login answers with a session, or asks for a second factor first. */
+export const twoFactorRequiredSchema = z.object({
+  status: z.literal("two_factor_required"),
+  /** Short-lived; send it back with the code. */
+  challengeToken: z.string(),
+});
+
+export const twoFactorLoginRequestSchema = z
+  .object({
+    challengeToken: z.string().min(1).max(2_000),
+    code: oneTimeCodeSchema.optional(),
+    recoveryCode: z.string().trim().min(8).max(32).optional(),
+  })
+  .refine((value) => value.code || value.recoveryCode, {
+    message: "Enter the code from your authenticator app or a recovery code",
+    path: ["code"],
+  });
+
+export const forgotPasswordRequestSchema = z.object({ email: emailSchema });
+
+export const resetPasswordRequestSchema = z.object({
+  token: z.string().min(20).max(200),
+  password: passwordSchema,
+});
+
+/** A signed-in browser or device: one refresh token family. */
+export const sessionSchema = z.object({
+  id: z.uuid(),
+  userAgent: z.string().nullable(),
+  ipAddress: z.string().nullable(),
+  createdAt: z.iso.datetime(),
+  lastUsedAt: z.iso.datetime(),
+  /** The session making this request. */
+  current: z.boolean(),
+});
+
+export const sessionListResponseSchema = z.object({ sessions: z.array(sessionSchema) });
+export const sessionParamsSchema = z.object({ sessionId: z.uuid("Invalid session ID") });
+
+export const twoFactorSetupResponseSchema = z.object({
+  /** For typing into an authenticator app by hand. */
+  secret: z.string(),
+  otpauthUrl: z.string(),
+  /** The otpauth link as a QR code image (data URL). */
+  qrCode: z.string(),
+});
+
+export const enableTwoFactorRequestSchema = z.object({ code: oneTimeCodeSchema });
+export const recoveryCodesResponseSchema = z.object({ recoveryCodes: z.array(z.string()) });
+
+export const disableTwoFactorRequestSchema = z.object({
+  /** Required for accounts that have a password. */
+  password: z.string().max(128).optional(),
+  code: oneTimeCodeSchema,
+});
+
 export type SignupRequest = z.infer<typeof signupRequestSchema>;
+export type SignupStartedResponse = z.infer<typeof signupStartedResponseSchema>;
+export type VerifySignupRequest = z.infer<typeof verifySignupRequestSchema>;
+export type TwoFactorRequired = z.infer<typeof twoFactorRequiredSchema>;
+export type TwoFactorLoginRequest = z.input<typeof twoFactorLoginRequestSchema>;
+export type ResetPasswordRequest = z.infer<typeof resetPasswordRequestSchema>;
+export type Session = z.infer<typeof sessionSchema>;
+export type TwoFactorSetupResponse = z.infer<typeof twoFactorSetupResponseSchema>;
+export type DisableTwoFactorRequest = z.infer<typeof disableTwoFactorRequestSchema>;
 export type LoginRequest = z.infer<typeof loginRequestSchema>;
 export type AuthResponse = z.infer<typeof authResponseSchema>;
+
+export const loginResponseSchema = z.union([authResponseSchema, twoFactorRequiredSchema]);
+export type LoginResponse = z.infer<typeof loginResponseSchema>;

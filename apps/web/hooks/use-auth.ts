@@ -1,7 +1,14 @@
 "use client";
 
 import { useApi } from "@tessel/api-client/react";
-import type { ChangePasswordRequest, LoginRequest, SignupRequest } from "@tessel/contracts";
+import type {
+  ChangePasswordRequest,
+  LoginRequest,
+  ResetPasswordRequest,
+  SignupRequest,
+  TwoFactorLoginRequest,
+  VerifySignupRequest,
+} from "@tessel/contracts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSessionStore } from "@/lib/session-store";
 
@@ -15,21 +22,56 @@ function useStartSession() {
   };
 }
 
+/** Signs in, or hands back a challenge token when a second step is needed. */
 export function useLogin() {
   const api = useApi();
   const startSession = useStartSession();
   return useMutation({
     mutationFn: (input: LoginRequest) => api.auth.login(input),
+    onSuccess: (result) => {
+      if ("accessToken" in result) startSession(result);
+    },
+  });
+}
+
+export function useCompleteTwoFactor() {
+  const api = useApi();
+  const startSession = useStartSession();
+  return useMutation({
+    mutationFn: (input: TwoFactorLoginRequest) => api.auth.completeTwoFactor(input),
     onSuccess: startSession,
   });
 }
 
+/** Sends the signup code; `useVerifySignup` creates the account. */
 export function useSignup() {
+  const api = useApi();
+  return useMutation({ mutationFn: (input: SignupRequest) => api.auth.signup(input) });
+}
+
+export function useVerifySignup() {
   const api = useApi();
   const startSession = useStartSession();
   return useMutation({
-    mutationFn: (input: SignupRequest) => api.auth.signup(input),
+    mutationFn: (input: VerifySignupRequest) => api.auth.verifySignup(input),
     onSuccess: startSession,
+  });
+}
+
+export function useResendSignup() {
+  const api = useApi();
+  return useMutation({ mutationFn: (challengeId: string) => api.auth.resendSignup(challengeId) });
+}
+
+export function useForgotPassword() {
+  const api = useApi();
+  return useMutation({ mutationFn: (email: string) => api.auth.forgotPassword(email) });
+}
+
+export function useResetPassword() {
+  const api = useApi();
+  return useMutation({
+    mutationFn: (input: ResetPasswordRequest) => api.auth.resetPassword(input),
   });
 }
 

@@ -230,7 +230,7 @@ Sign-in follows the MCP authorization spec, and the SDK does the work: protected
 
 ## D-057 Connector credentials are encrypted at rest
 
-Tokens, refresh tokens, and client registrations are stored with AES-256-GCM under `CONNECTOR_SECRET_KEY`, never returned by the API, and never logged. The version prefix leaves room for key rotation or moving the key to AWS KMS. Production refuses the development key.
+Tokens, refresh tokens, and client registrations are stored with AES-256-GCM under `ENCRYPTION_KEY`, never returned by the API, and never logged. The version prefix leaves room for key rotation or moving the key to AWS KMS. Production refuses the development key.
 
 ## D-058 Connector URLs can't reach private networks
 
@@ -298,3 +298,19 @@ The RAG router also lists the entity names a relationship question is about. A `
 ## D-073 The graph is optional
 
 Without `NEO4J_BOLT_URL`, Tessel answers from search alone, and `GRAPH_EXTRACTION=false` stops the worker spending model calls on extraction. When the graph is set up, the readiness probe checks it over Bolt, which is how the app talks to it.
+
+## D-074 Signup verifies the email before the account exists
+
+Signup stores a pending challenge (name, Argon2 hash of the password, hashed code) and emails a 6-digit code; the user row is created only when the code is entered. So there are no half-made accounts to clean up, and nobody can claim an address they don't own. Five wrong tries or 15 minutes end a challenge, and resending replaces the code. When the address already has an account, the same 202 response comes back and the owner gets a "you already have an account" email instead of a code, which closes the email enumeration that `email_taken` allowed. Accounts made before this step count as verified.
+
+## D-075 Two-step sign-in with TOTP, written in-house
+
+TOTP is about 100 lines over `node:crypto` (HMAC-SHA1, 6 digits, 30-second steps, one step of clock drift), checked against the RFC 6238 test vectors, so no extra dependency handles secrets. The secret is sealed with the same AES-256-GCM box as connector tokens, so `CONNECTOR_SECRET_KEY` became `ENCRYPTION_KEY`. A code is only accepted for a step later than the last accepted one, enforced by a conditional update, so a code can't be replayed even by two requests at once. Ten recovery codes are stored as SHA-256 hashes (they're random, so a slow hash adds nothing) and each works once. Turning it off needs the password and a current code.
+
+## D-076 Password reset signs out everywhere
+
+A reset link is a 256-bit token stored as a hash, valid once for 30 minutes; asking again retires older links. Using it revokes every refresh token, because a reset usually means the old password can't be trusted, and marks the email verified, since the user proved they read it. Changes to the password or two-step settings email the user.
+
+## D-077 Email through Amazon SES, with an outbox elsewhere
+
+Production sends with SES (`@aws-sdk/client-sesv2`) using the instance role, so no mail credentials are stored; startup refuses any other transport in production. Development and tests use an in-memory outbox that logs each message and serves it at `GET /dev/outbox?to=` (never mounted in production), which is how end-to-end tests read signup codes and reset links.
