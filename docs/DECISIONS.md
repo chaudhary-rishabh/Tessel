@@ -239,3 +239,15 @@ Users choose the URLs Tessel connects to, so every request (including OAuth disc
 ## D-059 Server hints decide approval only when they're safe
 
 A connector tool runs without asking only when its server marks it read-only, or when the user chose "Always allow" for it. Anything else asks first, and tools the server doesn't describe count as destructive, following the MCP spec's defaults. Users can set each tool to ask first, always allow, or off. Tool results come back marked as data, like every other tool's.
+
+## D-060 Personal access tokens are hashed, scoped, and bound to one workspace
+
+A token (`tsl_pat_` plus 24 random bytes) acts as its owner in one workspace with listed scopes; only `documents:read` exists so far. Tessel stores a SHA-256 hash and a short prefix for display, and shows the token once. Tokens expire (7 days to a year, or never if the user chooses), can be revoked, and stop working the moment the owner leaves the workspace, because the lookup joins on membership. "Last used" is updated at most once a minute.
+
+## D-061 Tokens reach only an allowlist of API routes
+
+The API's auth middleware accepts a token only on routes listed in `TOKEN_ROUTES`, checks the route's workspace against the token's, and checks the scope. Everything else (chat, settings, making more tokens) answers 403, so a new route is closed to tokens until someone adds it on purpose.
+
+## D-062 The MCP server is a thin adapter over the API
+
+Tessel's MCP server (Streamable HTTP, stateless, on `mcp.` in production) holds no data access of its own: each tool call goes to the API with the client's token. Permissions, row-level security, rate limits, spend caps, and logging all live in one place, and the MCP server can scale or restart freely. Tools are read-only for now: search documents, list documents, and read a document's text.

@@ -295,6 +295,20 @@ sequenceDiagram
 - Each reply adds the user's enabled connector tools (named like `github_create_issue`), opens a client per connector on first use, and closes them when the reply ends. In team mode an integrations specialist gets these tools.
 - Endpoints: `GET|POST /workspaces/:workspaceId/connectors`, `POST …/connectors/:connectionId/refresh`, `PATCH|DELETE …/connectors/:connectionId`, and `GET /connectors/oauth/callback`.
 
+## MCP server (Tessel for outside clients)
+
+```mermaid
+flowchart LR
+  client["MCP client<br/>(Claude Desktop, Cursor)"] -- "Bearer tsl_pat_…" --> mcp["mcp-server<br/>Streamable HTTP"]
+  mcp -- "same token" --> api["API<br/>TOKEN_ROUTES allowlist"]
+  api --> pg[("Postgres<br/>hashed tokens, RLS")]
+  api --> qdrant[("Qdrant")]
+```
+
+- Users create personal access tokens in Settings (`GET|POST /workspaces/:workspaceId/access-tokens`, `DELETE …/access-tokens/:tokenId`). The token is shown once, with the settings an MCP client needs.
+- The API accepts a token only on allowlisted routes in its own workspace: listing and reading documents, document text (`GET …/documents/:documentId/text`), search, and `GET /access-tokens/current`.
+- The MCP server (`@tessel/mcp/server`, run by `apps/mcp-server`) checks the token with the API, then serves `search_documents`, `list_documents`, and `read_document`, each a call to the API with the same token.
+
 ## Web app
 
 | Concern          | Approach                                                                                                                                                                                                                                                                                                                                                                        |
