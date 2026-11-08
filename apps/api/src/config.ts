@@ -45,6 +45,14 @@ export const DEFAULT_RATE_LIMITS: RateLimitConfig = {
   password: { windowMs: 15 * MINUTE, limit: 5 },
 };
 
+function scaleRateLimits(limits: RateLimitConfig, scale: number): RateLimitConfig {
+  const scaled = Object.entries(limits).map(([name, rule]) => [
+    name,
+    { ...rule, limit: Math.max(1, Math.round(rule.limit * scale)) },
+  ]);
+  return Object.fromEntries(scaled) as unknown as RateLimitConfig;
+}
+
 export function configFromEnv(env: Env): AppConfig {
   const isProduction = env.NODE_ENV === "production";
   return {
@@ -59,6 +67,6 @@ export function configFromEnv(env: Env): AppConfig {
       refreshRotationGraceMs: 10_000,
       cookieSecure: env.COOKIE_SECURE ?? isProduction,
     },
-    rateLimits: DEFAULT_RATE_LIMITS,
+    rateLimits: scaleRateLimits(DEFAULT_RATE_LIMITS, env.RATE_LIMIT_SCALE),
   };
 }

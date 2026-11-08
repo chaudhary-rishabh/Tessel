@@ -30,6 +30,8 @@ export const envSchema = z
     JWT_ACCESS_SECRET: z.string().min(32, "JWT_ACCESS_SECRET must be at least 32 characters"),
     ACCESS_TOKEN_TTL_SECONDS: z.coerce.number().int().min(60).max(3600).default(900),
     REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().min(1).max(90).default(30),
+    /** Multiplies every rate limit. Raise it for end-to-end test runs only. */
+    RATE_LIMIT_SCALE: z.coerce.number().positive().max(1000).default(1),
     /** Defaults to true in production. Set false only for local HTTP development. */
     COOKIE_SECURE: z.stringbool().optional(),
   })
