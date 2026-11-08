@@ -35,6 +35,11 @@ import {
   createConnectorsService,
   type ConnectorsSettings,
 } from "./modules/connectors/connectors.service";
+import {
+  createAccessTokensRouter,
+  createCurrentTokenRouter,
+} from "./modules/access-tokens/access-tokens.routes";
+import { createAccessTokensService } from "./modules/access-tokens/access-tokens.service";
 import { createSkillsRouter } from "./modules/skills/skills.routes";
 import { createSkillsService } from "./modules/skills/skills.service";
 import { createDocumentsService } from "./modules/documents/documents.service";
@@ -161,7 +166,8 @@ export function createApp({
     rag: createRagPipeline({ ai, index: vectorIndex, logger }),
     logger,
   });
-  const authenticate = requireAuth(accessTokens);
+  const accessTokensService = createAccessTokensService({ db });
+  const authenticate = requireAuth(accessTokens, accessTokensService.resolve);
 
   // Feature modules
   app.use(
@@ -228,6 +234,11 @@ export function createApp({
     "/workspaces/:workspaceId/connectors",
     createConnectorsRouter({ service: connectorsService, authenticate }),
   );
+  app.use(
+    "/workspaces/:workspaceId/access-tokens",
+    createAccessTokensRouter({ service: accessTokensService, authenticate }),
+  );
+  app.use("/access-tokens", createCurrentTokenRouter({ db, authenticate }));
   app.use("/connectors", createConnectorCallbackRouter({ service: connectorsService }));
   app.use("/models", createModelsRouter({ controller: aiController, authenticate }));
 

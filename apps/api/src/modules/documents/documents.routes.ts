@@ -28,6 +28,7 @@ export function createDocumentsRouter({
   router.post("/documents/:documentId/complete", controller.complete);
   router.post("/documents/:documentId/reprocess", perUser("documents"), controller.reprocess);
   router.get("/documents/:documentId/download", controller.download);
+  router.get("/documents/:documentId/text", controller.text);
   router.delete("/documents/:documentId", controller.remove);
   router.post("/search", perUser("ai"), controller.search);
   return router;

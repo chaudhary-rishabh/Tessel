@@ -1,6 +1,7 @@
 import {
   createDocumentRequestSchema,
   documentParamsSchema,
+  documentTextQuerySchema,
   workspaceParamsSchema,
 } from "@tessel/contracts";
 import type { Request, RequestHandler } from "express";
@@ -35,6 +36,10 @@ export function createDocumentsController(service: DocumentsService) {
   const download: RequestHandler = async (req, res) => {
     res.json({ url: await service.downloadUrl(actorFor(req), documentIdOf(req)) });
   };
+  const text: RequestHandler = async (req, res) => {
+    const { maxCharacters } = documentTextQuerySchema.parse(req.query);
+    res.json(await service.text(actorFor(req), documentIdOf(req), maxCharacters));
+  };
   const remove: RequestHandler = async (req, res) => {
     await service.remove(actorFor(req), documentIdOf(req));
     res.status(204).end();
@@ -42,5 +47,5 @@ export function createDocumentsController(service: DocumentsService) {
   const search: RequestHandler = async (req, res) => {
     res.json(await service.search(actorFor(req), req.body));
   };
-  return { list, get, create, complete, reprocess, download, remove, search };
+  return { list, get, create, complete, reprocess, download, text, remove, search };
 }
