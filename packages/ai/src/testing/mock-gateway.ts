@@ -19,6 +19,7 @@ import type { AddressInfo } from "node:net";
  * reviews ask for a fix when it has MOCK_CRITIQUE; the supervisor hands one
  * task to its first worker (MOCK_TWO_WORKERS: one to each of the first two),
  * then finishes. Final answers say what they were written from.
+ * MOCK_SKILL <name> loads that skill; the reply then quotes its first line.
  */
 export interface MockReply {
   text?: string;
@@ -163,10 +164,16 @@ function defaultReply(body: Record<string, unknown>): MockReply {
   // message asks for those tool calls (only while the tools are on offer).
   const last = messages.at(-1);
   if (last?.role === "tool") {
+    const skill = /<skill name="[^"]+" title="([^"]+)">\n([^\n]*)/.exec(textOf(last.content));
+    if (skill) return { text: `Following the ${skill[1]} skill: ${skill[2]}` };
     const result = textOf(last.content)
       .replace(/<\/?tool_result[^>]*>/g, "")
       .trim();
     return { text: `Tool result: ${result}` };
+  }
+  const skillRequest = /MOCK_SKILL ([a-z0-9-]+)/.exec(lastUser)?.[1];
+  if (skillRequest && tools.some((tool) => tool.function?.name === "load_skill")) {
+    return { toolCall: { name: "load_skill", args: { name: skillRequest } } };
   }
   const requested = /MOCK_TOOLS (\[.*\])/s.exec(lastUser)?.[1];
   if (requested && tools.length > 0) {
