@@ -1,34 +1,34 @@
-import type { Ai, RagPipeline } from "@tessel/ai";
 import {
   attachmentParamsSchema,
+  toolCallParamsSchema,
+  toolDecisionRequestSchema,
   threadListQuerySchema,
   threadParamsSchema,
   updateThreadRequestSchema,
   workspaceParamsSchema,
 } from "@tessel/contracts";
-import type { Logger } from "@tessel/logger";
 import type { Request, RequestHandler } from "express";
 import { errors } from "../../lib/errors";
 import { getAuth } from "../../middleware/require-auth";
 import type { Actor, ChatService } from "./chat.service";
-import { streamReply } from "./chat.stream";
+import { streamDecision, streamReply, type ReplyDependencies } from "./chat.stream";
 
 function actorFor(req: Request): Actor {
   const { workspaceId } = workspaceParamsSchema.parse(req.params);
   return { userId: getAuth(req).userId, workspaceId, requestId: req.requestId };
 }
 
-export function createChatController({
-  service,
-  ai,
-  rag,
-  logger,
-}: {
-  service: ChatService;
-  ai: Ai;
-  rag: RagPipeline;
-  logger: Logger;
-}) {
+/** Aborts when the client disconnects, which is how "stop" reaches the server. */
+function disconnectSignal(res: Parameters<RequestHandler>[1]): AbortSignal {
+  const controller = new AbortController();
+  res.on("close", () => {
+    if (!res.writableFinished) controller.abort();
+  });
+  return controller.signal;
+}
+
+export function createChatController(deps: ReplyDependencies & { service: ChatService }) {
+  const { service } = deps;
   const listThreads: RequestHandler = async (req, res) => {
     const query = threadListQuerySchema.parse(req.query);
     res.json(await service.listThreads(actorFor(req), query));
@@ -56,21 +56,26 @@ export function createChatController({
     const actor = actorFor(req);
     // Errors before the stream opens become normal JSON error responses.
     const prepared = await service.prepareReply(actor, req.body);
+    await streamReply({ deps, actor, prepared, res, signal: disconnectSignal(res) });
+  };
 
-    const controller = new AbortController();
-    res.on("close", () => {
-      if (!res.writableFinished) controller.abort();
-    });
-    await streamReply({
-      ai,
-      rag,
-      service,
-      logger,
+  /**
+   * POST /workspaces/:workspaceId/threads/:threadId/tool-calls/:callId/decision
+   * Approves or declines the action a reply is waiting on, then streams the rest of the reply.
+   */
+  const decide: RequestHandler = async (req, res) => {
+    const actor = actorFor(req);
+    const { threadId, callId } = toolCallParamsSchema.parse(req.params);
+    const { approved } = toolDecisionRequestSchema.parse(req.body);
+    const claimed = await service.claimRun(actor, threadId, callId);
+    await streamDecision({
+      deps,
       actor,
-      prepared,
-      firstMessage: prepared.userMessage.content,
+      claimed,
+      callId,
+      approved,
       res,
-      signal: controller.signal,
+      signal: disconnectSignal(res),
     });
   };
 
@@ -98,6 +103,7 @@ export function createChatController({
     renameThread,
     deleteThread,
     send,
+    decide,
     uploadAttachment,
     attachmentContent,
   };

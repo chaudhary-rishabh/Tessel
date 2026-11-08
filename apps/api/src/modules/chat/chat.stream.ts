@@ -1,18 +1,28 @@
-import { SystemMessage, type AIMessageChunk, type BaseMessage } from "@langchain/core/messages";
+import { SystemMessage, type BaseMessage } from "@langchain/core/messages";
 import {
   AiError,
   citedSourceIds,
+  createToolRegistry,
+  resumeAgent,
+  runAgent,
   sourcesPrompt,
-  usageFromMetadata,
+  type AgentCheckpoint,
+  type AgentOptions,
+  type AgentResult,
+  type Ai,
+  type AiCallContext,
   type RagPipeline,
   type Source,
+  type ToolCallRecord,
 } from "@tessel/ai";
-import type { MessageSource } from "@tessel/db";
-import type { ChatEvent } from "@tessel/contracts";
+import type { ChatEvent, ChatMessage } from "@tessel/contracts";
+import type { AgentRunRow, MessageSource } from "@tessel/db";
 import type { Logger } from "@tessel/logger";
+import { AppError } from "../../lib/errors";
 import type { Response } from "express";
+import type { DocumentsService } from "../documents/documents.service";
 import type { Actor, ChatService, PreparedReply } from "./chat.service";
-import type { Ai } from "@tessel/ai";
+import { workspaceTools } from "./chat.tools";
 
 const HEARTBEAT_MS = 15_000;
 
@@ -44,11 +54,38 @@ function publicError(error: unknown): { code: string; message: string } {
   return { code: "model_unavailable", message: "The model couldn't finish this reply. Try again" };
 }
 
-/**
- * Streams one reply. Tokens go to the client as they arrive; the reply is
- * saved once at the end, as complete, stopped (the client went away), or
- * error. Usage is recorded by the model itself, including for stopped replies.
- */
+export interface ReplyDependencies {
+  ai: Ai;
+  rag: RagPipeline;
+  service: ChatService;
+  documents: DocumentsService;
+  logger: Logger;
+}
+
+type EventStream = ReturnType<typeof openEventStream>;
+
+interface Drive {
+  deps: ReplyDependencies;
+  actor: Actor;
+  stream: EventStream;
+  signal: AbortSignal;
+  context: AiCallContext;
+  threadId: string;
+  messageId: string;
+  modelId: string;
+  /** Whether the model can call tools; models that can't just answer. */
+  canUseTools: boolean;
+  /** Collects citation sources: pre-fetched ones first, then any the agent finds. */
+  sources: Source[];
+  /** Text already written, when continuing a paused reply. */
+  initialText: string;
+  initialToolCalls: ToolCallRecord[];
+  start: (options: AgentOptions) => Promise<AgentResult>;
+  /** After the reply ends, e.g. to name a new thread. */
+  after?: () => Promise<void>;
+  runId?: string;
+}
+
 /** Adds the sources to the system prompt; one system message keeps every provider happy. */
 function withSources(history: BaseMessage[], prompt: string): BaseMessage[] {
   const [system, ...rest] = history;
@@ -60,24 +97,127 @@ const markCited = (sources: Source[], content: string): MessageSource[] => {
   return sources.map((source) => ({ ...source, cited: cited.has(source.id) }));
 };
 
+/**
+ * Runs the agent for one reply and saves the outcome. Tokens and tool events
+ * stream as they happen; the reply is saved once at the end: complete,
+ * waiting for approval (with a checkpoint), stopped, or error.
+ */
+async function drive(run: Drive): Promise<void> {
+  const { deps, actor, stream, signal, context } = run;
+  let content = run.initialText;
+  const toolCalls = new Map(run.initialToolCalls.map((call) => [call.id, call]));
+  const tools = run.canUseTools
+    ? createToolRegistry(
+        workspaceTools({
+          documents: deps.documents,
+          workspaceId: actor.workspaceId,
+          userId: actor.userId,
+          ...(actor.requestId ? { requestId: actor.requestId } : {}),
+          sources: run.sources,
+        }),
+      )
+    : createToolRegistry([]);
+  const options: AgentOptions = {
+    model: deps.ai.chatModel(context, run.modelId),
+    tools,
+    context,
+    signal,
+    logger: deps.logger,
+    // Permission and validation errors explain themselves; anything else stays in the logs.
+    describeError: (error) =>
+      error instanceof AppError && error.status < 500 ? error.message : undefined,
+    emit: (event) => {
+      if (event.type === "token") {
+        content += event.text;
+        stream.send({ type: "token", text: event.text });
+      } else {
+        toolCalls.set(event.call.id, event.call);
+        stream.send({ type: "tool", call: event.call });
+      }
+    },
+  };
+  const finalToolCalls = () => [...toolCalls.values()];
+  const reply = { threadId: run.threadId, messageId: run.messageId, modelId: run.modelId };
+
+  try {
+    const result = await run.start(options);
+    if (result.status === "waiting") {
+      const message = await deps.service.pauseReply(actor, reply, {
+        content: result.text,
+        toolCalls: result.toolCalls,
+        sources: markCited(run.sources, result.text),
+        checkpoint: result as unknown as Record<string, unknown>,
+      });
+      stream.send({ type: "done", status: "waiting", message });
+    } else {
+      const message = await deps.service.finishReply(actor, run.messageId, {
+        content: result.text,
+        status: "complete",
+        toolCalls: result.toolCalls,
+        sources: markCited(run.sources, result.text),
+      });
+      if (run.runId) await deps.service.setRunStatus(actor, run.runId, "completed");
+      stream.send({ type: "done", status: "complete", message });
+    }
+    await run.after?.();
+  } catch (error) {
+    if (signal.aborted) {
+      // The user pressed stop or closed the tab: keep what they already saw.
+      await deps.service
+        .finishReply(actor, run.messageId, {
+          content,
+          status: "stopped",
+          toolCalls: finalToolCalls(),
+          sources: markCited(run.sources, content),
+        })
+        .catch((saveError: unknown) =>
+          deps.logger.error({ err: saveError }, "Failed to save a stopped reply"),
+        );
+      if (run.runId)
+        await deps.service.setRunStatus(actor, run.runId, "cancelled").catch(() => undefined);
+      if (content) await run.after?.().catch(() => undefined);
+      return;
+    }
+    const { code, message } = publicError(error);
+    if (!(error instanceof AiError)) deps.logger.error({ err: error }, "Chat reply failed");
+    const assistantMessage = await deps.service
+      .finishReply(actor, run.messageId, {
+        content,
+        status: "error",
+        errorCode: code,
+        toolCalls: finalToolCalls(),
+        sources: markCited(run.sources, content),
+      })
+      .catch((saveError: unknown) => {
+        deps.logger.error({ err: saveError }, "Failed to save a failed reply");
+        return undefined;
+      });
+    if (run.runId)
+      await deps.service.setRunStatus(actor, run.runId, "cancelled").catch(() => undefined);
+    stream.send({
+      type: "error",
+      code,
+      message,
+      ...(assistantMessage ? { assistantMessage } : {}),
+    });
+    await run.after?.().catch(() => undefined);
+  }
+}
+
+/**
+ * Streams the reply to a new message: optional document search first (step 8),
+ * then the agent, which may use tools and may pause for approval.
+ */
 export async function streamReply({
-  ai,
-  rag,
-  service,
-  logger,
+  deps,
   actor,
   prepared,
-  firstMessage,
   res,
   signal,
 }: {
-  ai: Ai;
-  rag: RagPipeline;
-  service: ChatService;
-  logger: Logger;
+  deps: ReplyDependencies;
   actor: Actor;
   prepared: PreparedReply;
-  firstMessage: string;
   res: Response;
   signal: AbortSignal;
 }): Promise<void> {
@@ -89,16 +229,14 @@ export async function streamReply({
     assistantMessageId: prepared.assistantMessageId,
   });
 
-  let content = "";
-  let final: AIMessageChunk | undefined;
-  let sources: Source[] = [];
+  const sources: Source[] = [];
+  let history = prepared.history;
+  const { knowledge } = prepared;
   try {
-    let history = prepared.history;
-    const { knowledge } = prepared;
     if (knowledge.hasDocuments && knowledge.mode !== "off") {
       stream.send({ type: "status", stage: "searching" });
       try {
-        const result = await rag.prepare(
+        const result = await deps.rag.prepare(
           prepared.context,
           {
             history: knowledge.turns,
@@ -109,81 +247,108 @@ export async function streamReply({
           signal,
         );
         if (result.route === "documents") {
-          sources = result.sources;
-          history = withSources(history, sourcesPrompt(sources));
+          sources.push(...result.sources);
+          history = withSources(history, sourcesPrompt(result.sources));
           stream.send({ type: "sources", sources: markCited(sources, "") });
         }
       } catch (error) {
         if (error instanceof AiError || signal.aborted) throw error;
         // Search trouble shouldn't cost the user their answer.
-        logger.warn({ err: error }, "Document search failed, answering without it");
+        deps.logger.warn({ err: error }, "Document search failed, answering without it");
       }
       stream.send({ type: "status", stage: "writing" });
     }
-
-    const model = ai.chatModel(prepared.context, prepared.model.id);
-    for await (const chunk of await model.stream(history, { signal })) {
-      final = final ? final.concat(chunk) : chunk;
-      if (chunk.text) {
-        content += chunk.text;
-        stream.send({ type: "token", text: chunk.text });
-      }
-    }
-    const usage = usageFromMetadata(final?.usage_metadata);
-    const message = await service.finishReply(actor, prepared.assistantMessageId, {
-      content,
-      status: "complete",
-      inputTokens: usage?.inputTokens ?? null,
-      outputTokens: usage?.outputTokens ?? null,
-      sources: markCited(sources, content),
-    });
-    stream.send({ type: "done", status: "complete", message });
-
-    if (prepared.isNewThread) {
-      const title = await service.generateTitle(prepared, firstMessage);
-      stream.send({ type: "title", threadId: prepared.thread.id, title });
-    }
   } catch (error) {
-    if (signal.aborted) {
-      // The user pressed stop or closed the tab: keep what they already saw.
-      await service
-        .finishReply(actor, prepared.assistantMessageId, {
-          content,
-          status: "stopped",
-          sources: markCited(sources, content),
-        })
-        .catch((saveError: unknown) =>
-          logger.error({ err: saveError }, "Failed to save a stopped reply"),
-        );
-      if (prepared.isNewThread && content) {
-        await service.generateTitle(prepared, firstMessage).catch(() => undefined);
-      }
-    } else {
-      const { code, message } = publicError(error);
-      if (!(error instanceof AiError)) logger.error({ err: error }, "Chat reply failed");
-      const assistantMessage = await service
-        .finishReply(actor, prepared.assistantMessageId, {
-          content,
-          status: "error",
-          errorCode: code,
-          sources: markCited(sources, content),
-        })
-        .catch((saveError: unknown) => {
-          logger.error({ err: saveError }, "Failed to save a failed reply");
-          return undefined;
-        });
-      stream.send({
-        type: "error",
-        code,
-        message,
-        ...(assistantMessage ? { assistantMessage } : {}),
-      });
-      if (prepared.isNewThread) {
-        const title = await service.generateTitle(prepared, firstMessage).catch(() => undefined);
-        if (title) stream.send({ type: "title", threadId: prepared.thread.id, title });
-      }
-    }
-  } finally {
+    // A spend cap hit during search ends the reply like any other failure.
+    await drive({
+      deps,
+      actor,
+      stream,
+      signal,
+      context: prepared.context,
+      threadId: prepared.thread.id,
+      messageId: prepared.assistantMessageId,
+      modelId: prepared.model.id,
+      canUseTools: false,
+      sources,
+      initialText: "",
+      initialToolCalls: [],
+      start: () => Promise.reject(error),
+    });
     stream.end();
+    return;
   }
+
+  const finalHistory = history;
+  await drive({
+    deps,
+    actor,
+    stream,
+    signal,
+    context: prepared.context,
+    threadId: prepared.thread.id,
+    messageId: prepared.assistantMessageId,
+    modelId: prepared.model.id,
+    canUseTools: prepared.model.capabilities.includes("tools"),
+    sources,
+    initialText: "",
+    initialToolCalls: [],
+    start: (options) => runAgent(options, finalHistory),
+    ...(prepared.isNewThread
+      ? {
+          after: async () => {
+            const title = await deps.service.generateTitle(prepared, prepared.userMessage.content);
+            stream.send({ type: "title", threadId: prepared.thread.id, title });
+          },
+        }
+      : {}),
+  });
+  stream.end();
+}
+
+/** Continues a paused reply once the user approves or declines the pending tool call. */
+export async function streamDecision({
+  deps,
+  actor,
+  claimed,
+  callId,
+  approved,
+  res,
+  signal,
+}: {
+  deps: ReplyDependencies;
+  actor: Actor;
+  claimed: { run: AgentRunRow; message: ChatMessage };
+  callId: string;
+  approved: boolean;
+  res: Response;
+  signal: AbortSignal;
+}): Promise<void> {
+  const { run, message } = claimed;
+  const checkpoint = run.checkpoint as unknown as AgentCheckpoint;
+  const stream = openEventStream(res);
+  stream.send({ type: "resume", message });
+  const model = deps.ai.registry.list({ kind: "chat" }).find((item) => item.id === run.modelId);
+  await drive({
+    deps,
+    actor,
+    stream,
+    signal,
+    context: {
+      userId: actor.userId,
+      workspaceId: actor.workspaceId,
+      feature: "chat",
+      ...(actor.requestId ? { requestId: actor.requestId } : {}),
+    },
+    threadId: run.threadId,
+    messageId: run.messageId,
+    modelId: run.modelId,
+    canUseTools: model?.capabilities.includes("tools") ?? true,
+    sources: run.sources.map(({ cited: _cited, ...source }) => source),
+    initialText: checkpoint.text,
+    initialToolCalls: checkpoint.toolCalls,
+    runId: run.id,
+    start: (options) => resumeAgent(options, checkpoint, { callId, approved }),
+  });
+  stream.end();
 }

@@ -58,9 +58,13 @@ async function send(user: SignedUpUser, base: string, body: Record<string, unkno
 const chatRequests = () => gateway.requests.filter((r) => r.path.endsWith("/chat/completions"));
 /** The chat call itself, not moderation or title calls. */
 const replyRequest = () =>
-  chatRequests().find(
-    (r) => r.body.stream === true && !(r.body.tools as unknown[] | undefined)?.length,
-  );
+  chatRequests().find((r) => {
+    const names = ((r.body.tools as { function: { name: string } }[] | undefined) ?? []).map(
+      (tool) => tool.function.name,
+    );
+    // The reply offers the workspace tools; helper calls offer only their own.
+    return r.body.stream === true && (names.length === 0 || names.includes("search_documents"));
+  });
 
 describe("chat", () => {
   it("streams a reply, saves both messages, and names the new chat", async () => {

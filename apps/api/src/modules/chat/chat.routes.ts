@@ -32,6 +32,7 @@ export function createChatRouter({
   const router = Router({ mergeParams: true });
   router.use(authenticate);
   router.post("/chat", perUser("ai"), controller.send);
+  router.post("/threads/:threadId/tool-calls/:callId/decision", perUser("ai"), controller.decide);
   router.get("/threads", controller.listThreads);
   router.get("/threads/:threadId", controller.getThread);
   router.patch("/threads/:threadId", controller.renameThread);

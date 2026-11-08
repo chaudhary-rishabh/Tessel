@@ -10,7 +10,14 @@ import type {
   ThreadSummary,
 } from "@tessel/contracts";
 import { sendMessageRequestSchema } from "@tessel/contracts";
-import { withUserContext, type Database, type MessageSource, type MessageStatus } from "@tessel/db";
+import {
+  withUserContext,
+  type AgentRunRow,
+  type Database,
+  type MessageSource,
+  type MessageStatus,
+  type MessageToolCall,
+} from "@tessel/db";
 import type { Logger } from "@tessel/logger";
 import { storageKeys, type ObjectStore } from "@tessel/storage";
 import { errors } from "../../lib/errors";
@@ -203,6 +210,8 @@ export function createChatService({
 
       const now = new Date();
       const saved = await withUserContext(db, actor.userId, async (tx) => {
+        // A new message moves on from any action still waiting for approval.
+        if (existingThread) await chatRepository.cancelWaitingRuns(tx, existingThread.id);
         const thread = existingThread
           ? ((await chatRepository.updateThread(tx, existingThread.id, {
               modelId: model.id,
@@ -285,6 +294,7 @@ export function createChatService({
         inputTokens?: number | null;
         outputTokens?: number | null;
         sources?: MessageSource[];
+        toolCalls?: MessageToolCall[];
       },
     ): Promise<ChatMessage> {
       return withUserContext(db, actor.userId, async (tx) => {
@@ -293,6 +303,81 @@ export function createChatService({
         await chatRepository.updateThread(tx, row.threadId, { updatedAt: new Date() });
         return toMessage(row);
       });
+    },
+
+    /** Saves a reply paused for approval, with the run's checkpoint to continue from. */
+    async pauseReply(
+      actor: Actor,
+      reply: { threadId: string; messageId: string; modelId: string },
+      state: {
+        content: string;
+        toolCalls: MessageToolCall[];
+        sources: MessageSource[];
+        checkpoint: Record<string, unknown>;
+      },
+    ): Promise<ChatMessage> {
+      return withUserContext(db, actor.userId, async (tx) => {
+        const row = await chatRepository.finishMessage(tx, reply.messageId, {
+          content: state.content,
+          status: "waiting",
+          toolCalls: state.toolCalls,
+          sources: state.sources,
+        });
+        if (!row) throw errors.notFound("Message not found");
+        await chatRepository.saveRun(tx, {
+          threadId: reply.threadId,
+          messageId: reply.messageId,
+          workspaceId: actor.workspaceId,
+          userId: actor.userId,
+          modelId: reply.modelId,
+          checkpoint: state.checkpoint,
+          sources: state.sources,
+          status: "waiting",
+        });
+        await chatRepository.updateThread(tx, reply.threadId, { updatedAt: new Date() });
+        return toMessage(row);
+      });
+    },
+
+    /**
+     * Takes the thread's paused run for a decision on `callId`. Only one
+     * decision can claim a run, so a double click can't run a tool twice.
+     */
+    async claimRun(
+      actor: Actor,
+      threadId: string,
+      callId: string,
+    ): Promise<{ run: AgentRunRow; message: ChatMessage; thread: ThreadSummary }> {
+      return withUserContext(db, actor.userId, async (tx) => {
+        const thread = await chatRepository.findThread(tx, { ...actor, threadId });
+        if (!thread) throw errors.notFound("Chat not found");
+        const run = await chatRepository.claimWaitingRun(tx, thread.id);
+        const pending = run?.checkpoint.pendingCallId;
+        if (!run || pending !== callId) {
+          if (run) await chatRepository.setRunStatus(tx, run.id, "waiting");
+          throw errors.conflict(
+            "approval_not_pending",
+            "This action is no longer waiting for approval",
+          );
+        }
+        const message = await chatRepository.findMessage(tx, run.messageId);
+        if (!message) throw errors.notFound("Message not found");
+        await chatRepository.finishMessage(tx, message.id, {
+          content: message.content,
+          status: "streaming",
+        });
+        return {
+          run,
+          message: toMessage({ ...message, status: "streaming" }),
+          thread: toThread(thread),
+        };
+      });
+    },
+
+    async setRunStatus(actor: Actor, runId: string, status: AgentRunRow["status"]): Promise<void> {
+      await withUserContext(db, actor.userId, (tx) =>
+        chatRepository.setRunStatus(tx, runId, status),
+      );
     },
 
     /** Names a new thread from its first message. Never fails: falls back to the first words. */

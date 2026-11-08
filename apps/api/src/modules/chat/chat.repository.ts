@@ -1,9 +1,11 @@
 import type { Attachment, ChatMessage, ThreadSummary } from "@tessel/contracts";
 import {
+  agentRuns,
   attachments,
   documents,
   messages,
   threads,
+  type AgentRunRow,
   type AttachmentRow,
   type MessageRow,
   type MessageStatus,
@@ -45,6 +47,7 @@ export function toMessage(row: MessageRow, files: AttachmentMeta[] = []): ChatMe
     createdAt: row.createdAt.toISOString(),
     attachments: files.map(toAttachment),
     sources: row.sources,
+    toolCalls: row.toolCalls,
   };
 }
 
@@ -155,6 +158,7 @@ export const chatRepository = {
       inputTokens?: number | null;
       outputTokens?: number | null;
       sources?: MessageRow["sources"];
+      toolCalls?: MessageRow["toolCalls"];
     },
   ): Promise<MessageRow | undefined> {
     const [row] = await tx
@@ -206,6 +210,79 @@ export const chatRepository = {
   async attachToMessage(tx: Transaction, ids: string[], messageId: string): Promise<void> {
     if (ids.length === 0) return;
     await tx.update(attachments).set({ messageId }).where(inArray(attachments.id, ids));
+  },
+
+  /** Saves (or replaces) the paused run for an assistant message. */
+  async saveRun(
+    tx: Transaction,
+    values: Pick<
+      AgentRunRow,
+      | "threadId"
+      | "messageId"
+      | "workspaceId"
+      | "userId"
+      | "modelId"
+      | "checkpoint"
+      | "sources"
+      | "status"
+    >,
+  ): Promise<void> {
+    await tx
+      .insert(agentRuns)
+      .values(values)
+      .onConflictDoUpdate({
+        target: agentRuns.messageId,
+        set: {
+          status: values.status,
+          checkpoint: values.checkpoint,
+          sources: values.sources,
+          modelId: values.modelId,
+        },
+      });
+  },
+
+  /** Claims the thread's waiting run for one decision: waiting becomes running, once. */
+  async claimWaitingRun(tx: Transaction, threadId: string): Promise<AgentRunRow | undefined> {
+    const [row] = await tx
+      .update(agentRuns)
+      .set({ status: "running" })
+      .where(and(eq(agentRuns.threadId, threadId), eq(agentRuns.status, "waiting")))
+      .returning();
+    return row;
+  },
+
+  async setRunStatus(tx: Transaction, runId: string, status: AgentRunRow["status"]): Promise<void> {
+    await tx.update(agentRuns).set({ status }).where(eq(agentRuns.id, runId));
+  },
+
+  /**
+   * Cancels a thread's waiting run when the user moves on with a new message:
+   * the pending call is marked cancelled and the reply is closed.
+   */
+  async cancelWaitingRuns(tx: Transaction, threadId: string): Promise<void> {
+    const runs = await tx
+      .update(agentRuns)
+      .set({ status: "cancelled" })
+      .where(and(eq(agentRuns.threadId, threadId), eq(agentRuns.status, "waiting")))
+      .returning({ messageId: agentRuns.messageId });
+    for (const run of runs) {
+      const [message] = await tx.select().from(messages).where(eq(messages.id, run.messageId));
+      if (!message) continue;
+      await tx
+        .update(messages)
+        .set({
+          status: "complete",
+          toolCalls: message.toolCalls.map((call) =>
+            call.status === "waiting" ? { ...call, status: "cancelled" as const } : call,
+          ),
+        })
+        .where(eq(messages.id, run.messageId));
+    }
+  },
+
+  async findMessage(tx: Transaction, messageId: string): Promise<MessageRow | undefined> {
+    const [row] = await tx.select().from(messages).where(eq(messages.id, messageId));
+    return row;
   },
 
   /** Whether the workspace has any document ready to search. */
