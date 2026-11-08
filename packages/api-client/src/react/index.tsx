@@ -1,7 +1,10 @@
 "use client";
 
 import type {
+  CreateSkillRequest,
   DocumentSummary,
+  Skill,
+  UpdateSkillRequest,
   ModelListResponse,
   ThreadListResponse,
   ThreadResponse,
@@ -33,6 +36,7 @@ export const queryKeys = {
   workspace: (id: string) => ["workspaces", id] as const,
   models: ["models"] as const,
   documents: (workspaceId: string) => ["workspaces", workspaceId, "documents"] as const,
+  skills: (workspaceId: string) => ["workspaces", workspaceId, "skills"] as const,
   threads: (workspaceId: string) => ["workspaces", workspaceId, "threads"] as const,
   thread: (workspaceId: string, threadId: string) =>
     ["workspaces", workspaceId, "threads", threadId] as const,
@@ -220,6 +224,59 @@ export function useReprocessDocument(workspaceId: string) {
     onSuccess: (document) =>
       queryClient.setQueryData<DocumentSummary[]>(queryKeys.documents(workspaceId), (current) =>
         current?.map((item) => (item.id === document.id ? document : item)),
+      ),
+  });
+}
+
+export function useSkills(workspaceId: string | undefined) {
+  const api = useApi();
+  return useQuery({
+    queryKey: queryKeys.skills(workspaceId ?? "none"),
+    queryFn: () => api.skills.list(workspaceId!),
+    enabled: Boolean(workspaceId),
+  });
+}
+
+/** Workspace skills first (newest edits applied in place), then built-in ones. */
+function putSkill(skills: Skill[] | undefined, skill: Skill): Skill[] | undefined {
+  if (!skills) return skills;
+  return skills.some((item) => item.id === skill.id)
+    ? skills.map((item) => (item.id === skill.id ? skill : item))
+    : [skill, ...skills];
+}
+
+export function useCreateSkill(workspaceId: string) {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<Skill, ApiClientError, CreateSkillRequest>({
+    mutationFn: (input) => api.skills.create(workspaceId, input),
+    onSuccess: (skill) =>
+      queryClient.setQueryData<Skill[]>(queryKeys.skills(workspaceId), (current) =>
+        putSkill(current, skill),
+      ),
+  });
+}
+
+export function useUpdateSkill(workspaceId: string) {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<Skill, ApiClientError, { skillId: string; input: UpdateSkillRequest }>({
+    mutationFn: ({ skillId, input }) => api.skills.update(workspaceId, skillId, input),
+    onSuccess: (skill) =>
+      queryClient.setQueryData<Skill[]>(queryKeys.skills(workspaceId), (current) =>
+        putSkill(current, skill),
+      ),
+  });
+}
+
+export function useDeleteSkill(workspaceId: string) {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<void, ApiClientError, string>({
+    mutationFn: (skillId) => api.skills.remove(workspaceId, skillId),
+    onSuccess: (_result, skillId) =>
+      queryClient.setQueryData<Skill[]>(queryKeys.skills(workspaceId), (current) =>
+        current?.filter((skill) => skill.id !== skillId),
       ),
   });
 }

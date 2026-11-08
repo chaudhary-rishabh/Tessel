@@ -3,8 +3,10 @@ import {
   AiError,
   citedSourceIds,
   createToolRegistry,
+  loadSkillTool,
   resumeOrchestrator,
   runOrchestrator,
+  skillsPrompt,
   sourcesPrompt,
   toOrchestratorCheckpoint,
   type ActivityItem,
@@ -14,6 +16,7 @@ import {
   type OrchestratorOptions,
   type OrchestratorResult,
   type RagPipeline,
+  type SkillDefinition,
   type Source,
   type ToolCallRecord,
 } from "@tessel/ai";
@@ -23,6 +26,7 @@ import type { Logger } from "@tessel/logger";
 import { AppError } from "../../lib/errors";
 import type { Response } from "express";
 import type { DocumentsService } from "../documents/documents.service";
+import type { SkillsService } from "../skills/skills.service";
 import type { Actor, ChatService, PreparedReply } from "./chat.service";
 import { teamWorkers, workspaceTools } from "./chat.tools";
 
@@ -61,6 +65,7 @@ export interface ReplyDependencies {
   rag: RagPipeline;
   service: ChatService;
   documents: DocumentsService;
+  skills: SkillsService;
   logger: Logger;
 }
 
@@ -77,6 +82,8 @@ interface Drive {
   modelId: string;
   /** Whether the model can call tools; models that can't just answer. */
   canUseTools: boolean;
+  /** Skills the agent can load with load_skill. */
+  skills: SkillDefinition[];
   /** Collects citation sources: pre-fetched ones first, then any the agent finds. */
   sources: Source[];
   /** Text already written, when continuing a paused reply. */
@@ -134,7 +141,7 @@ async function drive(run: Drive): Promise<void> {
           userId: actor.userId,
           ...(actor.requestId ? { requestId: actor.requestId } : {}),
           sources: run.sources,
-        }),
+        }).concat(run.skills.length ? [loadSkillTool(run.skills)] : []),
       )
     : createToolRegistry([]);
   const helper = { ...context, feature: "agent" as const };
@@ -246,6 +253,16 @@ async function drive(run: Drive): Promise<void> {
   }
 }
 
+/** The workspace's skills; a failure to load them shouldn't cost the reply. */
+async function loadSkills(deps: ReplyDependencies, actor: Actor): Promise<SkillDefinition[]> {
+  try {
+    return await deps.skills.forAgent(actor);
+  } catch (error) {
+    deps.logger.warn({ err: error }, "Skills failed to load, answering without them");
+    return [];
+  }
+}
+
 /**
  * Checks a finished reply against the usage policy. The user already saw it
  * stream, so a blocked reply is replaced rather than kept; a failed check
@@ -332,6 +349,7 @@ export async function streamReply({
       messageId: prepared.assistantMessageId,
       modelId: prepared.model.id,
       canUseTools: false,
+      skills: [],
       sources,
       initialText: "",
       initialToolCalls: [],
@@ -342,8 +360,10 @@ export async function streamReply({
     return;
   }
 
-  const finalHistory = history;
   const canUseTools = prepared.model.capabilities.includes("tools");
+  const skills = canUseTools ? await loadSkills(deps, actor) : [];
+  if (skills.length) history = withSources(history, skillsPrompt(skills));
+  const finalHistory = history;
   // The other modes plan and delegate with tool calls, so they need a model that can make them.
   const mode: AgentMode = canUseTools ? prepared.mode : "auto";
   await drive({
@@ -356,6 +376,7 @@ export async function streamReply({
     messageId: prepared.assistantMessageId,
     modelId: prepared.model.id,
     canUseTools,
+    skills,
     sources,
     initialText: "",
     initialToolCalls: [],
@@ -411,6 +432,7 @@ export async function streamDecision({
     messageId: run.messageId,
     modelId: run.modelId,
     canUseTools: model?.capabilities.includes("tools") ?? true,
+    skills: await loadSkills(deps, actor),
     sources: run.sources.map(({ cited: _cited, ...source }) => source),
     initialText: checkpoint.text,
     initialToolCalls: checkpoint.toolCalls,

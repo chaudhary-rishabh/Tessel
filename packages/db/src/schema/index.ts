@@ -4,3 +4,4 @@ export * from "./workspaces";
 export * from "./usage-events";
 export * from "./chat";
 export * from "./documents";
+export * from "./skills";

@@ -36,3 +36,6 @@ Things noticed along the way that are not needed yet. Each item names the step w
 - **Agent evaluations:** Scenarios checking tool choice, argument quality, and that declined actions aren't retried. (Phase 3)
 - **Stream moderation:** Check long replies in chunks while they stream, so a blocked reply stops early instead of being replaced at the end. (Phase 3)
 - **Mode suggestions:** Suggest Plan or Team when a message looks like a multi-part task, without switching on its own. (Phase 2)
+- **Built-in skill settings:** Let owners and admins turn built-in skills off for their workspace. (Step 18)
+- **Skill files:** Let a skill include reference files or templates the agent can read, like Claude's skill folders. (Phase 2)
+- **Pick a skill in the composer:** Type `/` to choose a skill for the next message instead of waiting for the agent to load it. (Step 20)

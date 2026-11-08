@@ -9,6 +9,8 @@ import {
   documentSchema,
   downloadResponseSchema,
   searchResponseSchema,
+  skillListResponseSchema,
+  skillSchema,
   threadListResponseSchema,
   threadResponseSchema,
   threadSummarySchema,
@@ -26,6 +28,9 @@ import {
   type PresignedUpload,
   type SearchRequest,
   type SearchResponse,
+  type CreateSkillRequest,
+  type Skill,
+  type UpdateSkillRequest,
   type ThreadListResponse,
   type ThreadResponse,
   type ThreadSummary,
@@ -136,6 +141,25 @@ export function createApi(client: ApiClient) {
             responseType: "blob",
           })
         ).data,
+    },
+    skills: {
+      list: async (workspaceId: string): Promise<Skill[]> =>
+        parse(skillListResponseSchema, (await http.get(`/workspaces/${workspaceId}/skills`)).data)
+          .skills,
+      create: async (workspaceId: string, input: CreateSkillRequest): Promise<Skill> =>
+        parse(skillSchema, (await http.post(`/workspaces/${workspaceId}/skills`, input)).data),
+      update: async (
+        workspaceId: string,
+        skillId: string,
+        input: UpdateSkillRequest,
+      ): Promise<Skill> =>
+        parse(
+          skillSchema,
+          (await http.patch(`/workspaces/${workspaceId}/skills/${skillId}`, input)).data,
+        ),
+      remove: async (workspaceId: string, skillId: string): Promise<void> => {
+        await http.delete(`/workspaces/${workspaceId}/skills/${skillId}`);
+      },
     },
     documents: {
       list: async (workspaceId: string): Promise<DocumentSummary[]> =>

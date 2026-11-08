@@ -266,6 +266,13 @@ flowchart TB
 - Stages stream as `activity` events and are saved on the reply (`messages.activity`, with `messages.agent_mode`). The interface shows them in a panel above the tool calls.
 - Finished replies are moderated before they're saved; a blocked reply becomes an error (`reply_blocked`).
 
+## Skills
+
+- A skill is a name, a description of when to use it, and instructions. Built-in skills are code in `@tessel/ai` (`builtInSkills`); workspace skills are rows in `skills`.
+- Each reply lists enabled skills in the system prompt (`skillsPrompt`) and offers the `load_skill` tool, which returns a skill's instructions marked as instructions to follow (unlike other tool results, which are data).
+- Endpoints: `GET|POST /workspaces/:workspaceId/skills`, `PATCH|DELETE …/skills/:skillId`. Saving moderates the text; names are unique per workspace and can't match a built-in one.
+- The web app's Skills page lists workspace and built-in skills, with a switch to turn each workspace skill on or off.
+
 ## Web app
 
 | Concern          | Approach                                                                                                                                                                                                                                                                                                                                                                        |

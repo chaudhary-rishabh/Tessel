@@ -27,6 +27,8 @@ import { createChatRouter } from "./modules/chat/chat.routes";
 import { createChatService } from "./modules/chat/chat.service";
 import { createDocumentsController } from "./modules/documents/documents.controller";
 import { createDocumentsRouter } from "./modules/documents/documents.routes";
+import { createSkillsRouter } from "./modules/skills/skills.routes";
+import { createSkillsService } from "./modules/skills/skills.service";
 import { createDocumentsService } from "./modules/documents/documents.service";
 import { createHealthRouter } from "./modules/health/health.routes";
 import { createUsageController } from "./modules/usage/usage.controller";
@@ -137,8 +139,10 @@ export function createApp({
     logger,
   });
   const documentsController = createDocumentsController(documentsService);
+  const skillsService = createSkillsService({ db, ai });
   const chatController = createChatController({
     documents: documentsService,
+    skills: skillsService,
     service: createChatService({ db, ai, logger, objects: storage.objects }),
     ai,
     rag: createRagPipeline({ ai, index: vectorIndex, logger }),
@@ -202,6 +206,10 @@ export function createApp({
       rateLimit: config.rateLimits.ai,
       storeFactory: rateLimitStoreFactory,
     }),
+  );
+  app.use(
+    "/workspaces/:workspaceId/skills",
+    createSkillsRouter({ service: skillsService, authenticate }),
   );
   app.use("/models", createModelsRouter({ controller: aiController, authenticate }));
 
