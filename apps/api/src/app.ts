@@ -1,62 +1,136 @@
-import type {
-  ApiError,
-  DependencyCheck,
-  HealthResponse,
-  ReadinessResponse,
-} from "@tessel/contracts";
+import type { Database } from "@tessel/db";
 import type { Logger } from "@tessel/logger";
-import express, { type ErrorRequestHandler, type Express } from "express";
-import type { DependencyCheckFn } from "./health/checks";
+import cookieParser from "cookie-parser";
+import cors from "cors";
+import express, { type Express } from "express";
+import helmet from "helmet";
+import type { AppConfig } from "./config";
+import { errorHandler, notFoundHandler } from "./middleware/error-handler";
+import { createRateLimiter, type RateLimitStoreFactory } from "./middleware/rate-limit";
+import { requestId } from "./middleware/request-id";
+import { requestLogger } from "./middleware/request-logger";
+import { requireAuth } from "./middleware/require-auth";
+import { createAuthController } from "./modules/auth/auth.controller";
+import { createAuthRouter } from "./modules/auth/auth.routes";
+import { createAuthService } from "./modules/auth/auth.service";
+import { createRefreshCookie } from "./modules/auth/cookies";
+import { createPasswordHasher, type PasswordHasher } from "./modules/auth/password";
+import { createAccessTokens } from "./modules/auth/tokens";
+import type { DependencyCheckFn } from "./modules/health/checks";
+import { createHealthRouter } from "./modules/health/health.routes";
+import { createUsersController } from "./modules/users/users.controller";
+import { createUsersRouter } from "./modules/users/users.routes";
+import { createUsersService } from "./modules/users/users.service";
+import { createWorkspacesController } from "./modules/workspaces/workspaces.controller";
+import { createWorkspacesRouter } from "./modules/workspaces/workspaces.routes";
+import { createWorkspacesService } from "./modules/workspaces/workspaces.service";
 
 export interface AppDependencies {
-  service: string;
+  config: AppConfig;
   logger: Logger;
+  db: Database;
   readinessChecks: DependencyCheckFn[];
-  /** Include dependency error messages in readiness output. Off in production. */
-  exposeCheckErrors: boolean;
+  /** Rate limit storage per limiter. Defaults to in-memory (single instance only). */
+  rateLimitStoreFactory?: RateLimitStoreFactory;
+  /** Override for tests, which use cheaper hashing settings. */
+  passwordHasher?: PasswordHasher;
 }
 
+const DAY_MS = 86_400_000;
+
 export function createApp({
-  service,
+  config,
   logger,
+  db,
   readinessChecks,
-  exposeCheckErrors,
+  rateLimitStoreFactory,
+  passwordHasher = createPasswordHasher(),
 }: AppDependencies): Express {
   const app = express();
   app.disable("x-powered-by");
+  app.set("trust proxy", config.trustProxy);
 
-  // Liveness: the process is up and serving requests.
-  app.get("/health", (_req, res) => {
-    const body: HealthResponse = {
-      status: "ok",
-      service,
-      uptimeSeconds: Math.round(process.uptime()),
-    };
-    res.json(body);
+  // Request pipeline, in order: ID, logging, security headers, CORS, body parsing.
+  app.use(requestId);
+  app.use(requestLogger(logger));
+  app.use(helmet());
+  app.use(
+    cors({
+      origin: config.corsOrigins,
+      credentials: true,
+      exposedHeaders: ["x-request-id", "ratelimit", "ratelimit-policy", "retry-after"],
+    }),
+  );
+  app.use(express.json({ limit: "1mb" }));
+  app.use(cookieParser());
+
+  // Health checks stay outside rate limiting so probes never get throttled.
+  app.use(
+    createHealthRouter({
+      service: config.service,
+      readinessChecks,
+      exposeCheckErrors: !config.isProduction,
+    }),
+  );
+  app.use(
+    createRateLimiter({
+      name: "api",
+      ...config.rateLimits.api,
+      storeFactory: rateLimitStoreFactory,
+    }),
+  );
+
+  // Services
+  const accessTokens = createAccessTokens({
+    secret: config.auth.accessTokenSecret,
+    ttlSeconds: config.auth.accessTokenTtlSeconds,
   });
-
-  // Readiness: every dependency the API needs is reachable.
-  app.get("/health/ready", async (_req, res) => {
-    const results = await Promise.all(readinessChecks.map((check) => check()));
-    const ready = results.every((result) => result.status === "up");
-    const checks: DependencyCheck[] = exposeCheckErrors
-      ? results
-      : results.map(({ error: _error, ...rest }) => rest);
-    const body: ReadinessResponse = { status: ready ? "ready" : "not_ready", service, checks };
-    res.status(ready ? 200 : 503).json(body);
+  const refreshTokenTtlMs = config.auth.refreshTokenTtlDays * DAY_MS;
+  const refreshCookie = createRefreshCookie({
+    secure: config.auth.cookieSecure,
+    maxAgeMs: refreshTokenTtlMs,
   });
-
-  app.use((_req, res) => {
-    const body: ApiError = { error: { code: "not_found", message: "Route not found" } };
-    res.status(404).json(body);
+  const authService = createAuthService({
+    db,
+    logger,
+    passwords: passwordHasher,
+    accessTokens,
+    refreshTokenTtlMs,
+    refreshRotationGraceMs: config.auth.refreshRotationGraceMs,
   });
+  const usersService = createUsersService({ db });
+  const workspacesService = createWorkspacesService({ db });
+  const authenticate = requireAuth(accessTokens);
 
-  const errorHandler: ErrorRequestHandler = (error, _req, res, _next) => {
-    logger.error({ err: error }, "Unhandled request error");
-    const body: ApiError = { error: { code: "internal_error", message: "Something went wrong" } };
-    res.status(500).json(body);
-  };
-  app.use(errorHandler);
+  // Feature modules
+  app.use(
+    "/auth",
+    createAuthRouter({
+      controller: createAuthController(authService, refreshCookie),
+      rateLimits: config.rateLimits,
+      storeFactory: rateLimitStoreFactory,
+      allowedOrigins: config.corsOrigins,
+    }),
+  );
+  app.use(
+    "/users",
+    createUsersRouter({
+      controller: createUsersController(usersService, authService, refreshCookie),
+      authenticate,
+      passwordRateLimit: config.rateLimits.password,
+      storeFactory: rateLimitStoreFactory,
+    }),
+  );
+  app.use(
+    "/workspaces",
+    createWorkspacesRouter({
+      controller: createWorkspacesController(workspacesService),
+      authenticate,
+    }),
+  );
+
+  app.use(notFoundHandler);
+  app.use(errorHandler(logger));
 
   return app;
 }
