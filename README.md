@@ -6,6 +6,12 @@ An AI workspace for teams. Tessel lets a team chat with AI over its own document
 
 > **Status:** In active development. Phase 1 is being built in 20 steps; see the [roadmap](docs/ROADMAP.md).
 
+## Screenshots
+
+| Log in                                                            | Workspace (desktop)                                                | Navigation (phone)                                                 |
+| ----------------------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------ |
+| ![Login page with the Tessel tile pattern](docs/images/login.png) | ![Signed-in workspace with sidebar and chat](docs/images/chat.png) | ![Navigation drawer on a phone](docs/images/mobile-navigation.png) |
+
 ## What it will do
 
 - **Chat** with streaming answers and a model picker across providers.
@@ -63,6 +69,8 @@ packages/
   contracts/    Zod schemas shared by frontend and backend
   db/           Drizzle schema, migrations, database client
   queue/        Queue names, job schemas, Redis connection
+  api-client/   axios client with token refresh, typed endpoints, query hooks
+  ui/           Shared React components and the Tessel mark
 infra/docker/   Local data services (Docker Compose)
 docs/           Architecture, decisions, roadmap, backlog
 ```
@@ -93,6 +101,7 @@ curl localhost:4000/health/ready
 | `pnpm build`                           | Build every app                                  |
 | `pnpm check`                           | Lint, format check, typecheck, and tests         |
 | `pnpm test`                            | Run all tests                                    |
+| `pnpm test:e2e`                        | Run browser tests on desktop and phone viewports |
 | `pnpm infra:up`                        | Start local data services and wait until healthy |
 | `pnpm infra:down`                      | Stop local data services                         |
 | `pnpm db:generate` / `pnpm db:migrate` | Create and apply database migrations             |
