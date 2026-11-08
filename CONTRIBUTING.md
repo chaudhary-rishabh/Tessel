@@ -4,7 +4,7 @@
 
 1. Create a branch from `main`: `feat/<step>-<short-name>` (for example `feat/02-auth`), or `fix/<short-name>`.
 2. Keep each pull request to one roadmap step or one fix.
-3. Before pushing, run `pnpm check` (lint, format, typecheck, tests) and `pnpm build`.
+3. Before pushing, run `pnpm check` (lint, format, typecheck, tests) and `pnpm build`. API tests need Postgres: run `pnpm infra:up` first. Each run creates and drops its own throwaway database.
 4. Open a pull request; CI must pass before merging.
 
 ## Commit messages
