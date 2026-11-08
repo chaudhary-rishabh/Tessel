@@ -1,6 +1,7 @@
 "use client";
 
 import type {
+  DocumentSummary,
   ModelListResponse,
   ThreadListResponse,
   ThreadResponse,
@@ -31,6 +32,7 @@ export const queryKeys = {
   workspaces: ["workspaces"] as const,
   workspace: (id: string) => ["workspaces", id] as const,
   models: ["models"] as const,
+  documents: (workspaceId: string) => ["workspaces", workspaceId, "documents"] as const,
   threads: (workspaceId: string) => ["workspaces", workspaceId, "threads"] as const,
   thread: (workspaceId: string, threadId: string) =>
     ["workspaces", workspaceId, "threads", threadId] as const,
@@ -177,5 +179,47 @@ export function useDeleteThread(workspaceId: string) {
       );
       queryClient.removeQueries({ queryKey: queryKeys.thread(workspaceId, threadId) });
     },
+  });
+}
+
+const PROCESSING: ReadonlySet<DocumentSummary["status"]> = new Set([
+  "uploading",
+  "queued",
+  "processing",
+]);
+
+/** The workspace's documents. Polls while any of them is still being processed. */
+export function useDocuments(workspaceId: string | undefined) {
+  const api = useApi();
+  return useQuery({
+    queryKey: queryKeys.documents(workspaceId ?? "none"),
+    queryFn: () => api.documents.list(workspaceId!),
+    enabled: Boolean(workspaceId),
+    refetchInterval: (query) =>
+      query.state.data?.some((document) => PROCESSING.has(document.status)) ? 2_000 : false,
+  });
+}
+
+export function useDeleteDocument(workspaceId: string) {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<void, ApiClientError, string>({
+    mutationFn: (documentId) => api.documents.remove(workspaceId, documentId),
+    onSuccess: (_result, documentId) =>
+      queryClient.setQueryData<DocumentSummary[]>(queryKeys.documents(workspaceId), (current) =>
+        current?.filter((document) => document.id !== documentId),
+      ),
+  });
+}
+
+export function useReprocessDocument(workspaceId: string) {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<DocumentSummary, ApiClientError, string>({
+    mutationFn: (documentId) => api.documents.reprocess(workspaceId, documentId),
+    onSuccess: (document) =>
+      queryClient.setQueryData<DocumentSummary[]>(queryKeys.documents(workspaceId), (current) =>
+        current?.map((item) => (item.id === document.id ? document : item)),
+      ),
   });
 }
