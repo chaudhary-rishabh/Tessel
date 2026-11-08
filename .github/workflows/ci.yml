@@ -63,11 +63,19 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      - name: Start S3, SQS, and Qdrant emulators
+        run: infra/scripts/start-test-services.sh
+
       - name: Test
         run: pnpm test
         env:
           TEST_DATABASE_ADMIN_URL: postgres://tessel:tessel@localhost:5432/postgres
           TEST_REDIS_URL: redis://localhost:6379
+          TEST_S3_ENDPOINT: http://localhost:8333
+          TEST_SQS_ENDPOINT: http://localhost:9324
+          TEST_QDRANT_URL: http://localhost:6333
+          AWS_ACCESS_KEY_ID: tessel-local
+          AWS_SECRET_ACCESS_KEY: tessel-local-secret
 
       - name: Build
         run: pnpm build
@@ -116,8 +124,11 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # The example values match the CI services above.
+      # The example values match the CI services above and the emulators below.
       - run: cp .env.example .env
+
+      - name: Start S3, SQS, and Qdrant emulators
+        run: infra/scripts/start-test-services.sh
 
       - name: Migrate database
         run: pnpm db:migrate

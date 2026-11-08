@@ -75,6 +75,29 @@ if [[ -n "$DATA_SERVICES" ]]; then
   compose "$TAG" up --detach --wait --wait-timeout 300 $DATA_SERVICES
 fi
 
+if [[ "$DATA_SERVICES" == *postgres* && -n "${BACKUP_BUCKET:-}" ]]; then
+  log "Scheduling nightly Postgres backups to s3://$BACKUP_BUCKET"
+  cat >/etc/systemd/system/tessel-backup.service <<UNIT
+[Unit]
+Description=Back up Tessel's Postgres to S3
+[Service]
+Type=oneshot
+ExecStart=$(pwd)/backup.sh
+UNIT
+  cat >/etc/systemd/system/tessel-backup.timer <<UNIT
+[Unit]
+Description=Nightly Tessel Postgres backup
+[Timer]
+OnCalendar=*-*-* 21:00:00 UTC
+RandomizedDelaySec=30m
+Persistent=true
+[Install]
+WantedBy=timers.target
+UNIT
+  systemctl daemon-reload
+  systemctl enable --now tessel-backup.timer >/dev/null
+fi
+
 log "Running database migrations"
 compose "$TAG" --profile tools run --rm migrate
 

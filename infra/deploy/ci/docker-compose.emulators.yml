@@ -1,0 +1,27 @@
+# Stand-ins for Amazon S3 and SQS in the CI smoke test, layered over
+# docker-compose.prod.yml. Production talks to AWS instead.
+services:
+  objectstore:
+    image: chrislusf/seaweedfs:3.99
+    profiles: [data]
+    command:
+      [
+        "server",
+        "-dir=/data",
+        "-ip.bind=0.0.0.0",
+        "-s3",
+        "-s3.port=8333",
+        "-s3.config=/etc/seaweedfs/s3.json",
+      ]
+    volumes:
+      - ./s3.json:/etc/seaweedfs/s3.json:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8333/healthz >/dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+
+  sqs:
+    image: softwaremill/elasticmq-native:1.6.11
+    profiles: [data]
