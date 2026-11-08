@@ -2,7 +2,6 @@
 
 Things noticed along the way that are not needed yet. Each item names the step where it fits best.
 
-- **Neo4j health check:** Switch the readiness probe from HTTP to a Bolt `RETURN 1` once the driver is added. (Step 16)
 - **TypeScript 7:** Upgrade when `typescript-eslint` supports it (see D-003).
 - **Signup email enumeration:** Signup returns `email_taken`. Switch to a neutral response once email verification exists. (Step 17)
 - **Session list:** Let users see and revoke their active sessions (data is already stored per refresh token family). (Step 17)
@@ -43,3 +42,6 @@ Things noticed along the way that are not needed yet. Each item names the step w
 - **Relevant memories only:** Once users have many memories, send the most relevant to each message (by embedding) instead of the newest 60. (Phase 3)
 - **Memory review:** Show "Memory updated" in the chat when a reply leads to a new memory, with a link to undo. (Step 20)
 - **Project memory:** Memories shared by a team for a project, separate from personal ones. (Phase 2)
+- **Entity resolution:** Merge entities that are the same thing under different names ("Payments" and "Payments Team") with embeddings and a review step. (Phase 3)
+- **Graph view:** Draw an entity's neighbourhood as an interactive diagram on the Documents page. (Phase 2)
+- **Community summaries:** Summaries of clusters of related entities for broad questions, as in GraphRAG. (Phase 3)

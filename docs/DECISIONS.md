@@ -286,3 +286,15 @@ Chat calls ask the gateway for automatic prompt caching (`providerOptions.gatewa
 ## D-070 Daily maintenance in one database function
 
 A scheduled worker job (03:17 UTC, registered once however many workers run) calls `app.run_maintenance()`: refresh tokens a day past expiry or a week after revocation, access tokens a month after they ended, approvals nobody answered for a week (the run is cancelled and the reply closed), finished agent checkpoints after a month, and abandoned connector sign-ins. One `SECURITY DEFINER` function keeps the app role from needing broad delete rights.
+
+## D-071 Graph RAG with Neo4j, built while indexing
+
+Vector search finds passages that mention things; it can't follow "who manages the team that owns the ledger?". So while indexing, the worker sends each document in windows of about 6,000 characters (at most 30) to the utility model, which returns entities and relationships through a forced tool call. They go to Neo4j as `Entity` nodes keyed by workspace and normalized name, `MENTIONED_IN` links to the document, and typed `RELATES` links that remember the document and chunk they came from. Re-indexing replaces a document's part of the graph; deleting removes it and any entity nothing else mentions. Graph building runs after the document is searchable, and its failure never fails the document.
+
+## D-072 Relationship questions use the graph, as citable sources
+
+The RAG router also lists the entity names a relationship question is about. A `relate` step finds those entities, walks up to two hops, and turns the relationships into sources (one per document they came from), numbered after the passages, so the answer cites them like any passage and each citation opens the document. The agent gets the same lookup as the `explore_graph` tool. Workspaces are isolated by matching `workspace_id` from a parameter in every query, since Neo4j Community has no row-level security.
+
+## D-073 The graph is optional
+
+Without `NEO4J_BOLT_URL`, Tessel answers from search alone, and `GRAPH_EXTRACTION=false` stops the worker spending model calls on extraction. When the graph is set up, the readiness probe checks it over Bolt, which is how the app talks to it.

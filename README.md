@@ -15,7 +15,7 @@ An AI workspace for teams. Tessel lets a team chat with AI over its own document
 ## What it will do
 
 - **Chat** with streaming answers and a model picker across providers, with every model call capped, moderated, and recorded in a usage ledger.
-- **Answer from your documents**: uploads go straight to S3, a worker indexes them, a router decides when a question needs them, and hybrid search plus reranking finds the passages. Answers cite them inline, and each citation opens the passage and its document.
+- **Answer from your documents**: uploads go straight to S3, a worker indexes them, a router decides when a question needs them, and hybrid search plus reranking finds the passages. Answers cite them inline, and each citation opens the passage and its document. A knowledge graph of the people, teams, and projects in your documents answers relationship questions.
 - **Use tools and ask first**: the assistant searches documents, calculates, and creates or deletes documents through a ReAct loop. Anything that changes the workspace waits for Allow or Decline, and a pending question survives reloads and restarts.
 - **Pick how it works**: answer straight away, plan and work through steps, draft and review, or hand parts of the task to a team of specialists. Every stage shows live, and approvals work in every mode.
 - **Use skills**: built-in and team-written instructions for repeat work (meeting notes, release notes, decision memos) that the agent loads when a request matches.
@@ -73,6 +73,7 @@ packages/
   ai/           Model gateway, registry, spend caps, moderation, ledger, RAG, agents, skills
   storage/      S3 files, SQS upload events, object key layout
   memory/       Summary, long-term, and episodic memory, and the memory job
+  graph/        Knowledge graph: Neo4j store, entity and relationship extraction
   mcp/          MCP client for connectors (OAuth, encrypted credentials, URL guard) and Tessel's MCP server
   api-client/   axios client with token refresh, typed endpoints, query hooks
   ui/           Shared React components and the Tessel mark
