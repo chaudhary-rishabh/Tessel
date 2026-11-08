@@ -1,19 +1,6 @@
-import {
-  customType,
-  index,
-  integer,
-  pgEnum,
-  pgTable,
-  text,
-  timestamp,
-  uuid,
-} from "drizzle-orm/pg-core";
+import { index, integer, pgEnum, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { users } from "./users";
 import { workspaces } from "./workspaces";
-
-const bytea = customType<{ data: Buffer; driverData: Buffer }>({
-  dataType: () => "bytea",
-});
 
 export const messageRole = pgEnum("message_role", ["user", "assistant"]);
 export const messageStatus = pgEnum("message_status", [
@@ -78,8 +65,8 @@ export const messages = pgTable(
 );
 
 /**
- * Files attached to a message. Stored in Postgres for now (images up to
- * 5 MB, text up to 1 MB); step 7 moves file storage to S3.
+ * Files attached to a message (images up to 5 MB, text up to 1 MB). The
+ * bytes live in S3 at storage_key, under the workspace's prefix.
  */
 export const attachments = pgTable(
   "attachments",
@@ -97,7 +84,7 @@ export const attachments = pgTable(
     mediaType: text("media_type").notNull(),
     kind: attachmentKind("kind").notNull(),
     sizeBytes: integer("size_bytes").notNull(),
-    data: bytea("data").notNull(),
+    storageKey: text("storage_key").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
