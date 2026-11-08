@@ -44,3 +44,6 @@ Things noticed along the way that are not needed yet. Each item names the step w
 - **Connector resources and prompts:** Use MCP resources and prompts as well as tools. (Phase 2)
 - **More token scopes:** `chat:write` to ask Tessel questions over MCP, and `documents:write` to add documents, each with its own MCP tools. (Phase 2)
 - **Token rate limits:** A per-token limit on the MCP server, on top of the API's per-user limits. (Step 15)
+- **Relevant memories only:** Once users have many memories, send the most relevant to each message (by embedding) instead of the newest 60. (Phase 3)
+- **Memory review:** Show "Memory updated" in the chat when a reply leads to a new memory, with a link to undo. (Step 20)
+- **Project memory:** Memories shared by a team for a project, separate from personal ones. (Phase 2)

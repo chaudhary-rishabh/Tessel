@@ -309,6 +309,23 @@ flowchart LR
 - The API accepts a token only on allowlisted routes in its own workspace: listing and reading documents, document text (`GET …/documents/:documentId/text`), search, and `GET /access-tokens/current`.
 - The MCP server (`@tessel/mcp/server`, run by `apps/mcp-server`) checks the token with the API, then serves `search_documents`, `list_documents`, and `read_document`, each a call to the API with the same token.
 
+## Memory
+
+```mermaid
+flowchart LR
+  reply["Reply finishes"] -- "memory job (15 s debounce)" --> worker["worker: processThreadMemory"]
+  worker --> summary["threads.summary<br/>(summary memory)"]
+  worker --> facts["memories<br/>(long-term)"]
+  worker --> episodes[("Qdrant tessel_episodes<br/>(episodic)")]
+  facts --> prompt["next reply's system prompt"]
+  summary --> prompt
+  episodes --> tool["search_past_chats tool"]
+```
+
+- `@tessel/memory` holds the store, the summarizer and extractor (utility model), the episode index, the memory tools, and `processThreadMemory`, which the worker runs for each `memory` job.
+- Replies include up to 60 memories and the thread summary in the system prompt, and offer `remember` and `search_past_chats` when the user's settings allow.
+- Endpoints: `GET /workspaces/:workspaceId/memory`, `PUT …/memory/settings`, `POST|DELETE …/memory/memories`, `PATCH|DELETE …/memory/memories/:memoryId`. Settings has a Memory section for all of it.
+
 ## Web app
 
 | Concern          | Approach                                                                                                                                                                                                                                                                                                                                                                        |

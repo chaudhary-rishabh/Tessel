@@ -251,3 +251,18 @@ The API's auth middleware accepts a token only on routes listed in `TOKEN_ROUTES
 ## D-062 The MCP server is a thin adapter over the API
 
 Tessel's MCP server (Streamable HTTP, stateless, on `mcp.` in production) holds no data access of its own: each tool call goes to the API with the client's token. Permissions, row-level security, rate limits, spend caps, and logging all live in one place, and the MCP server can scale or restart freely. Tools are read-only for now: search documents, list documents, and read a document's text.
+
+## D-063 Four kinds of memory, each with one job
+
+- Short-term: the recent turns of the chat, sent in full (up to 40 messages).
+- Summary: once 24 messages sit outside the summary, older turns are folded into a running summary on the thread, and only the newest 12 plus later turns are sent in full. Long chats stay coherent without growing the prompt.
+- Long-term: short facts about the user (role, projects, preferences, things they asked Tessel to remember), kept per user and workspace and sent with every reply.
+- Episodic: one search point per chat in Qdrant, so `search_past_chats` can find an earlier conversation by meaning.
+
+## D-064 Memory work runs in the worker after replies
+
+Summarizing, extracting memories, and indexing chats all happen in a `memory` BullMQ job after a reply, never on the reply's path. The job is delayed 15 seconds and keyed by chat, so a burst of replies is processed once, and it reads the chat as it is when it runs. Each part fails on its own without affecting the others. The utility model does the work, recorded in the ledger as feature `memory`.
+
+## D-065 The user owns their memory
+
+Memories and memory settings are private to their user (row-level security). Users see every memory with where it came from, can add, edit, and delete them, and can switch memory and chat search off; switching chat search off deletes the index, not just stops using it. The extraction prompt refuses sensitive categories (health, finances, identity numbers, and similar) and removes memories the user asks Tessel to forget. Automatic memories make room for new ones at 200; memories the user wrote are never dropped. The `remember` tool doesn't ask for approval, since it only touches the user's own, editable memory.
