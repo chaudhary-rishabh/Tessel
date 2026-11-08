@@ -183,7 +183,7 @@ services:
       retries: 10
 
   neo4j:
-    image: neo4j:2026.05.0
+    image: neo4j:2026.10.1
     restart: unless-stopped
     profiles: [data]
     # Only NEO4J_AUTH, split out of .env by deploy.sh. Neo4j treats every NEO4J_*
