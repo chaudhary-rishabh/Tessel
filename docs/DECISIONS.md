@@ -1,0 +1,61 @@
+# Decisions
+
+Short records of the choices that shape the codebase. Add a new entry instead of rewriting an old one; mark replaced entries as superseded.
+
+## D-001 Turborepo + pnpm monorepo
+
+Web, API, worker, and MCP server share types, schemas, and logic. One repo with pnpm workspaces keeps them in sync, and Turborepo caches builds and runs tasks in parallel.
+
+## D-002 Workspace packages export TypeScript source
+
+Packages point `exports` at `src/*.ts` instead of building to `dist`. Apps compile them in their own build: Next.js through `transpilePackages`, Node apps through `tsdown` with workspace packages bundled in. This removes a build step and keeps go-to-definition pointing at real source.
+
+Consequence: Node apps bundle `@tessel/*` code but keep third-party packages external, so each app lists every runtime dependency it needs, including those used by workspace packages.
+
+## D-003 TypeScript 6.0 with Bundler module resolution
+
+TypeScript is pinned to `~6.0` because `typescript-eslint` supports TypeScript below 6.1. Revisit when it supports TypeScript 7. All code is ESM and uses `moduleResolution: Bundler`, since every app runs through a bundler or `tsx`.
+
+## D-004 Express 5 for the API
+
+Familiar, minimal, and Express 5 forwards errors from async handlers automatically. Features are organised as modules with a fixed file layout (see ARCHITECTURE.md).
+
+## D-005 Zod for all validation
+
+Environment variables, request bodies, job payloads, and model structured output are all validated with Zod. Schemas shared with the frontend live in `@tessel/contracts`.
+
+## D-006 Drizzle ORM on Postgres
+
+Close to SQL, light at runtime, generates plain SQL migrations, and works with Postgres row-level security.
+
+## D-007 LangChain + LangGraph for AI orchestration
+
+LangGraph gives durable checkpoints, pause-and-resume for approvals, and explicit control over agent and RAG flows. LangChain provides models, tools, retrievers, and middleware on top of it.
+
+## D-008 Vercel AI Gateway for model access
+
+One API key for every provider and modality (text, embeddings, reranking, and later image, video, and audio), no token markup, built-in fallbacks, and nothing to host. LangChain uses its OpenAI-compatible and Anthropic-format endpoints; AI SDK 7 is used for non-chat modalities. All calls go through `@tessel/ai`, so switching gateways later is a config change. A direct provider key is kept as an emergency fallback for chat.
+
+## D-009 Two Redis instances
+
+The cache uses `allkeys-lru` eviction; BullMQ requires `noeviction` and persistence. Sharing one instance would let cache pressure delete queued jobs.
+
+## D-010 BullMQ for internal jobs, SQS for S3 events
+
+S3 can notify SQS directly when a file lands. Everything else (embedding batches, memory extraction, agent runs) uses BullMQ for retries, priorities, and flows.
+
+## D-011 Qdrant for vectors, Neo4j for relationships only
+
+Qdrant has built-in hybrid search (dense + sparse with fusion). Neo4j is used only for relationship questions, because it is the most expensive service to run.
+
+## D-012 Email and password login first
+
+Phase 1 starts with email and password (argon2, 15-minute access JWT, rotating refresh token in an httpOnly cookie). Email verification, password reset, OAuth, two-factor authentication, and mobile OTP come in step 17.
+
+## D-013 Local AWS emulation decided in step 7
+
+LocalStack no longer offers a free tier, so it is not part of the local stack. Step 7 will choose between free local emulators for S3 and SQS or a small real AWS development account.
+
+## D-014 Docker images on EC2 with Docker Compose
+
+Images are built in CI, pushed to ECR, and deployed to EC2 with Docker Compose. Simple to run and easy to move to a managed orchestrator later.
