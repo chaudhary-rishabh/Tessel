@@ -10,6 +10,9 @@ import {
   downloadResponseSchema,
   searchResponseSchema,
   skillListResponseSchema,
+  connectorConnectionSchema,
+  connectorListResponseSchema,
+  createConnectionResponseSchema,
   skillSchema,
   threadListResponseSchema,
   threadResponseSchema,
@@ -29,6 +32,11 @@ import {
   type SearchRequest,
   type SearchResponse,
   type CreateSkillRequest,
+  type ConnectorConnection,
+  type ConnectorListResponse,
+  type CreateConnectionRequest,
+  type CreateConnectionResponse,
+  type UpdateConnectionRequest,
   type Skill,
   type UpdateSkillRequest,
   type ThreadListResponse,
@@ -141,6 +149,42 @@ export function createApi(client: ApiClient) {
             responseType: "blob",
           })
         ).data,
+    },
+    connectors: {
+      list: async (workspaceId: string): Promise<ConnectorListResponse> =>
+        parse(
+          connectorListResponseSchema,
+          (await http.get(`/workspaces/${workspaceId}/connectors`)).data,
+        ),
+      /** For OAuth apps the response includes the sign-in URL to send the browser to. */
+      create: async (
+        workspaceId: string,
+        input: CreateConnectionRequest,
+      ): Promise<CreateConnectionResponse> =>
+        parse(
+          createConnectionResponseSchema,
+          (await http.post(`/workspaces/${workspaceId}/connectors`, input)).data,
+        ),
+      refresh: async (
+        workspaceId: string,
+        connectionId: string,
+      ): Promise<CreateConnectionResponse> =>
+        parse(
+          createConnectionResponseSchema,
+          (await http.post(`/workspaces/${workspaceId}/connectors/${connectionId}/refresh`)).data,
+        ),
+      update: async (
+        workspaceId: string,
+        connectionId: string,
+        input: UpdateConnectionRequest,
+      ): Promise<ConnectorConnection> =>
+        parse(
+          connectorConnectionSchema,
+          (await http.patch(`/workspaces/${workspaceId}/connectors/${connectionId}`, input)).data,
+        ),
+      remove: async (workspaceId: string, connectionId: string): Promise<void> => {
+        await http.delete(`/workspaces/${workspaceId}/connectors/${connectionId}`);
+      },
     },
     skills: {
       list: async (workspaceId: string): Promise<Skill[]> =>
