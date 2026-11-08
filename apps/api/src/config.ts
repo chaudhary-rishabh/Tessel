@@ -24,6 +24,8 @@ export interface RateLimitConfig {
   refresh: RateLimitRule;
   /** Password changes, per user. */
   password: RateLimitRule;
+  /** Model calls, per user. Spend caps limit cost; this limits bursts. */
+  ai: RateLimitRule;
 }
 
 export interface AppConfig {
@@ -43,6 +45,7 @@ export const DEFAULT_RATE_LIMITS: RateLimitConfig = {
   login: { windowMs: 15 * MINUTE, limit: 10 },
   refresh: { windowMs: MINUTE, limit: 30 },
   password: { windowMs: 15 * MINUTE, limit: 5 },
+  ai: { windowMs: MINUTE, limit: 20 },
 };
 
 function scaleRateLimits(limits: RateLimitConfig, scale: number): RateLimitConfig {

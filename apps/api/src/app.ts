@@ -1,3 +1,4 @@
+import type { Ai } from "@tessel/ai";
 import type { Database } from "@tessel/db";
 import type { Logger } from "@tessel/logger";
 import cookieParser from "cookie-parser";
@@ -10,6 +11,9 @@ import { createRateLimiter, type RateLimitStoreFactory } from "./middleware/rate
 import { requestId } from "./middleware/request-id";
 import { requestLogger } from "./middleware/request-logger";
 import { requireAuth } from "./middleware/require-auth";
+import { createAiController } from "./modules/ai/ai.controller";
+import { createCompletionsRouter, createModelsRouter } from "./modules/ai/ai.routes";
+import { createAiService } from "./modules/ai/ai.service";
 import { createAuthController } from "./modules/auth/auth.controller";
 import { createAuthRouter } from "./modules/auth/auth.routes";
 import { createAuthService } from "./modules/auth/auth.service";
@@ -18,6 +22,9 @@ import { createPasswordHasher, type PasswordHasher } from "./modules/auth/passwo
 import { createAccessTokens } from "./modules/auth/tokens";
 import type { DependencyCheckFn } from "./modules/health/checks";
 import { createHealthRouter } from "./modules/health/health.routes";
+import { createUsageController } from "./modules/usage/usage.controller";
+import { createUsageRouter } from "./modules/usage/usage.routes";
+import { createUsageService } from "./modules/usage/usage.service";
 import { createUsersController } from "./modules/users/users.controller";
 import { createUsersRouter } from "./modules/users/users.routes";
 import { createUsersService } from "./modules/users/users.service";
@@ -29,6 +36,8 @@ export interface AppDependencies {
   config: AppConfig;
   logger: Logger;
   db: Database;
+  /** Every model call goes through this: spend caps, moderation, usage ledger. */
+  ai: Ai;
   readinessChecks: DependencyCheckFn[];
   /** Rate limit storage per limiter. Defaults to in-memory (single instance only). */
   rateLimitStoreFactory?: RateLimitStoreFactory;
@@ -42,6 +51,7 @@ export function createApp({
   config,
   logger,
   db,
+  ai,
   readinessChecks,
   rateLimitStoreFactory,
   passwordHasher = createPasswordHasher(),
@@ -100,6 +110,10 @@ export function createApp({
   });
   const usersService = createUsersService({ db });
   const workspacesService = createWorkspacesService({ db });
+  const aiController = createAiController(createAiService({ db, ai }));
+  const usageController = createUsageController(
+    createUsageService({ db, spend: ai.spend, registry: ai.registry }),
+  );
   const authenticate = requireAuth(accessTokens);
 
   // Feature modules
@@ -128,6 +142,20 @@ export function createApp({
       authenticate,
     }),
   );
+  app.use(
+    "/workspaces/:workspaceId/completions",
+    createCompletionsRouter({
+      controller: aiController,
+      authenticate,
+      rateLimit: config.rateLimits.ai,
+      storeFactory: rateLimitStoreFactory,
+    }),
+  );
+  app.use(
+    "/workspaces/:workspaceId/usage",
+    createUsageRouter({ controller: usageController, authenticate }),
+  );
+  app.use("/models", createModelsRouter({ controller: aiController, authenticate }));
 
   app.use(notFoundHandler);
   app.use(errorHandler(logger));

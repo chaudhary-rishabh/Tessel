@@ -1,6 +1,6 @@
 "use client";
 
-import type { Workspace } from "@tessel/contracts";
+import type { ModelListResponse, UsageSummary, Workspace } from "@tessel/contracts";
 import { useMutation, useQuery, useQueryClient, type UseQueryOptions } from "@tanstack/react-query";
 import { createContext, useContext, type ReactNode } from "react";
 import type { Api } from "../endpoints";
@@ -23,6 +23,8 @@ export const queryKeys = {
   me: ["users", "me"] as const,
   workspaces: ["workspaces"] as const,
   workspace: (id: string) => ["workspaces", id] as const,
+  models: ["models"] as const,
+  usage: (workspaceId: string, days: number) => ["workspaces", workspaceId, "usage", days] as const,
 };
 
 type QueryOptions<T> = Omit<UseQueryOptions<T, ApiClientError>, "queryKey" | "queryFn">;
@@ -62,5 +64,30 @@ export function useRenameWorkspace() {
       );
       queryClient.setQueryData(queryKeys.workspace(workspace.id), workspace);
     },
+  });
+}
+
+export function useModels(options: QueryOptions<ModelListResponse> = {}) {
+  const api = useApi();
+  // The model list changes only on deploys.
+  return useQuery({
+    queryKey: queryKeys.models,
+    queryFn: api.models.list,
+    staleTime: 10 * 60_000,
+    ...options,
+  });
+}
+
+export function useUsage(
+  workspaceId: string | undefined,
+  days = 30,
+  options: QueryOptions<UsageSummary> = {},
+) {
+  const api = useApi();
+  return useQuery({
+    queryKey: queryKeys.usage(workspaceId ?? "none", days),
+    queryFn: () => api.usage.summary(workspaceId!, days),
+    enabled: Boolean(workspaceId),
+    ...options,
   });
 }

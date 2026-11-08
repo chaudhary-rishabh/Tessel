@@ -1,6 +1,15 @@
 import { randomUUID } from "node:crypto";
+import {
+  createAi,
+  createSpendGuard,
+  loadModelRegistry,
+  memorySpendStore,
+  type Ai,
+  type AiOptions,
+  type SpendLimits,
+} from "@tessel/ai";
 import type { AuthResponse } from "@tessel/contracts";
-import { createDatabase, type DatabaseConnection } from "@tessel/db";
+import { createDatabase, createUsageLedger, type DatabaseConnection } from "@tessel/db";
 import { createLogger } from "@tessel/logger";
 import type { Express } from "express";
 import request from "supertest";
@@ -57,9 +66,38 @@ export function testConfig(overrides: ConfigOverrides = {}): AppConfig {
       login: GENEROUS,
       refresh: GENEROUS,
       password: GENEROUS,
+      ai: GENEROUS,
       ...rateLimits,
     },
   };
+}
+
+const registry = loadModelRegistry();
+
+export interface TestAiOptions {
+  /** Mock gateway base URL. Without it, AI is not configured. */
+  gatewayUrl?: string;
+  limits?: SpendLimits;
+  moderation?: AiOptions["moderation"];
+}
+
+/** AI wired like production (Postgres ledger, row-level security), but with a mock gateway. */
+export function createTestAi({ gatewayUrl, limits, moderation }: TestAiOptions = {}): Ai {
+  const ledger = createUsageLedger(connect().db);
+  return createAi({
+    ...(gatewayUrl ? { gateway: { apiKey: "test-gateway-key", baseURL: gatewayUrl } } : {}),
+    registry,
+    ledger,
+    spend: createSpendGuard({
+      store: memorySpendStore(),
+      limits: limits ?? { userDailyUsd: 100, workspaceDailyUsd: 100, globalDailyUsd: 100 },
+      logger: silentLogger,
+      ledgerFallback: ledger.spentSince,
+    }),
+    moderation: moderation ?? { mode: "model", failure: "allow" },
+    logger: silentLogger,
+    timeoutMs: 5_000,
+  });
 }
 
 export function createTestApp(
@@ -70,6 +108,7 @@ export function createTestApp(
     config: testConfig(config),
     logger: silentLogger,
     db: connect().db,
+    ai: createTestAi(),
     readinessChecks: [],
     passwordHasher: fastHasher,
     ...deps,

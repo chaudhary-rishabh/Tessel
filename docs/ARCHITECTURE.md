@@ -54,14 +54,14 @@ Workspace packages export TypeScript source directly. Apps compile them as part 
 
 ## Data stores
 
-| Store       | Holds                                                                                                        |
-| ----------- | ------------------------------------------------------------------------------------------------------------ |
-| Postgres    | Source of truth: users, workspaces, threads, messages, documents, usage, agent checkpoints, long-term memory |
-| Qdrant      | Chunk and memory vectors (dense + sparse), always filtered by workspace                                      |
-| Neo4j       | Entities and relationships for graph RAG, always filtered by workspace                                       |
-| Redis cache | Caching, rate limits, live run events. Evicts least-recently-used keys                                       |
-| Redis queue | BullMQ only. Never evicts, persists to disk                                                                  |
-| S3          | Original files, parsed text, artifacts. Keys start with the workspace ID                                     |
+| Store       | Holds                                                                                                               |
+| ----------- | ------------------------------------------------------------------------------------------------------------------- |
+| Postgres    | Source of truth: users, workspaces, threads, messages, documents, usage ledger, agent checkpoints, long-term memory |
+| Qdrant      | Chunk and memory vectors (dense + sparse), always filtered by workspace                                             |
+| Neo4j       | Entities and relationships for graph RAG, always filtered by workspace                                              |
+| Redis cache | Caching, rate limits, daily spend counters, live run events. Evicts least-recently-used keys                        |
+| Redis queue | BullMQ only. Never evicts, persists to disk                                                                         |
+| S3          | Original files, parsed text, artifacts. Keys start with the workspace ID                                            |
 
 The two Redis instances are separate on purpose: a cache must be allowed to evict, and a queue must never lose jobs.
 
@@ -95,7 +95,7 @@ Modules are wired in `apps/api/src/app.ts`: each one exposes factory functions (
 | Password change | Revokes every session for the user and starts a new one.                                                                                                                                              |
 | CSRF            | Auth routes reject browser requests whose `Origin` is not an allowed web origin, on top of `SameSite=Strict`.                                                                                         |
 
-Endpoints: `POST /auth/signup`, `/auth/login`, `/auth/refresh`, `/auth/logout`; `GET /users/me`; `POST /users/me/password`; `GET|POST /workspaces`; `GET|PATCH /workspaces/:workspaceId`.
+Endpoints: `POST /auth/signup`, `/auth/login`, `/auth/refresh`, `/auth/logout`; `GET /users/me`; `POST /users/me/password`; `GET|POST /workspaces`; `GET|PATCH /workspaces/:workspaceId`. AI endpoints are listed under [AI gateway](#ai-gateway).
 
 ## Tenant isolation
 
@@ -122,6 +122,34 @@ Counters live in the cache Redis, so limits hold across API instances. If Redis 
 | Login                           | 10 per 15 minutes | IP + hashed email |
 | Refresh                         | 30 per minute     | IP                |
 | Password change                 | 5 per 15 minutes  | IP + user         |
+| Completions                     | 20 per minute     | IP + user         |
+
+## AI gateway
+
+Every model call goes through `@tessel/ai`. Nothing else in the codebase talks to a provider.
+
+```mermaid
+flowchart LR
+  caller["Chat, agents, RAG,<br/>worker jobs"] --> model["TesselChatModel"]
+  model -- "1. check caps" --> redis["Redis spend counters"]
+  model -- "2. call" --> gateway["Vercel AI Gateway"]
+  model -. "gateway down" .-> direct["OpenAI or Anthropic directly"]
+  model -- "3. usage callback" --> ledger["Postgres usage ledger"]
+  ledger -. "Redis down" .-> redis
+```
+
+| Piece          | How it works                                                                                                                                                                             |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Model registry | `packages/ai/models.json`: models, prices per million tokens, capabilities, picker visibility, plan tier, emergency fallback target, and the default model for each role.                |
+| Chat models    | `ai.chatModel(context, modelId)` returns a LangChain chat model for one user and workspace. It supports `invoke`, `stream`, tools, and structured output.                                |
+| Embeddings     | `ai.embeddings(context)` returns LangChain embeddings through the gateway's `/embeddings` endpoint, in batches of 128.                                                                   |
+| Spend caps     | Checked before every call: per user, per workspace, and for the whole service, per UTC day. A capped request returns 429 `daily_cost_cap_reached` with `Retry-After`.                    |
+| Usage ledger   | One `usage_events` row per call: tokens, cost, route, status (`ok`, `error`, `aborted`, `blocked`), latency, request ID. Stopped calls are recorded with estimated tokens. Append-only.  |
+| Moderation     | The latest user message is classified before the chat model sees it. A blocked message returns 422 `content_blocked` and is recorded with status `blocked`.                              |
+| Fallback       | Network errors, 5xx, 429, and gateway account errors retry once on the gateway, then go straight to the provider if a fallback key is set. The ledger records which route served a call. |
+| Testing        | `@tessel/ai/testing` has a mock gateway (OpenAI-compatible, streaming, tool calls, embeddings) used by unit, API, and end-to-end tests. `pnpm --filter @tessel/ai mock-gateway` runs it. |
+
+Endpoints: `GET /models` (picker list, no prices); `POST /workspaces/:workspaceId/completions` (one non-streaming reply; streaming chat arrives in step 6); `GET /workspaces/:workspaceId/usage?days=30` (owners and admins see the workspace, members see their own usage).
 
 ## Web app
 
@@ -168,8 +196,9 @@ Built into each step as it lands; deep security testing comes after phase 1.
 - Membership checks on every tenant query, plus Postgres row-level security per workspace (built in step 2).
 - Rate limits on every route, with stricter limits on auth routes (built in step 2).
 - Workspace filters on every Qdrant and Neo4j query, and workspace-prefixed S3 keys.
-- Moderation on input and output, prompt-injection checks on messages and uploaded documents.
+- Moderation of user input before any chat model sees it (built in step 5); output moderation and prompt-injection checks on messages and uploaded documents.
+- Daily spend caps per user, workspace, and service, and an append-only usage ledger for every model call (built in step 5).
 - Retrieved documents, tool results, and MCP results are treated as data, never instructions.
 - Workspace and user IDs come from the session, never from the model or tool arguments.
 - Write and destructive tools require approval; every tool has a timeout and a call limit.
-- Secrets live in AWS Secrets Manager in production, never in code or images.
+- Secrets live in AWS SSM Parameter Store in production, never in code or images.

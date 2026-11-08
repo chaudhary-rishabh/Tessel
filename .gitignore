@@ -29,3 +29,7 @@ next-env.d.ts
 coverage/
 playwright-report/
 test-results/
+
+# Files some tools generate for coding assistants
+AGENTS.md
+CLAUDE.md
