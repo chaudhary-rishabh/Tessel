@@ -13,6 +13,8 @@ export default tseslint.config(
       "**/.turbo/**",
       "**/coverage/**",
       "**/next-env.d.ts",
+      "**/playwright-report/**",
+      "**/test-results/**",
       "packages/db/migrations/**",
     ],
   },
@@ -32,13 +34,21 @@ export default tseslint.config(
     },
   },
   {
-    files: ["apps/web/**/*.{ts,tsx}"],
+    files: ["apps/web/**/*.{ts,tsx}", "packages/ui/**/*.{ts,tsx}", "packages/api-client/**/*.tsx"],
     languageOptions: {
       globals: { ...globals.browser },
     },
     plugins: {
-      "@next/next": nextPlugin,
       "react-hooks": reactHooks,
+    },
+    rules: {
+      ...reactHooks.configs.recommended.rules,
+    },
+  },
+  {
+    files: ["apps/web/**/*.{ts,tsx}"],
+    plugins: {
+      "@next/next": nextPlugin,
     },
     settings: {
       next: { rootDir: "apps/web" },
@@ -46,7 +56,6 @@ export default tseslint.config(
     rules: {
       ...nextPlugin.configs.recommended.rules,
       ...nextPlugin.configs["core-web-vitals"].rules,
-      ...reactHooks.configs.recommended.rules,
     },
   },
 );
