@@ -10,6 +10,8 @@ import {
   downloadResponseSchema,
   searchResponseSchema,
   skillListResponseSchema,
+  accessTokenListResponseSchema,
+  createAccessTokenResponseSchema,
   connectorConnectionSchema,
   connectorListResponseSchema,
   createConnectionResponseSchema,
@@ -32,6 +34,9 @@ import {
   type SearchRequest,
   type SearchResponse,
   type CreateSkillRequest,
+  type AccessToken,
+  type CreateAccessTokenRequest,
+  type CreateAccessTokenResponse,
   type ConnectorConnection,
   type ConnectorListResponse,
   type CreateConnectionRequest,
@@ -149,6 +154,25 @@ export function createApi(client: ApiClient) {
             responseType: "blob",
           })
         ).data,
+    },
+    accessTokens: {
+      list: async (workspaceId: string): Promise<AccessToken[]> =>
+        parse(
+          accessTokenListResponseSchema,
+          (await http.get(`/workspaces/${workspaceId}/access-tokens`)).data,
+        ).tokens,
+      /** The response holds the token itself; it can't be fetched again. */
+      create: async (
+        workspaceId: string,
+        input: CreateAccessTokenRequest,
+      ): Promise<CreateAccessTokenResponse> =>
+        parse(
+          createAccessTokenResponseSchema,
+          (await http.post(`/workspaces/${workspaceId}/access-tokens`, input)).data,
+        ),
+      revoke: async (workspaceId: string, tokenId: string): Promise<void> => {
+        await http.delete(`/workspaces/${workspaceId}/access-tokens/${tokenId}`);
+      },
     },
     connectors: {
       list: async (workspaceId: string): Promise<ConnectorListResponse> =>

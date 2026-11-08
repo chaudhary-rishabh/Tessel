@@ -42,3 +42,5 @@ Things noticed along the way that are not needed yet. Each item names the step w
 - **Workspace connectors:** Connectors an admin sets up once for everyone, with shared service credentials. (Phase 2)
 - **Key management:** Move the connector encryption key to AWS KMS with envelope encryption and rotation. (Step 20)
 - **Connector resources and prompts:** Use MCP resources and prompts as well as tools. (Phase 2)
+- **More token scopes:** `chat:write` to ask Tessel questions over MCP, and `documents:write` to add documents, each with its own MCP tools. (Phase 2)
+- **Token rate limits:** A per-token limit on the MCP server, on top of the API's per-user limits. (Step 15)

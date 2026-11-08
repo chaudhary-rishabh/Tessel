@@ -106,3 +106,19 @@ export function documentMediaType(filename: string): string {
   const extension = filename.split(".").pop()?.toLowerCase() ?? "";
   return (DOCUMENT_TYPES as Record<string, string>)[extension] ?? "application/octet-stream";
 }
+
+/** A document's extracted text, for outside clients that read documents. */
+export const documentTextResponseSchema = z.object({
+  documentId: z.uuid(),
+  filename: z.string(),
+  text: z.string(),
+  /** True when the text was cut at the requested length. */
+  truncated: z.boolean(),
+  characterCount: z.number().int(),
+});
+
+export const documentTextQuerySchema = z.object({
+  maxCharacters: z.coerce.number().int().min(1_000).max(200_000).default(50_000),
+});
+
+export type DocumentTextResponse = z.infer<typeof documentTextResponseSchema>;

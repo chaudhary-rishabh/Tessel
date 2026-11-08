@@ -10,9 +10,11 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
     "@tessel/config": "workspace:*",
     "@tessel/contracts": "workspace:*",
     "@tessel/logger": "workspace:*",
+    "@tessel/mcp": "workspace:*",
     "dotenv": "^18.0.9",
     "express": "^5.3.0",
     "pino": "^10.4.0",

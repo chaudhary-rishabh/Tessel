@@ -5,6 +5,7 @@ import {
   type CreateDocumentRequest,
   type CreateDocumentResponse,
   type DocumentSummary,
+  type DocumentTextResponse,
   type SearchRequest,
   type SearchResponse,
 } from "@tessel/contracts";
@@ -189,6 +190,34 @@ export function createDocumentsService({
       );
       if (!row || row.status === "uploading") throw errors.notFound("Document not found");
       return objects.presignDownload(row.storageKey, { filename: row.filename });
+    },
+
+    /** The document's extracted text, for clients that read documents (e.g. over MCP). */
+    async text(
+      actor: Actor,
+      documentId: string,
+      maxCharacters: number,
+    ): Promise<DocumentTextResponse> {
+      const row = await withUserContext(db, actor.userId, (tx) =>
+        documentsRepository.find(tx, actor.workspaceId, documentId),
+      );
+      if (!row) throw errors.notFound("Document not found");
+      if (row.status !== "ready") {
+        throw errors.conflict(
+          "document_not_ready",
+          "This document is still being processed, or failed",
+        );
+      }
+      const text = (
+        await objects.get(storageKeys.documentText(actor.workspaceId, row.id))
+      ).toString("utf8");
+      return {
+        documentId: row.id,
+        filename: row.filename,
+        text: text.slice(0, maxCharacters),
+        truncated: text.length > maxCharacters,
+        characterCount: text.length,
+      };
     },
 
     /** Removes the document everywhere: search index, storage, then the database row. */

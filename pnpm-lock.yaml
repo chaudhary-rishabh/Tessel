@@ -177,6 +177,9 @@ importers:
 
   apps/mcp-server:
     dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: 1.32.2
+        version: 1.32.2(@cfworker/json-schema@4.1.6)(zod@4.6.7)
       '@tessel/config':
         specifier: workspace:*
         version: link:../../packages/config
@@ -186,6 +189,9 @@ importers:
       '@tessel/logger':
         specifier: workspace:*
         version: link:../../packages/logger
+      '@tessel/mcp':
+        specifier: workspace:*
+        version: link:../../packages/mcp
       dotenv:
         specifier: ^18.0.9
         version: 18.0.9
@@ -263,6 +269,9 @@ importers:
         specifier: ^5.1.0
         version: 5.1.0(@types/react@19.3.0)(react@19.3.1)
     devDependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: 1.32.2
+        version: 1.32.2(@cfworker/json-schema@4.1.6)(zod@4.6.7)
       '@playwright/test':
         specifier: 1.63.0
         version: 1.63.0
@@ -497,9 +506,15 @@ importers:
       '@tessel/ai':
         specifier: workspace:*
         version: link:../ai
+      '@tessel/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       '@tessel/logger':
         specifier: workspace:*
         version: link:../logger
+      express:
+        specifier: ^5.3.0
+        version: 5.3.0
       zod:
         specifier: ^4.6.7
         version: 4.6.7
@@ -507,6 +522,9 @@ importers:
       '@tessel/config':
         specifier: workspace:*
         version: link:../config
+      '@types/express':
+        specifier: ^5.0.6
+        version: 5.0.6
 
   packages/queue:
     dependencies:

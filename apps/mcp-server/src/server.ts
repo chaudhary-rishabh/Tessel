@@ -1,7 +1,7 @@
 import { loadEnvFiles, logLevelSchema, nodeEnvSchema, parseEnv } from "@tessel/config/env";
 import { createLogger } from "@tessel/logger";
+import { createMcpServerApp } from "@tessel/mcp/server";
 import { z } from "zod";
-import { createApp } from "./app";
 
 const SERVICE = "mcp-server";
 
@@ -11,13 +11,17 @@ const env = parseEnv(
     NODE_ENV: nodeEnvSchema,
     LOG_LEVEL: logLevelSchema,
     MCP_PORT: z.coerce.number().int().positive().default(4100),
+    /** The API as this server reaches it: http://api:4000 in Compose. */
+    API_INTERNAL_URL: z.url().default("http://localhost:4000"),
   }),
 );
 const logger = createLogger(SERVICE);
 
-const server = createApp(SERVICE).listen(env.MCP_PORT, () => {
-  logger.info({ port: env.MCP_PORT }, "MCP server listening");
-});
+const server = createMcpServerApp({
+  service: SERVICE,
+  apiUrl: env.API_INTERNAL_URL,
+  logger,
+}).listen(env.MCP_PORT, () => logger.info({ port: env.MCP_PORT }, "MCP server listening"));
 
 function shutdown(signal: string): void {
   logger.info({ signal }, "Shutting down");

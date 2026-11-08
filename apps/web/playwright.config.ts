@@ -68,6 +68,14 @@ export default defineConfig({
       timeout: 60_000,
     },
     {
+      // Tessel's own MCP server, for outside clients with personal access tokens.
+      command: "pnpm exec tsx src/server.ts",
+      cwd: "../mcp-server",
+      url: "http://localhost:4100/health",
+      reuseExistingServer: !isCI,
+      timeout: 60_000,
+    },
+    {
       // Indexes uploaded documents: SQS upload events, then parse, embed, and store in Qdrant.
       command: "pnpm exec tsx src/worker.ts",
       cwd: "../worker",

@@ -8,6 +8,7 @@ import { Button, TextField } from "@tessel/ui";
 import { useEffect, useState, type ReactNode } from "react";
 import { useForm } from "react-hook-form";
 import { FormError, FormSuccess } from "@/components/form-error";
+import { AccessTokensSection } from "@/components/settings/access-tokens-section";
 import { UsageSection } from "@/components/settings/usage-section";
 import { useChangePassword } from "@/hooks/use-auth";
 import { useCurrentWorkspace } from "@/hooks/use-current-workspace";
@@ -202,6 +203,20 @@ function PasswordSection() {
   );
 }
 
+function AccessTokenSettings() {
+  const { current } = useCurrentWorkspace();
+  if (!current) return null;
+  return (
+    <Section
+      id="access-tokens"
+      title="Access tokens"
+      description="Connect outside tools, like Claude Desktop or Cursor, to this workspace through Tessel's MCP server."
+    >
+      <AccessTokensSection workspaceId={current.id} />
+    </Section>
+  );
+}
+
 export default function SettingsPage() {
   return (
     <div className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-8 md:py-12">
@@ -210,6 +225,7 @@ export default function SettingsPage() {
         <ProfileSection />
         <WorkspaceSection />
         <UsageSettings />
+        <AccessTokenSettings />
         <PasswordSection />
       </div>
     </div>

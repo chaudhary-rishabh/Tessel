@@ -1,8 +1,10 @@
-import type { UserRole } from "@tessel/contracts";
+import type { AccessTokenScope, UserRole } from "@tessel/contracts";
 
 export interface AuthContext {
   userId: string;
   role: UserRole;
+  /** Set when the request used a personal access token instead of signing in. */
+  token?: { id: string; workspaceId: string; scopes: AccessTokenScope[] };
 }
 
 declare global {
