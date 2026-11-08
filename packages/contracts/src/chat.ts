@@ -24,18 +24,33 @@ export const messageSourceSchema = z.object({
   cited: z.boolean(),
 });
 
+/** A tool the reply used, or wants to use once the user approves. */
+export const toolCallSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  title: z.string(),
+  args: z.record(z.string(), z.unknown()),
+  status: z.enum(["running", "waiting", "completed", "failed", "rejected", "cancelled"]),
+  requiresApproval: z.boolean(),
+  /** For approvals: what will happen, in words. */
+  description: z.string().optional(),
+  summary: z.string().optional(),
+  error: z.string().optional(),
+});
+
 export const knowledgeModeSchema = z.enum(["auto", "always", "off"]);
 
 export const messageSchema = z.object({
   id: z.uuid(),
   role: z.enum(["user", "assistant"]),
   content: z.string(),
-  status: z.enum(["complete", "streaming", "stopped", "error"]),
+  status: z.enum(["complete", "streaming", "stopped", "error", "waiting"]),
   modelId: z.string().nullable(),
   errorCode: z.string().nullable(),
   createdAt: z.iso.datetime(),
   attachments: z.array(attachmentSchema),
   sources: z.array(messageSourceSchema).default([]),
+  toolCalls: z.array(toolCallSchema).default([]),
 });
 
 export const threadSummarySchema = z.object({
@@ -90,7 +105,11 @@ export const sendMessageRequestSchema = z.object({
  * Server-sent events from POST /workspaces/:workspaceId/chat, in order:
  * start, then status "searching" and sources when the documents are
  * searched, token (many), done, then title for a new thread. error can
- * replace done at any point after start.
+ * replace done at any point after start. tool events arrive between tokens
+ * whenever the agent uses a tool.
+ *
+ * POST /workspaces/:workspaceId/threads/:threadId/tool-calls/:callId/decision
+ * continues a waiting reply with the same events, from "resume" onwards.
  */
 export const chatEventSchema = z.discriminatedUnion("type", [
   z.object({
@@ -103,12 +122,17 @@ export const chatEventSchema = z.discriminatedUnion("type", [
   /** The passages the reply may cite, numbered as they will appear in the text. */
   z.object({ type: z.literal("sources"), sources: z.array(messageSourceSchema) }),
   z.object({ type: z.literal("token"), text: z.string() }),
+  /** A tool call started, finished, or is waiting for approval. Replaces earlier events for the same call. */
+  z.object({ type: z.literal("tool"), call: toolCallSchema }),
   z.object({
     type: z.literal("done"),
-    status: z.enum(["complete", "stopped"]),
+    /** "waiting": paused until the user decides on a tool call. */
+    status: z.enum(["complete", "stopped", "waiting"]),
     message: messageSchema,
   }),
   z.object({ type: z.literal("title"), threadId: z.uuid(), title: z.string() }),
+  /** First event when continuing a waiting reply after a decision. */
+  z.object({ type: z.literal("resume"), message: messageSchema }),
   z.object({
     type: z.literal("error"),
     code: z.string(),
@@ -118,7 +142,17 @@ export const chatEventSchema = z.discriminatedUnion("type", [
 ]);
 
 export type Attachment = z.infer<typeof attachmentSchema>;
+export const toolDecisionRequestSchema = z.object({ approved: z.boolean() });
+
+export const toolCallParamsSchema = z.object({
+  workspaceId: z.uuid("Invalid workspace ID"),
+  threadId: z.uuid("Invalid thread ID"),
+  callId: z.string().min(1).max(200),
+});
+
 export type ChatMessage = z.infer<typeof messageSchema>;
+export type ToolCallView = z.infer<typeof toolCallSchema>;
+export type ToolDecisionRequest = z.infer<typeof toolDecisionRequestSchema>;
 export type MessageSource = z.infer<typeof messageSourceSchema>;
 export type KnowledgeMode = z.infer<typeof knowledgeModeSchema>;
 export type ThreadSummary = z.infer<typeof threadSummarySchema>;

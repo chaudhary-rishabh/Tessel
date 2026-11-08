@@ -13,12 +13,33 @@ export interface MessageSource {
   cited: boolean;
 }
 
+/** A tool call as shown under a reply (see ToolCallRecord in @tessel/ai). */
+export interface MessageToolCall {
+  id: string;
+  name: string;
+  title: string;
+  args: Record<string, unknown>;
+  status: "running" | "waiting" | "completed" | "failed" | "rejected" | "cancelled";
+  requiresApproval: boolean;
+  description?: string;
+  summary?: string;
+  error?: string;
+}
+
 export const messageRole = pgEnum("message_role", ["user", "assistant"]);
 export const messageStatus = pgEnum("message_status", [
   "complete",
   "streaming",
   "stopped",
   "error",
+  // Paused until the user approves or declines a tool call.
+  "waiting",
+]);
+export const agentRunStatus = pgEnum("agent_run_status", [
+  "waiting",
+  "running",
+  "completed",
+  "cancelled",
 ]);
 export const attachmentKind = pgEnum("attachment_kind", ["image", "text"]);
 
@@ -70,6 +91,8 @@ export const messages = pgTable(
     errorCode: text("error_code"),
     /** For assistant messages: the document passages the reply could cite, numbered from 1. */
     sources: jsonb("sources").$type<MessageSource[]>().notNull().default([]),
+    /** For assistant messages: the tools the reply used, in order. */
+    toolCalls: jsonb("tool_calls").$type<MessageToolCall[]>().notNull().default([]),
     inputTokens: integer("input_tokens"),
     outputTokens: integer("output_tokens"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -106,6 +129,43 @@ export const attachments = pgTable(
   ],
 );
 
+/**
+ * An agent run paused for approval: everything needed to continue it once
+ * the user decides. One per assistant message; private to its owner.
+ */
+export const agentRuns = pgTable(
+  "agent_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    threadId: uuid("thread_id")
+      .notNull()
+      .references(() => threads.id, { onDelete: "cascade" }),
+    messageId: uuid("message_id")
+      .notNull()
+      .unique()
+      .references(() => messages.id, { onDelete: "cascade" }),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    status: agentRunStatus("status").notNull().default("waiting"),
+    modelId: text("model_id").notNull(),
+    /** The agent's checkpoint: conversation so far, tool calls, pending call. */
+    checkpoint: jsonb("checkpoint").$type<Record<string, unknown>>().notNull(),
+    /** Citation sources collected so far, so numbering continues after approval. */
+    sources: jsonb("sources").$type<MessageSource[]>().notNull().default([]),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [index("agent_runs_thread_status_idx").on(table.threadId, table.status)],
+);
+
+export type AgentRunRow = typeof agentRuns.$inferSelect;
 export type ThreadRow = typeof threads.$inferSelect;
 export type MessageRow = typeof messages.$inferSelect;
 export type AttachmentRow = typeof attachments.$inferSelect;
