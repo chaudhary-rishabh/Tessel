@@ -64,6 +64,13 @@
       "when": 1794171667867,
       "tag": "0008_message_activity",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1794172317411,
+      "tag": "0009_skills",
+      "breakpoints": true
     }
   ]
 }

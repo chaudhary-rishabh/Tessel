@@ -6,3 +6,4 @@ export * from "./errors";
 export * from "./health";
 export * from "./users";
 export * from "./workspaces";
+export * from "./skills";
