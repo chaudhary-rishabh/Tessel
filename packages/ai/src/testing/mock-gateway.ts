@@ -10,7 +10,9 @@ import type { AddressInfo } from "node:net";
  * Moderation: text containing MOCK_BLOCK is flagged as "weapons" and text
  * containing MOCK_SELF_HARM as "self_harm". MOCK_SLOW streams a long reply
  * slowly (for stop tests) and MOCK_FAIL returns a 400. Title requests get the
- * first words of the conversation.
+ * first words of the conversation. The RAG router searches unless the message
+ * contains MOCK_DIRECT, the reranker drops passages containing
+ * MOCK_IRRELEVANT, and replies with sources cite [1].
  */
 export interface MockReply {
   text?: string;
@@ -71,6 +73,25 @@ function defaultReply(body: Record<string, unknown>): MockReply {
     ];
     return { toolCall: { name: "moderation_result", args: { categories } } };
   }
+  if (tools.some((tool) => tool.function?.name === "route_message")) {
+    const message = /<message>\n([\s\S]*?)\n<\/message>/.exec(lastUser)?.[1] ?? lastUser;
+    const direct = message.includes("MOCK_DIRECT");
+    return {
+      toolCall: {
+        name: "route_message",
+        args: { use_documents: !direct, queries: direct ? [] : [message] },
+      },
+    };
+  }
+  if (tools.some((tool) => tool.function?.name === "rank_passages")) {
+    const passages = [
+      ...lastUser.matchAll(/<passage id="(\d+)"[^>]*>\n([\s\S]*?)\n<\/passage>/g),
+    ].map(([, id, text]) => ({
+      id: Number(id),
+      relevance: text!.includes("MOCK_IRRELEVANT") ? 0 : 3,
+    }));
+    return { toolCall: { name: "rank_passages", args: { passages } } };
+  }
   const system = textOf(messages.find((message) => message.role === "system")?.content);
   if (system.startsWith("Write a short title")) {
     const words = lastUser.replace(/\s+/g, " ").trim().split(" ").slice(0, 4).join(" ");
@@ -85,7 +106,11 @@ function defaultReply(body: Record<string, unknown>): MockReply {
   const images = Array.isArray(lastContent)
     ? lastContent.filter((part) => part?.type === "image_url").length
     : 0;
-  return { text: `Echo: ${lastUser}${images ? ` [${images} image${images > 1 ? "s" : ""}]` : ""}` };
+  // With sources in the system prompt, cite the first one like a real model would.
+  const cites = /<source id="1"/.test(system) ? " [1]" : "";
+  return {
+    text: `Echo: ${lastUser}${images ? ` [${images} image${images > 1 ? "s" : ""}]` : ""}${cites}`,
+  };
 }
 
 function usageFor(body: Record<string, unknown>, reply: MockReply, output: string) {
