@@ -1,5 +1,6 @@
 import { aiEnvShape } from "@tessel/ai";
 import { logLevelSchema, nodeEnvSchema } from "@tessel/config/env";
+import { graphEnvShape } from "@tessel/graph";
 import { storageEnvShape } from "@tessel/storage";
 import { z } from "zod";
 
@@ -26,6 +27,7 @@ export const envSchema = z.object({
   WORKER_HEALTH_PORT: z.coerce.number().int().positive().default(4200),
   ...aiEnvShape,
   ...storageEnvShape,
+  ...graphEnvShape,
 });
 
 export type Env = z.infer<typeof envSchema>;

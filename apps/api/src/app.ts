@@ -4,6 +4,7 @@ import type { Logger } from "@tessel/logger";
 import type { ObjectStore, UploadEventQueue } from "@tessel/storage";
 import cookieParser from "cookie-parser";
 import cors from "cors";
+import type { GraphStore } from "@tessel/graph";
 import { createMemoryStore, type EpisodeIndex } from "@tessel/memory";
 import express, { type Express } from "express";
 import helmet from "helmet";
@@ -43,6 +44,8 @@ import {
 import { createAccessTokensService } from "./modules/access-tokens/access-tokens.service";
 import { createMemoryRouter } from "./modules/memory/memory.routes";
 import { createMemoryService, type MemoryQueue } from "./modules/memory/memory.service";
+import { createGraphRouter } from "./modules/graph/graph.routes";
+import { createGraphService } from "./modules/graph/graph.service";
 import { createSkillsRouter } from "./modules/skills/skills.routes";
 import { createSkillsService } from "./modules/skills/skills.service";
 import { createDocumentsService } from "./modules/documents/documents.service";
@@ -68,6 +71,8 @@ export interface AppDependencies {
   /** Qdrant: document chunks for search. */
   vectorIndex: VectorIndex;
   readinessChecks: DependencyCheckFn[];
+  /** The knowledge graph (Neo4j), for graph RAG. Optional: without it, answers use search only. */
+  graph?: GraphStore | undefined;
   /** Episodic memory (past chats) and the queue for memory work after replies. */
   memory: { episodes: EpisodeIndex; queue: MemoryQueue };
   /** MCP connectors: the catalog, credential encryption, and OAuth redirects. */
@@ -90,6 +95,7 @@ export function createApp({
   readinessChecks,
   connectors,
   memory,
+  graph,
   rateLimitStoreFactory,
   passwordHasher = createPasswordHasher(),
 }: AppDependencies): Express {
@@ -151,7 +157,9 @@ export function createApp({
   const usageController = createUsageController(
     createUsageService({ db, spend: ai.spend, registry: ai.registry }),
   );
+  const graphService = createGraphService({ db, graph });
   const documentsService = createDocumentsService({
+    graph: graphService,
     db,
     ai,
     objects: storage.objects,
@@ -177,7 +185,13 @@ export function createApp({
     memory: memoryService,
     service: createChatService({ db, ai, logger, objects: storage.objects, memory: memoryStore }),
     ai,
-    rag: createRagPipeline({ ai, index: vectorIndex, logger }),
+    graph: graphService,
+    rag: createRagPipeline({
+      ai,
+      index: vectorIndex,
+      logger,
+      ...(graphService.enabled ? { graph: graphService.lookup } : {}),
+    }),
     logger,
   });
   const accessTokensService = createAccessTokensService({ db });
@@ -247,6 +261,10 @@ export function createApp({
   app.use(
     "/workspaces/:workspaceId/connectors",
     createConnectorsRouter({ service: connectorsService, authenticate }),
+  );
+  app.use(
+    "/workspaces/:workspaceId/graph",
+    createGraphRouter({ service: graphService, authenticate }),
   );
   app.use(
     "/workspaces/:workspaceId/memory",

@@ -20,6 +20,8 @@ import type { AddressInfo } from "node:net";
  * task to its first worker (MOCK_TWO_WORKERS: one to each of the first two),
  * then finishes. Final answers say what they were written from.
  * MOCK_SKILL <name> loads that skill; the reply then quotes its first line.
+ * Graph: "MOCK_REL: A (Type) | RELATION | B (Type)" in a document becomes a
+ * relationship, and quoted names in a question are routed to the graph.
  * Memory: "MOCK_REMEMBER: <fact>" in a user turn is saved, MOCK_FORGET clears
  * memories, and chat summaries say how many turns they cover.
  */
@@ -87,10 +89,16 @@ function defaultReply(body: Record<string, unknown>): MockReply {
   if (tools.some((tool) => tool.function?.name === "route_message")) {
     const message = /<message>\n([\s\S]*?)\n<\/message>/.exec(lastUser)?.[1] ?? lastUser;
     const direct = message.includes("MOCK_DIRECT");
+    // Quoted names are the entities a relationship question is about.
+    const entities = [...message.matchAll(/"([^"]+)"/g)].map((match) => match[1]!);
     return {
       toolCall: {
         name: "route_message",
-        args: { use_documents: !direct, queries: direct ? [] : [message] },
+        args: {
+          use_documents: !direct,
+          queries: direct ? [] : [message],
+          graph_entities: entities,
+        },
       },
     };
   }
@@ -105,6 +113,26 @@ function defaultReply(body: Record<string, unknown>): MockReply {
   }
   const forced = (body.tool_choice as { function?: { name?: string } } | undefined)?.function?.name;
   const requestText = lastUser;
+  if (forced === "extract_graph") {
+    // "MOCK_REL: Source (Type) | RELATION | Target (Type)" lines become graph facts.
+    const text = /<text>\n([\s\S]*?)\n<\/text>/.exec(requestText)?.[1] ?? "";
+    const entities = new Map<string, { name: string; type: string; description: string }>();
+    const relations = [
+      ...text.matchAll(/MOCK_REL: ([^|\n]+?) \((\w+)\) \| (\w+) \| ([^|\n]+?) \((\w+)\)/g),
+    ].map(([, source, sourceType, type, target, targetType]) => {
+      entities.set(source!, { name: source!, type: sourceType!, description: "" });
+      entities.set(target!, { name: target!, type: targetType!, description: "" });
+      return {
+        source,
+        target,
+        type,
+        description: `${source} ${type!.toLowerCase().replace(/_/g, " ")} ${target}.`,
+      };
+    });
+    return {
+      toolCall: { name: "extract_graph", args: { entities: [...entities.values()], relations } },
+    };
+  }
   if (forced === "update_memories") {
     const turns = /<turns>\n([\s\S]*?)\n<\/turns>/.exec(requestText)?.[1] ?? "";
     const add = [...turns.matchAll(/^user: .*?MOCK_REMEMBER: ([^\n]+)$/gm)].map((match) =>

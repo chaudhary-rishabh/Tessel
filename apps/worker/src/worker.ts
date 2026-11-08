@@ -10,6 +10,7 @@ import {
 } from "@tessel/ai";
 import { loadEnvFiles, parseEnv } from "@tessel/config/env";
 import { createDatabase, createUsageLedger, runMaintenance } from "@tessel/db";
+import { graphStoreFromEnv } from "@tessel/graph";
 import { createLogger } from "@tessel/logger";
 import { createMemoryStore, createQdrantEpisodeIndex, processThreadMemory } from "@tessel/memory";
 import {
@@ -81,6 +82,12 @@ if (env.STORAGE_AUTO_CREATE) {
     .catch((error: unknown) => logger.error({ err: error }, "Could not create the upload queue"));
 }
 
+// Graph RAG: entities and relationships go to Neo4j while documents are indexed.
+const graph = env.GRAPH_EXTRACTION ? graphStoreFromEnv(env) : undefined;
+await graph
+  ?.ensureSchema()
+  .catch((error: unknown) => logger.error({ err: error }, "Could not prepare the knowledge graph"));
+
 const systemWorker = new Worker(
   QUEUE_NAMES.system,
   (job) => processSystemJob(job, logger, { maintenance: () => runMaintenance(database.db) }),
@@ -104,7 +111,9 @@ const documentsWorker = new Worker(
     if (!parsed.success)
       throw new UnrecoverableError(`Invalid ingest payload: ${parsed.error.message}`);
     const isLastAttempt = job.attemptsMade + 1 >= (job.opts.attempts ?? 1);
-    return ingestDocument({ store, objects, index, ai, logger }, parsed.data, { isLastAttempt });
+    return ingestDocument({ store, objects, index, ai, logger, graph }, parsed.data, {
+      isLastAttempt,
+    });
   },
   // Long documents take a while to embed; keep the job's lock alive meanwhile.
   { connection, concurrency: env.INGEST_CONCURRENCY, lockDuration: 120_000 },
@@ -165,7 +174,12 @@ async function shutdown(signal: string): Promise<void> {
   await consumer.stop();
   await Promise.all([systemWorker.close(), documentsWorker.close(), memoryWorker.close()]);
   await Promise.all([documentsQueue.close(), systemQueue.close()]);
-  await Promise.allSettled([connection.quit(), redisCache.quit(), database.close()]);
+  await Promise.allSettled([
+    connection.quit(),
+    redisCache.quit(),
+    database.close(),
+    graph?.close(),
+  ]);
   logger.info("Shutdown complete");
   process.exit(0);
 }

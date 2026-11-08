@@ -11,6 +11,7 @@ import {
 import { loadEnvFiles, parseEnv } from "@tessel/config/env";
 import { createDatabase, createUsageLedger, pingDatabase } from "@tessel/db";
 import { createSecretBox } from "@tessel/mcp";
+import { graphStoreFromEnv } from "@tessel/graph";
 import { createQdrantEpisodeIndex } from "@tessel/memory";
 import { createMemoryQueue, createQueueConnection } from "@tessel/queue";
 import { createS3ObjectStore, createSqsUploadQueue } from "@tessel/storage";
@@ -74,6 +75,10 @@ const episodes = createQdrantEpisodeIndex({
   dimensions: ai.registry.forRole("embedding").dimensions ?? 1536,
   ...(env.QDRANT_API_KEY ? { apiKey: env.QDRANT_API_KEY } : {}),
 });
+const graph = graphStoreFromEnv(env);
+await graph
+  ?.ensureSchema()
+  .catch((error: unknown) => logger.error({ err: error }, "Could not prepare the knowledge graph"));
 const memoryQueue = createMemoryQueue(createQueueConnection(env.REDIS_QUEUE_URL));
 
 // Emulators start empty: create the bucket, its CORS rules, and the queue.
@@ -96,6 +101,7 @@ const app = createApp({
   storage: { objects, uploads, uploadEvents: env.UPLOAD_EVENTS },
   vectorIndex,
   memory: { episodes, queue: memoryQueue },
+  graph,
   connectors: {
     box: createSecretBox(env.CONNECTOR_SECRET_KEY),
     catalog: connectorCatalog({
@@ -125,7 +131,8 @@ const app = createApp({
     createCheck("qdrant", () => vectorIndex.ping()),
     createCheck("s3", () => objects.ping()),
     createCheck("sqs", () => uploads.ping()),
-    createCheck("neo4j", httpProbe(env.NEO4J_HTTP_URL)),
+    // Bolt when the graph is set up (what the app actually uses), HTTP otherwise.
+    createCheck("neo4j", graph ? () => graph.ping() : httpProbe(env.NEO4J_HTTP_URL)),
   ],
 });
 
@@ -151,6 +158,7 @@ async function shutdown(signal: string): Promise<void> {
     redisCache.quit(),
     redisQueue.quit(),
     memoryQueue.close(),
+    graph?.close(),
     rateLimitRedis.quit(),
   ]);
   logger.info("Shutdown complete");

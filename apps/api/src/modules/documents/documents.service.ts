@@ -38,6 +38,8 @@ export interface DocumentsServiceDependencies {
   /** "api" when the storage emulator can't send bucket notifications itself. */
   uploadEvents: "s3" | "api";
   logger: Logger;
+  /** Removes a deleted document's part of the knowledge graph. */
+  graph?: { forgetDocument(workspaceId: string, documentId: string): Promise<void> };
 }
 
 export function createDocumentsService({
@@ -48,6 +50,7 @@ export function createDocumentsService({
   index,
   uploadEvents,
   logger,
+  graph,
 }: DocumentsServiceDependencies) {
   async function membership(
     tx: Parameters<Parameters<typeof withUserContext>[2]>[0],
@@ -232,6 +235,14 @@ export function createDocumentsService({
         return document;
       });
       await index.deleteDocument(actor.workspaceId, row.id);
+      await graph
+        ?.forgetDocument(actor.workspaceId, row.id)
+        .catch((error: unknown) =>
+          logger.warn(
+            { err: error, documentId: row.id },
+            "Couldn't remove a document from the graph",
+          ),
+        );
       await objects.deletePrefix(storageKeys.documentPrefix(actor.workspaceId, row.id));
       await withUserContext(db, actor.userId, (tx) => documentsRepository.remove(tx, row.id));
       logger.info({ documentId: row.id, workspaceId: actor.workspaceId }, "Document deleted");

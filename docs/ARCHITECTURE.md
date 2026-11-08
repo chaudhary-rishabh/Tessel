@@ -220,6 +220,22 @@ flowchart LR
 
 Endpoints: `GET|POST /workspaces/:workspaceId/documents`, `GET|DELETE …/documents/:documentId`, `POST …/documents/:documentId/complete`, `POST …/documents/:documentId/reprocess`, `GET …/documents/:documentId/download`, `POST /workspaces/:workspaceId/search`.
 
+### Graph RAG
+
+```mermaid
+flowchart LR
+  doc["Indexed document"] --> windows["windows of ~6,000 chars"]
+  windows --> extract["utility model<br/>extract_graph"]
+  extract --> neo[("Neo4j<br/>Entity, MENTIONED_IN, RELATES")]
+  q["Relationship question"] --> router["router: graph_entities"]
+  router --> relate["relate: find entities,<br/>walk 2 hops"]
+  neo --> relate
+  relate --> sources["numbered sources<br/>(one per document)"]
+```
+
+- `@tessel/graph` holds the Neo4j store, a memory store for tests, extraction, and fact formatting. The worker builds the graph after indexing; the API uses it in the RAG pipeline (`relate`), the `explore_graph` tool, and `GET /workspaces/:workspaceId/graph?entity=…`.
+- The Documents page shows how many entities and connections were found, and lets you look up a name's connections.
+
 ## Tools and approvals
 
 ```mermaid

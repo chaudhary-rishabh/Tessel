@@ -7,6 +7,7 @@ import {
   createDocumentResponseSchema,
   documentListResponseSchema,
   documentSchema,
+  graphOverviewSchema,
   downloadResponseSchema,
   searchResponseSchema,
   skillListResponseSchema,
@@ -33,6 +34,7 @@ import {
   type UsageSummary,
   type Attachment,
   type DocumentSummary,
+  type GraphOverview,
   type PresignedUpload,
   type SearchRequest,
   type SearchResponse,
@@ -264,6 +266,18 @@ export function createApi(client: ApiClient) {
       remove: async (workspaceId: string, skillId: string): Promise<void> => {
         await http.delete(`/workspaces/${workspaceId}/skills/${skillId}`);
       },
+    },
+    graph: {
+      /** The knowledge graph's size and, with an entity, its connections. */
+      explore: async (workspaceId: string, entity?: string): Promise<GraphOverview> =>
+        parse(
+          graphOverviewSchema,
+          (
+            await http.get(`/workspaces/${workspaceId}/graph`, {
+              params: entity ? { entity, depth: 2 } : {},
+            })
+          ).data,
+        ),
     },
     documents: {
       list: async (workspaceId: string): Promise<DocumentSummary[]> =>

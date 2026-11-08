@@ -13,6 +13,7 @@ import { createDatabase, createUsageLedger, type DatabaseConnection } from "@tes
 import { memoryObjectStore, memoryUploadQueue } from "@tessel/storage/testing";
 import { memoryVectorIndex } from "@tessel/ai";
 import { createLogger } from "@tessel/logger";
+import { memoryGraphStore } from "@tessel/graph";
 import { createSecretBox } from "@tessel/mcp";
 import { memoryEpisodeIndex, type ThreadMemoryJob } from "@tessel/memory";
 import type { Express } from "express";
@@ -145,6 +146,7 @@ export function createTestApp(
     readinessChecks: [],
     connectors: testConnectors(),
     memory: { episodes: memoryEpisodeIndex(), queue: recordingMemoryQueue() },
+    graph: memoryGraphStore(),
     passwordHasher: fastHasher,
     ...deps,
   });

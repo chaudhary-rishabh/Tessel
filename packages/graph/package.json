@@ -1,0 +1,22 @@
+{
+  "name": "@tessel/graph",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@langchain/core": "^1.3.5",
+    "@tessel/ai": "workspace:*",
+    "neo4j-driver": "6.3.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@tessel/config": "workspace:*",
+    "@tessel/logger": "workspace:*"
+  }
+}

@@ -11,7 +11,7 @@ import {
 import type { Logger } from "@tessel/logger";
 import { createHash } from "node:crypto";
 import express, { type Express, type Request } from "express";
-import { rateLimit } from "express-rate-limit";
+import { ipKeyGenerator, rateLimit } from "express-rate-limit";
 import { z } from "zod";
 
 /** Calls the Tessel API with the client's personal access token. */
@@ -200,10 +200,12 @@ export function createMcpServerApp({
     limit: requestsPerMinute,
     standardHeaders: "draft-8",
     legacyHeaders: false,
-    keyGenerator: (req) =>
-      createHash("sha256")
-        .update(bearerOf(req) ?? req.ip ?? "anonymous")
-        .digest("hex"),
+    keyGenerator: (req) => {
+      const token = bearerOf(req);
+      return token
+        ? createHash("sha256").update(token).digest("hex")
+        : ipKeyGenerator(req.ip ?? "anonymous");
+    },
     handler: (_req, res) => {
       const body: ApiError = {
         error: { code: "rate_limited", message: "Too many requests. Try again in a minute." },

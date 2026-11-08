@@ -122,3 +122,29 @@ export const documentTextQuerySchema = z.object({
 });
 
 export type DocumentTextResponse = z.infer<typeof documentTextResponseSchema>;
+
+/** A relationship in the knowledge graph built from a workspace's documents. */
+export const graphFactSchema = z.object({
+  source: z.string(),
+  sourceType: z.string(),
+  type: z.string(),
+  target: z.string(),
+  targetType: z.string(),
+  description: z.string(),
+  documentId: z.string(),
+  filename: z.string(),
+  chunkIndex: z.number().int(),
+});
+
+export const graphOverviewSchema = z.object({
+  /** False when the knowledge graph isn't set up on this server. */
+  enabled: z.boolean(),
+  counts: z.object({ entities: z.number().int(), relations: z.number().int() }),
+  entities: z.array(
+    z.object({ key: z.string(), name: z.string(), type: z.string(), description: z.string() }),
+  ),
+  facts: z.array(graphFactSchema),
+});
+
+export type GraphFactView = z.infer<typeof graphFactSchema>;
+export type GraphOverview = z.infer<typeof graphOverviewSchema>;

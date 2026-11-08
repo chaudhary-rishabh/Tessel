@@ -1,5 +1,6 @@
 import { AiError, chunkSections, sparseVector, type Ai, type VectorIndex } from "@tessel/ai";
 import { MAX_DOCUMENT_BYTES } from "@tessel/contracts";
+import { extractGraph, graphWindows, type GraphExtraction, type GraphStore } from "@tessel/graph";
 import type { Logger } from "@tessel/logger";
 import type { IngestJobData } from "@tessel/queue";
 import { storageKeys, type ObjectStore } from "@tessel/storage";
@@ -15,6 +16,8 @@ export interface IngestDependencies {
   index: VectorIndex;
   ai: Ai;
   logger: Logger;
+  /** The knowledge graph; without it, documents are only indexed for search. */
+  graph?: GraphStore | undefined;
 }
 
 export type IngestOutcome = "ready" | "failed" | "skipped";
@@ -30,7 +33,7 @@ export type IngestOutcome = "ready" | "failed" | "skipped";
  * `isLastAttempt` marks the document failed before the final throw.
  */
 export async function ingestDocument(
-  { store, objects, index, ai, logger }: IngestDependencies,
+  { store, objects, index, ai, logger, graph }: IngestDependencies,
   { workspaceId, documentId }: IngestJobData,
   { isLastAttempt }: { isLastAttempt: boolean },
 ): Promise<IngestOutcome> {
@@ -97,6 +100,13 @@ export async function ingestDocument(
       return "skipped";
     }
     log.info({ chunks: chunks.length, characters: characterCount }, "Document indexed");
+    if (graph) {
+      await buildGraph(
+        { graph, ai, logger: log },
+        { userId, workspaceId, documentId, filename: document.filename },
+        chunks,
+      );
+    }
     return "ready";
   } catch (error) {
     if (error instanceof IngestError || error instanceof AiError) {
@@ -109,5 +119,53 @@ export async function ingestDocument(
       await store.fail(userId, documentId, "processing_failed");
     }
     throw error;
+  }
+}
+
+const GRAPH_PARALLEL_CALLS = 3;
+
+/**
+ * Graph RAG: extracts entities and relationships window by window and
+ * replaces the document's part of the knowledge graph. The document is
+ * already searchable, so a failure here is logged and doesn't fail it.
+ */
+async function buildGraph(
+  { graph, ai, logger }: { graph: GraphStore; ai: Ai; logger: Logger },
+  document: { userId: string; workspaceId: string; documentId: string; filename: string },
+  chunks: { index: number; text: string }[],
+) {
+  const model = ai.chatModel(
+    { userId: document.userId, workspaceId: document.workspaceId, feature: "graph" },
+    ai.registry.forRole("utility").id,
+    { temperature: 0 },
+  );
+  try {
+    const windows = graphWindows(chunks);
+    const extractions: GraphExtraction[] = [];
+    for (let start = 0; start < windows.length; start += GRAPH_PARALLEL_CALLS) {
+      const batch = windows.slice(start, start + GRAPH_PARALLEL_CALLS);
+      extractions.push(
+        ...(await Promise.all(
+          batch.map((window) => extractGraph(model, window.text, window.chunkIndex)),
+        )),
+      );
+    }
+    await graph.replaceDocument(
+      document.workspaceId,
+      { id: document.documentId, filename: document.filename },
+      extractions,
+    );
+    logger.info(
+      {
+        entities: extractions.reduce((total, item) => total + item.entities.length, 0),
+        relations: extractions.reduce((total, item) => total + item.relations.length, 0),
+      },
+      "Knowledge graph updated",
+    );
+  } catch (error) {
+    logger.warn(
+      { err: error },
+      "Building the knowledge graph failed; the document is still searchable",
+    );
   }
 }

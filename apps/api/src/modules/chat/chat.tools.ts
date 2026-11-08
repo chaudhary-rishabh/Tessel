@@ -7,7 +7,9 @@ import {
   type WorkerSpec,
 } from "@tessel/ai";
 import { z } from "zod";
+import { factLine } from "@tessel/graph";
 import type { DocumentsService } from "../documents/documents.service";
+import type { GraphService } from "../graph/graph.service";
 
 /** The specialists a supervisor can hand work to in team mode. */
 export const teamWorkers: WorkerSpec[] = [
@@ -44,12 +46,15 @@ export function workspaceTools({
   userId,
   requestId,
   sources,
+  graph,
 }: {
   documents: DocumentsService;
   workspaceId: string;
   userId: string;
   requestId?: string;
   sources: Source[];
+  /** The knowledge graph, when Neo4j is set up. */
+  graph?: GraphService;
 }): ToolDefinition[] {
   const actor = { workspaceId, userId, ...(requestId ? { requestId } : {}) };
 
@@ -160,8 +165,56 @@ export function workspaceTools({
     },
   });
 
+  const exploreGraph = graph
+    ? defineTool({
+        name: "explore_graph",
+        title: "Explore connections",
+        description:
+          "Look up how people, teams, projects, products, or systems in the workspace's documents relate to each other (who manages, owns, works on, or depends on what). Give one name; cite the results by their source id.",
+        schema: z.object({
+          entity: z.string().min(1).max(120).describe("A name, e.g. a person, team, or project"),
+        }),
+        risk: "read",
+        async run({ entity }) {
+          const { entities, facts } = await graph.relationships(workspaceId, [entity]);
+          if (facts.length === 0) {
+            return {
+              content: entities.length
+                ? `${entities[0]!.name} is in the documents, but no relationships were found.`
+                : `Nothing called "${entity}" was found in the knowledge graph.`,
+              summary: "No connections found",
+            };
+          }
+          const groups = new Map<string, string[]>();
+          for (const fact of facts)
+            groups.set(fact.documentId, [...(groups.get(fact.documentId) ?? []), factLine(fact)]);
+          const blocks = [...groups.entries()].map(([documentId, lines]) => {
+            const fact = facts.find((item) => item.documentId === documentId)!;
+            const source: Source = {
+              id: sources.length + 1,
+              documentId,
+              filename: fact.filename,
+              page: null,
+              chunkIndex: fact.chunkIndex,
+              text: [
+                "Relationships from the knowledge graph:",
+                ...lines.map((line) => `- ${line}`),
+              ].join("\n"),
+            };
+            sources.push(source);
+            return `<source id="${source.id}" document="${escapeAttribute(source.filename)}">\n${source.text}\n</source>`;
+          });
+          return {
+            content: blocks.join("\n"),
+            summary: `Found ${facts.length} connection${facts.length === 1 ? "" : "s"}`,
+          };
+        },
+      })
+    : undefined;
+
   return [
     searchDocuments,
+    ...(exploreGraph ? [exploreGraph] : []),
     listDocuments,
     createDocument,
     deleteDocument,
