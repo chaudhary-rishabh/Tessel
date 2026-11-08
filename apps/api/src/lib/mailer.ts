@@ -86,6 +86,14 @@ export const emails = {
     subject: "Your Tessel password was changed",
     text: `Your password was just changed, and you were signed out everywhere else. If this wasn't you, reset your password right away.${signature}`,
   }),
+  invitation: (
+    to: string,
+    input: { inviter: string; workspace: string; role: string; link: string },
+  ): MailMessage => ({
+    to,
+    subject: `${input.inviter} invited you to ${input.workspace} on Tessel`,
+    text: `${input.inviter} invited you to join the ${input.workspace} workspace on Tessel as ${input.role === "admin" ? "an admin" : "a member"}.\n\nAccept the invitation: ${input.link}\n\nIt works for 7 days. Sign in or sign up with this email address (${to}) to accept. If you weren't expecting it, you can ignore this email.${signature}`,
+  }),
   signInMethodAdded: (to: string, method: string): MailMessage => ({
     to,
     subject: "A new way to sign in was added to your Tessel account",

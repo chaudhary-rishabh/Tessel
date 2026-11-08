@@ -1,4 +1,17 @@
 import {
+  acceptInvitationResponseSchema,
+  auditLogResponseSchema,
+  invitationListResponseSchema,
+  invitationPreviewSchema,
+  invitationSchema,
+  memberListResponseSchema,
+  memberSchema,
+  type AssignableRole,
+  type AuditLogResponse,
+  type CreateInvitationRequest,
+  type Invitation,
+  type InvitationPreview,
+  type Member,
   connectedAppListResponseSchema,
   oauthAuthorizationSchema,
   oauthRedirectResponseSchema,
@@ -183,6 +196,59 @@ export function createApi(client: ApiClient) {
             (await http.post("/users/me/two-factor/recovery-codes", { code })).data,
           ).recoveryCodes,
       },
+    },
+    /** A team workspace's people: members, roles, invitations, and its audit log. */
+    members: {
+      list: async (workspaceId: string): Promise<Member[]> =>
+        parse(memberListResponseSchema, (await http.get(`/workspaces/${workspaceId}/members`)).data)
+          .members,
+      updateRole: async (
+        workspaceId: string,
+        userId: string,
+        role: AssignableRole,
+      ): Promise<Member> =>
+        parse(
+          memberSchema,
+          (await http.patch(`/workspaces/${workspaceId}/members/${userId}`, { role })).data,
+        ),
+      /** Removes a member, or leaves when it's the current user. */
+      remove: async (workspaceId: string, userId: string): Promise<void> => {
+        await http.delete(`/workspaces/${workspaceId}/members/${userId}`);
+      },
+      transferOwnership: async (workspaceId: string, userId: string): Promise<void> => {
+        await http.post(`/workspaces/${workspaceId}/transfer`, { userId });
+      },
+      invitations: async (workspaceId: string): Promise<Invitation[]> =>
+        parse(
+          invitationListResponseSchema,
+          (await http.get(`/workspaces/${workspaceId}/invitations`)).data,
+        ).invitations,
+      invite: async (workspaceId: string, input: CreateInvitationRequest): Promise<Invitation> =>
+        parse(
+          invitationSchema,
+          (await http.post(`/workspaces/${workspaceId}/invitations`, input)).data,
+        ),
+      revokeInvitation: async (workspaceId: string, invitationId: string): Promise<void> => {
+        await http.delete(`/workspaces/${workspaceId}/invitations/${invitationId}`);
+      },
+      auditLog: async (workspaceId: string, before?: string): Promise<AuditLogResponse> =>
+        parse(
+          auditLogResponseSchema,
+          (
+            await http.get(`/workspaces/${workspaceId}/audit-log`, {
+              params: before ? { before } : {},
+            })
+          ).data,
+        ),
+    },
+    invitations: {
+      preview: async (token: string): Promise<InvitationPreview> =>
+        parse(invitationPreviewSchema, (await http.get(`/invitations/${token}`)).data),
+      accept: async (token: string): Promise<Workspace> =>
+        parse(
+          acceptInvitationResponseSchema,
+          (await http.post(`/invitations/${token}/accept`)).data,
+        ).workspace,
     },
     /** Signing outside MCP clients in: the consent page and connected apps. */
     oauth: {

@@ -4,6 +4,7 @@ import { ApiClientError } from "@tessel/api-client";
 import { ApiProvider } from "@tessel/api-client/react";
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type ReactNode } from "react";
+import { Toaster } from "@/components/toaster";
 import { getApi } from "@/lib/api";
 import { useSessionStore } from "@/lib/session-store";
 
@@ -55,6 +56,7 @@ export function Providers({ children }: { children: ReactNode }) {
       <ApiProvider api={getApi()}>
         <SessionBootstrap />
         {children}
+        <Toaster />
       </ApiProvider>
     </QueryClientProvider>
   );

@@ -18,6 +18,7 @@ import {
   type ObjectStore,
   type UploadEventQueue,
 } from "@tessel/storage";
+import { noAudit, type AuditRecorder } from "../../lib/audit";
 import { AppError, errors } from "../../lib/errors";
 import { workspacesRepository } from "../workspaces/workspaces.repository";
 import { documentsPolicy } from "./documents.policy";
@@ -40,6 +41,7 @@ export interface DocumentsServiceDependencies {
   logger: Logger;
   /** Removes a deleted document's part of the knowledge graph. */
   graph?: { forgetDocument(workspaceId: string, documentId: string): Promise<void> };
+  audit?: AuditRecorder;
 }
 
 export function createDocumentsService({
@@ -51,6 +53,7 @@ export function createDocumentsService({
   uploadEvents,
   logger,
   graph,
+  audit = noAudit,
 }: DocumentsServiceDependencies) {
   async function membership(
     tx: Parameters<Parameters<typeof withUserContext>[2]>[0],
@@ -246,6 +249,13 @@ export function createDocumentsService({
       await objects.deletePrefix(storageKeys.documentPrefix(actor.workspaceId, row.id));
       await withUserContext(db, actor.userId, (tx) => documentsRepository.remove(tx, row.id));
       logger.info({ documentId: row.id, workspaceId: actor.workspaceId }, "Document deleted");
+      await audit.record({
+        actorId: actor.userId,
+        workspaceId: actor.workspaceId,
+        action: "document.deleted",
+        target: `document:${row.id}`,
+        metadata: { filename: row.filename },
+      });
     },
 
     /** Hybrid search (meaning and keywords) over the workspace's ready documents. */

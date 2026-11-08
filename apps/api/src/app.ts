@@ -60,6 +60,9 @@ import {
   createOAuthServerRouter,
 } from "./modules/oauth/oauth.routes";
 import { createOAuthService } from "./modules/oauth/oauth.service";
+import { createAuditRecorder } from "./lib/audit";
+import { createInvitationLinksRouter, createMembersRouter } from "./modules/members/members.routes";
+import { createMembersService } from "./modules/members/members.service";
 import { createSkillsRouter } from "./modules/skills/skills.routes";
 import { createSkillsService } from "./modules/skills/skills.service";
 import { createDocumentsService } from "./modules/documents/documents.service";
@@ -139,8 +142,10 @@ export function createApp({
   app.use(requestLogger(logger));
   app.use(helmet());
 
+  const audit = createAuditRecorder({ db, logger });
+
   // MCP clients sign in through these from any origin, so they come before CORS.
-  const accessTokensService = createAccessTokensService({ db });
+  const accessTokensService = createAccessTokensService({ db, audit });
   const oauthService = createOAuthService({
     db,
     logger,
@@ -148,6 +153,7 @@ export function createApp({
     accessTokens: accessTokensService,
     webOrigin: config.corsOrigins[0]!,
     resourceUrl: signIn.mcpResourceUrl ?? "http://localhost:4100/mcp",
+    audit,
   });
   if (signIn.mcpResourceUrl) {
     app.use(
@@ -205,8 +211,10 @@ export function createApp({
     mailer,
     webOrigin: config.corsOrigins[0]!,
     box: connectors.box,
+    audit,
   });
   const twoFactorService = createTwoFactorService({
+    audit,
     db,
     box: connectors.box,
     passwords: passwordHasher,
@@ -223,6 +231,7 @@ export function createApp({
       new URL(`/auth/oauth/${provider}/callback`, signIn.apiPublicUrl).toString(),
     webOrigin: config.corsOrigins[0]!,
     beginSession: authService.beginSession,
+    audit,
   });
   const phoneService = createPhoneService({
     db,
@@ -230,15 +239,17 @@ export function createApp({
     sms: signIn.sms,
     mailer,
     beginSession: authService.beginSession,
+    audit,
   });
   const usersService = createUsersService({ db });
-  const workspacesService = createWorkspacesService({ db });
+  const workspacesService = createWorkspacesService({ db, audit });
   const aiController = createAiController(createAiService({ db, ai }));
   const usageController = createUsageController(
     createUsageService({ db, spend: ai.spend, registry: ai.registry }),
   );
   const graphService = createGraphService({ db, graph });
   const documentsService = createDocumentsService({
+    audit,
     graph: graphService,
     db,
     ai,
@@ -250,7 +261,12 @@ export function createApp({
   });
   const documentsController = createDocumentsController(documentsService);
   const skillsService = createSkillsService({ db, ai });
-  const connectorsService = createConnectorsService({ db, logger, settings: connectors });
+  const connectorsService = createConnectorsService({
+    db,
+    logger,
+    settings: connectors,
+    audit,
+  });
   const memoryStore = createMemoryStore(db);
   const memoryService = createMemoryService({
     db,
@@ -326,6 +342,23 @@ export function createApp({
       authenticate,
     }),
   );
+  const membersService = createMembersService({
+    db,
+    logger,
+    mailer,
+    audit,
+    webOrigin: config.corsOrigins[0]!,
+  });
+  app.use(
+    "/workspaces/:workspaceId",
+    createMembersRouter({
+      service: membersService,
+      authenticate,
+      inviteRateLimit: config.rateLimits.signup,
+      storeFactory: rateLimitStoreFactory,
+    }),
+  );
+  app.use("/invitations", createInvitationLinksRouter({ service: membersService, authenticate }));
   app.use(
     "/workspaces/:workspaceId/completions",
     createCompletionsRouter({

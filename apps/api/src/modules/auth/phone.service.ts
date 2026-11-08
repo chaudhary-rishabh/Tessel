@@ -5,10 +5,11 @@ import type { Logger } from "@tessel/logger";
 import { and, eq, isNotNull } from "drizzle-orm";
 import { errors, isUniqueViolation } from "../../lib/errors";
 import { emails, type Mailer } from "../../lib/mailer";
+import { noAudit, type AuditRecorder } from "../../lib/audit";
 import { texts, type SmsSender } from "../../lib/sms";
 import { toPublicUser } from "../users/users.mapper";
 import { usersRepository } from "../users/users.repository";
-import type { LoginOutcome, SessionMeta } from "./auth.service";
+import type { LoginOutcome, SessionMeta, SignInMethod } from "./auth.service";
 import { assertNotLastSignInMethod } from "./sign-in-methods";
 import type { UserRow } from "@tessel/db";
 
@@ -32,7 +33,8 @@ export interface PhoneServiceDependencies {
   /** Without one, phone sign-in is off. */
   sms: SmsSender | undefined;
   mailer: Mailer;
-  beginSession: (user: UserRow, meta: SessionMeta) => Promise<LoginOutcome>;
+  beginSession: (user: UserRow, meta: SessionMeta, method: SignInMethod) => Promise<LoginOutcome>;
+  audit?: AuditRecorder;
   now?: () => Date;
 }
 
@@ -43,6 +45,7 @@ export function createPhoneService({
   sms,
   mailer,
   beginSession,
+  audit = noAudit,
   now = () => new Date(),
 }: PhoneServiceDependencies) {
   function sender(): SmsSender {
@@ -119,7 +122,7 @@ export function createPhoneService({
         : undefined;
       // The number must still be this user's.
       if (!user || user.phone !== challenge?.phone || !user.phoneVerifiedAt) throw INVALID_CODE();
-      return beginSession(user, meta);
+      return beginSession(user, meta, "phone");
     },
 
     /** Texts a code to confirm a number the signed-in user is adding. */
@@ -146,6 +149,11 @@ export function createPhoneService({
       }
       if (!updated) throw errors.unauthorized();
       logger.info({ userId }, "Phone number added");
+      await audit.record({
+        actorId: userId,
+        action: "auth.sign_in_method_added",
+        metadata: { method: "phone" },
+      });
       await mailer.send(emails.signInMethodAdded(updated.email, maskPhone(challenge.phone)));
       return toPublicUser(updated);
     },
@@ -160,6 +168,11 @@ export function createPhoneService({
         .set({ phone: null, phoneVerifiedAt: null })
         .where(eq(users.id, userId))
         .returning();
+      await audit.record({
+        actorId: userId,
+        action: "auth.sign_in_method_removed",
+        metadata: { method: "phone" },
+      });
       return toPublicUser(updated!);
     },
   };

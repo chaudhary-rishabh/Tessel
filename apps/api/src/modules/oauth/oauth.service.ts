@@ -30,6 +30,7 @@ import type { Logger } from "@tessel/logger";
 import type { SecretBox } from "@tessel/mcp";
 import { and, desc, eq, gt, isNull } from "drizzle-orm";
 import type { Response } from "express";
+import { noAudit, type AuditRecorder } from "../../lib/audit";
 import { errors } from "../../lib/errors";
 import {
   OAUTH_TOKEN_PREFIX,
@@ -55,6 +56,7 @@ export interface OAuthServiceDependencies {
   webOrigin: string;
   /** Tessel's MCP server, the one resource these tokens are for. */
   resourceUrl: string;
+  audit?: AuditRecorder;
   now?: () => Date;
 }
 
@@ -73,6 +75,7 @@ export function createOAuthService({
   accessTokens,
   webOrigin,
   resourceUrl,
+  audit = noAudit,
   now = () => new Date(),
 }: OAuthServiceDependencies) {
   const clientsStore: OAuthRegisteredClientsStore = {
@@ -128,7 +131,17 @@ export function createOAuthService({
   }
 
   /** Ends a grant and every access token it issued. */
-  async function revokeGrant(grant: Pick<OAuthGrantRow, "id" | "userId">) {
+  async function revokeGrant(
+    grant: Pick<OAuthGrantRow, "id" | "userId" | "workspaceId" | "clientId">,
+    reason = "disconnected",
+  ) {
+    await audit.record({
+      actorId: grant.userId,
+      workspaceId: grant.workspaceId,
+      action: "app.disconnected",
+      target: `oauth_client:${grant.clientId}`,
+      metadata: { reason },
+    });
     await db.update(oauthGrants).set({ revokedAt: now() }).where(eq(oauthGrants.id, grant.id));
     await withUserContext(db, grant.userId, (tx) =>
       tx
@@ -215,6 +228,13 @@ export function createOAuthService({
         })
         .returning();
       logger.info({ userId: used.userId, clientId: client.client_id }, "MCP client connected");
+      await audit.record({
+        actorId: used.userId,
+        workspaceId: used.workspaceId,
+        action: "app.connected",
+        target: `oauth_client:${client.client_id}`,
+        metadata: { name: client.client_name ?? null, scopes: used.scopes },
+      });
       return issueTokens(grant!, refreshToken);
     },
 
@@ -251,7 +271,7 @@ export function createOAuthService({
           );
         if (reused) {
           logger.warn({ grantId: reused.id }, "Old MCP refresh token reused; revoking the grant");
-          await revokeGrant(reused);
+          await revokeGrant(reused, "refresh_token_reused");
         }
         throw new InvalidGrantError("Invalid refresh token");
       }

@@ -9,6 +9,7 @@ import { Suspense, useEffect, useState, type ReactNode } from "react";
 import { useForm } from "react-hook-form";
 import { FormError, FormSuccess } from "@/components/form-error";
 import { AccessTokensSection } from "@/components/settings/access-tokens-section";
+import { ActivitySection } from "@/components/settings/activity-section";
 import { ConnectedAppsSection } from "@/components/settings/connected-apps-section";
 import { MemorySection } from "@/components/settings/memory-section";
 import { SessionsSection } from "@/components/settings/sessions-section";
@@ -240,6 +241,20 @@ function AccessTokenSettings() {
   );
 }
 
+function ActivitySettings() {
+  const { current } = useCurrentWorkspace();
+  if (!current || (current.role !== "owner" && current.role !== "admin")) return null;
+  return (
+    <Section
+      id="activity"
+      title="Activity"
+      description={`Changes to ${current.name}: members, tokens, connectors, and deleted documents. Kept for a year.`}
+    >
+      <ActivitySection workspaceId={current.id} />
+    </Section>
+  );
+}
+
 function ConnectedAppsSettings() {
   return (
     <Section
@@ -295,6 +310,7 @@ export default function SettingsPage() {
         <ConnectedAppsSettings />
         <PasswordSection />
         <SecuritySettings />
+        <ActivitySettings />
       </div>
     </div>
   );

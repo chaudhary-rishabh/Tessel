@@ -13,6 +13,7 @@ import {
   type PersonalAccessTokenRow,
 } from "@tessel/db";
 import { and, count, desc, eq, isNull, lt, or, sql } from "drizzle-orm";
+import { noAudit, type AuditRecorder } from "../../lib/audit";
 import { errors } from "../../lib/errors";
 import { workspacesRepository } from "../workspaces/workspaces.repository";
 
@@ -55,7 +56,13 @@ function toAccessToken(row: PersonalAccessTokenRow): AccessToken {
  * Personal access tokens for outside tools such as MCP clients. A token acts
  * as its owner in one workspace, with limited scopes; only its hash is stored.
  */
-export function createAccessTokensService({ db }: { db: Database }) {
+export function createAccessTokensService({
+  db,
+  audit = noAudit,
+}: {
+  db: Database;
+  audit?: AuditRecorder;
+}) {
   // Tokens made by hand; OAuth clients' tokens are managed through their grants.
   const live = (actor: Actor) =>
     and(
@@ -119,6 +126,15 @@ export function createAccessTokensService({ db }: { db: Database }) {
           })
           .returning();
         return { token, accessToken: toAccessToken(row!) };
+      }).then(async (created) => {
+        await audit.record({
+          actorId: actor.userId,
+          workspaceId: actor.workspaceId,
+          action: "token.created",
+          target: `token:${created.accessToken.id}`,
+          metadata: { name: created.accessToken.name, expiresAt: created.accessToken.expiresAt },
+        });
+        return created;
       });
     },
 
@@ -131,6 +147,12 @@ export function createAccessTokensService({ db }: { db: Database }) {
           .returning({ id: personalAccessTokens.id }),
       );
       if (revoked.length === 0) throw errors.notFound("Token not found");
+      await audit.record({
+        actorId: actor.userId,
+        workspaceId: actor.workspaceId,
+        action: "token.revoked",
+        target: `token:${tokenId}`,
+      });
     },
 
     /** Finds who a token acts as, or null if it isn't valid now. Notes when it was last used. */
