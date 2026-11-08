@@ -1,5 +1,6 @@
 import { aiEnvShape } from "@tessel/ai";
 import { logLevelSchema, nodeEnvSchema } from "@tessel/config/env";
+import { storageEnvShape } from "@tessel/storage";
 import { z } from "zod";
 
 const DEV_SECRET_MARKER = "dev-only";
@@ -27,6 +28,11 @@ export const envSchema = z
     REDIS_CACHE_URL: z.url(),
     REDIS_QUEUE_URL: z.url(),
     QDRANT_URL: z.url(),
+    QDRANT_API_KEY: z.preprocess(
+      (value) => (value === "" ? undefined : value),
+      z.string().optional(),
+    ),
+    QDRANT_COLLECTION: z.string().min(1).default("tessel_chunks"),
     NEO4J_HTTP_URL: z.url(),
     JWT_ACCESS_SECRET: z.string().min(32, "JWT_ACCESS_SECRET must be at least 32 characters"),
     ACCESS_TOKEN_TTL_SECONDS: z.coerce.number().int().min(60).max(3600).default(900),
@@ -36,6 +42,7 @@ export const envSchema = z
     /** Defaults to true in production. Set false only for local HTTP development. */
     COOKIE_SECURE: z.stringbool().optional(),
     ...aiEnvShape,
+    ...storageEnvShape,
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV === "production" && env.JWT_ACCESS_SECRET.includes(DEV_SECRET_MARKER)) {

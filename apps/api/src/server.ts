@@ -1,12 +1,14 @@
 import {
   aiOptionsFromEnv,
   createAi,
+  createQdrantIndex,
   createSpendGuard,
   redisSpendStore,
   spendLimitsFromEnv,
 } from "@tessel/ai";
 import { loadEnvFiles, parseEnv } from "@tessel/config/env";
 import { createDatabase, createUsageLedger, pingDatabase } from "@tessel/db";
+import { createS3ObjectStore, createSqsUploadQueue } from "@tessel/storage";
 import { createLogger } from "@tessel/logger";
 import { RedisStore } from "rate-limit-redis";
 import { createApp } from "./app";
@@ -46,11 +48,34 @@ if (!ai.isConfigured) {
   logger.warn("AI is off: set AI_GATEWAY_API_KEY (or a fallback provider key) to turn it on");
 }
 
+const objects = createS3ObjectStore(env);
+const uploads = createSqsUploadQueue(env);
+const vectorIndex = createQdrantIndex({
+  url: env.QDRANT_URL,
+  collection: env.QDRANT_COLLECTION,
+  dimensions: ai.registry.forRole("embedding").dimensions ?? 1536,
+  ...(env.QDRANT_API_KEY ? { apiKey: env.QDRANT_API_KEY } : {}),
+});
+
+// Emulators start empty: create the bucket, its CORS rules, and the queue.
+// In AWS these are created once by the setup steps in infra/aws/README.md.
+if (env.STORAGE_AUTO_CREATE) {
+  await Promise.all([objects.ensureBucket(env.WEB_ORIGIN), uploads.ensureQueue()]).catch(
+    (error: unknown) =>
+      logger.error({ err: error }, "Could not create the storage bucket or upload queue"),
+  );
+}
+await vectorIndex
+  .ensureCollection()
+  .catch((error: unknown) => logger.error({ err: error }, "Could not prepare the search index"));
+
 const app = createApp({
   config,
   logger,
   db: database.db,
   ai,
+  storage: { objects, uploads, uploadEvents: env.UPLOAD_EVENTS },
+  vectorIndex,
   // Shared counters, so limits hold across every API instance.
   rateLimitStoreFactory: (name) =>
     new RedisStore({
@@ -62,7 +87,9 @@ const app = createApp({
     createCheck("postgres", () => pingDatabase(database.pool)),
     createCheck("redis-cache", () => redisCache.ping()),
     createCheck("redis-queue", () => redisQueue.ping()),
-    createCheck("qdrant", httpProbe(new URL("/readyz", env.QDRANT_URL).toString())),
+    createCheck("qdrant", () => vectorIndex.ping()),
+    createCheck("s3", () => objects.ping()),
+    createCheck("sqs", () => uploads.ping()),
     createCheck("neo4j", httpProbe(env.NEO4J_HTTP_URL)),
   ],
 });

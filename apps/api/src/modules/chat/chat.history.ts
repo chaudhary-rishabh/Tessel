@@ -7,6 +7,9 @@ import {
 } from "@langchain/core/messages";
 import type { AttachmentRow, MessageRow } from "@tessel/db";
 
+/** An attachment with its bytes, loaded from object storage. */
+export type AttachmentFile = AttachmentRow & { data: Buffer };
+
 /** Older messages are dropped first once the history passes these limits. */
 const MAX_HISTORY_MESSAGES = 40;
 const MAX_HISTORY_CHARACTERS = 400_000;
@@ -20,7 +23,7 @@ export function systemPrompt(now = new Date()): string {
   ].join("\n");
 }
 
-function userContent(message: MessageRow, files: AttachmentRow[]): MessageContent {
+function userContent(message: MessageRow, files: AttachmentFile[]): MessageContent {
   const texts = files
     .filter((file) => file.kind === "text")
     .map(
@@ -49,10 +52,10 @@ const size = (content: MessageContent): number =>
  */
 export function buildModelMessages(
   rows: MessageRow[],
-  files: AttachmentRow[],
+  files: AttachmentFile[],
   now?: Date,
 ): BaseMessage[] {
-  const filesByMessage = new Map<string, AttachmentRow[]>();
+  const filesByMessage = new Map<string, AttachmentFile[]>();
   for (const file of files) {
     if (!file.messageId) continue;
     filesByMessage.set(file.messageId, [...(filesByMessage.get(file.messageId) ?? []), file]);
