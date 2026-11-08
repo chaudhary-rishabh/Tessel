@@ -48,6 +48,7 @@ Workspace packages export TypeScript source directly. Apps compile them as part 
 | `@tessel/queue`      | Queue names, job payload schemas, Redis connection   | Step 1  |
 | `@tessel/api-client` | axios instance and TanStack Query hooks              | Step 3  |
 | `@tessel/ui`         | Shared UI components                                 | Step 3  |
+| `@tessel/storage`    | S3 objects, SQS upload events, object key layout     | Step 7  |
 | `@tessel/ai`         | Gateway client, model registry, prompts, graphs, RAG | Step 5  |
 | `@tessel/tools`      | Built-in tools and the tool registry                 | Step 9  |
 | `@tessel/skills`     | Built-in skills                                      | Step 11 |
@@ -167,6 +168,42 @@ Endpoints: `GET /models` (picker list, no prices); `POST /workspaces/:workspaceI
 
 Other endpoints: `GET /workspaces/:workspaceId/threads?before=` (newest first, paginated), `GET|PATCH|DELETE /workspaces/:workspaceId/threads/:threadId`.
 
+## Knowledge (documents and search)
+
+```mermaid
+sequenceDiagram
+  participant B as Browser
+  participant A as API
+  participant S as S3
+  participant Q as SQS
+  participant W as Worker
+  participant V as Qdrant
+  B->>A: POST /documents (name, size)
+  A-->>B: presigned PUT URL
+  B->>S: PUT file
+  B->>A: POST /documents/:id/complete
+  S-->>Q: ObjectCreated event (AWS)
+  A-->>Q: same event (emulators only)
+  Q->>W: long poll
+  W->>W: BullMQ job: parse, chunk, embed
+  W->>S: parsed.txt
+  W->>V: dense + keyword vectors
+  B->>A: POST /search
+  A->>V: hybrid query, workspace filter
+```
+
+| Piece        | How it works                                                                                                                                                                                 |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Formats      | PDF (page by page), Word (.docx), text, Markdown, CSV, JSON, HTML. Up to 50 MB and about 2 million characters per document.                                                                  |
+| Storage keys | `workspaces/{workspaceId}/documents/{documentId}/original` and `…/parsed.txt`; chat attachments at `workspaces/{workspaceId}/attachments/{id}`.                                              |
+| Statuses     | `uploading` → `queued` → `processing` → `ready`, or `failed` with a reason the user can act on (`no_text`, `unreadable_file`, `daily_cost_cap_reached`, …). Failed documents can be retried. |
+| Chunks       | About 1,500 characters with 200 of overlap, never crossing a page, each with its page number for citations.                                                                                  |
+| Vectors      | Dense embeddings from the registry's embedding model, plus hashed keyword vectors weighted like BM25. Stored in one Qdrant collection with `workspace_id` as a tenant index.                 |
+| Search       | `POST /workspaces/:workspaceId/search`: both vectors, fused with reciprocal rank fusion, filtered by workspace and optionally by document. Recorded in the ledger as feature `search`.       |
+| Reliability  | SQS messages are deleted only after their job is queued; failing messages move to a dead-letter queue. Jobs retry three times with backoff, and re-running a job gives the same result.      |
+
+Endpoints: `GET|POST /workspaces/:workspaceId/documents`, `GET|DELETE …/documents/:documentId`, `POST …/documents/:documentId/complete`, `POST …/documents/:documentId/reprocess`, `GET …/documents/:documentId/download`, `POST /workspaces/:workspaceId/search`.
+
 ## Web app
 
 | Concern          | Approach                                                                                                                                                                                                                                                                                                                                                                        |
@@ -183,14 +220,15 @@ Other endpoints: `GET /workspaces/:workspaceId/threads?before=` (newest first, p
 
 ## Deployment
 
-| Piece            | Where                                                                                                                                                              |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Images           | `infra/docker/node.Dockerfile` (api, worker, mcp-server, migrate) and `infra/docker/web.Dockerfile`, built by `infra/scripts/build-images.sh`                      |
-| Production stack | `infra/deploy/docker-compose.prod.yml` with profiles: apps (always), `edge` (Caddy + HTTPS), `data` (databases on the host), `tools` (migrate job)                 |
-| Deploy           | `.github/workflows/deploy.yml` runs after CI passes on `main`: build, push to ECR, run `infra/deploy/deploy.sh` on EC2 through SSM                                 |
-| Secrets          | SSM Parameter Store under `/tessel/prod`, written to a root-only `.env` on each deploy                                                                             |
-| Health           | Every service has a health check; deploys wait for all of them and roll back on failure                                                                            |
-| CI safety net    | Every pull request builds all production images and boots the full production stack (`infra/scripts/smoke-test.sh`), including a signup through the real API image |
+| Piece            | Where                                                                                                                                                                                        |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Images           | `infra/docker/node.Dockerfile` (api, worker, mcp-server, migrate) and `infra/docker/web.Dockerfile`, built by `infra/scripts/build-images.sh`                                                |
+| Production stack | `infra/deploy/docker-compose.prod.yml` with profiles: apps (always), `edge` (Caddy + HTTPS), `data` (databases on the host), `tools` (migrate job)                                           |
+| Deploy           | `.github/workflows/deploy.yml` runs after CI passes on `main`: build, push to ECR, run `infra/deploy/deploy.sh` on EC2 through SSM                                                           |
+| Secrets          | SSM Parameter Store under `/tessel/prod`, written to a root-only `.env` on each deploy                                                                                                       |
+| Health           | Every service has a health check; deploys wait for all of them and roll back on failure                                                                                                      |
+| Backups          | Nightly `pg_dump` to S3 from a systemd timer when Postgres runs on the host (`infra/deploy/backup.sh`, `restore.sh`)                                                                         |
+| CI safety net    | Every pull request builds all production images and boots the full production stack (`infra/scripts/smoke-test.sh`) with S3 and SQS emulators, including a signup through the real API image |
 
 Setup steps: [infra/aws/README.md](../infra/aws/README.md).
 

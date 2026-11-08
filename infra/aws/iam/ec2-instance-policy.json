@@ -20,6 +20,41 @@
         "arn:aws:ssm:REGION:ACCOUNT_ID:parameter/tessel/prod",
         "arn:aws:ssm:REGION:ACCOUNT_ID:parameter/tessel/prod/*"
       ]
+    },
+    {
+      "Sid": "AppFiles",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+      "Resource": "arn:aws:s3:::BUCKET_NAME/workspaces/*"
+    },
+    {
+      "Sid": "AppFilesList",
+      "Effect": "Allow",
+      "Action": ["s3:ListBucket"],
+      "Resource": "arn:aws:s3:::BUCKET_NAME",
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": ["workspaces/*"]
+        }
+      }
+    },
+    {
+      "Sid": "UploadEvents",
+      "Effect": "Allow",
+      "Action": [
+        "sqs:ReceiveMessage",
+        "sqs:DeleteMessage",
+        "sqs:SendMessage",
+        "sqs:GetQueueAttributes",
+        "sqs:ChangeMessageVisibility"
+      ],
+      "Resource": "arn:aws:sqs:REGION:ACCOUNT_ID:tessel-uploads"
+    },
+    {
+      "Sid": "PostgresBackups",
+      "Effect": "Allow",
+      "Action": ["s3:PutObject", "s3:GetObject"],
+      "Resource": "arn:aws:s3:::BACKUP_BUCKET_NAME/postgres/*"
     }
   ]
 }

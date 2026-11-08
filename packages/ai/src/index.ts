@@ -8,3 +8,4 @@ export * from "./registry";
 export * from "./spend";
 export * from "./usage";
 export { UsageCallbackHandler, usageFromMetadata } from "./usage-handler";
+export * from "./rag/index";

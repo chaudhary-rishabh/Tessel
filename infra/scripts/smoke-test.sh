@@ -5,7 +5,8 @@
 #   infra/scripts/smoke-test.sh <registry> <tag>
 #
 # Uses throwaway secrets from infra/deploy/ci/secrets.env. Runs the data
-# profile (databases in containers) and skips the edge profile (Caddy).
+# profile (databases in containers) with S3 and SQS emulators in place of
+# AWS, and skips the edge profile (Caddy).
 set -euo pipefail
 
 REGISTRY=${1:?usage: smoke-test.sh <registry> <tag>}
@@ -13,7 +14,8 @@ TAG=${2:?usage: smoke-test.sh <registry> <tag>}
 
 cd "$(dirname "$0")/../deploy"
 WORK=$(mktemp -d)
-cp docker-compose.prod.yml "$WORK/"
+cp docker-compose.prod.yml ci/docker-compose.emulators.yml "$WORK/"
+cp ../docker/seaweedfs/s3.json "$WORK/"
 cp ci/secrets.env "$WORK/.env"
 cat >"$WORK/deploy.env" <<EOF
 ECR_REGISTRY=$REGISTRY
@@ -25,7 +27,10 @@ cd "$WORK"
 grep -E '^POSTGRES_PASSWORD=' .env >postgres.env || true
 grep -E '^NEO4J_AUTH=' .env >neo4j.env || true
 
-compose() { IMAGE_TAG=$TAG docker compose --project-name tessel-smoke --file docker-compose.prod.yml --env-file deploy.env "$@"; }
+compose() {
+  IMAGE_TAG=$TAG docker compose --project-name tessel-smoke \
+    --file docker-compose.prod.yml --file docker-compose.emulators.yml --env-file deploy.env "$@"
+}
 cleanup() {
   if [[ "${KEEP:-}" != "1" ]]; then compose --profile tools down --volumes --remove-orphans >/dev/null 2>&1 || true; fi
   rm -rf "$WORK"
@@ -39,7 +44,8 @@ fail() {
 }
 
 echo "==> Starting data services"
-compose up --detach --wait --wait-timeout 300 postgres redis-cache redis-queue qdrant neo4j || fail "data services did not become healthy"
+compose up --detach --wait --wait-timeout 300 postgres redis-cache redis-queue qdrant neo4j objectstore sqs ||
+  fail "data services did not become healthy"
 
 echo "==> Running migrations"
 compose --profile tools run --rm migrate || fail "migrations failed"
@@ -49,7 +55,7 @@ compose up --detach --wait --wait-timeout 180 || fail "apps did not become healt
 
 http() { compose exec -T api wget -qO- "$@"; }
 
-echo "==> API readiness (every dependency up)"
+echo "==> API readiness (every dependency up, including S3, SQS, and Qdrant)"
 ready=$(http http://127.0.0.1:4000/health/ready) || fail "readiness check failed"
 echo "$ready"
 grep -q '"status":"ready"' <<<"$ready" || fail "API is not ready"

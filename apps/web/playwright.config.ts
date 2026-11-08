@@ -8,7 +8,8 @@ const MOCK_GATEWAY_URL = "http://127.0.0.1:4300/v1";
 /**
  * End-to-end tests run the real web app against the real API, on a desktop
  * and a phone viewport. Postgres and Redis must be running (pnpm infra:up)
- * and migrated (pnpm db:migrate). Model calls go to a local mock gateway.
+ * and migrated (pnpm db:migrate), along with the S3, SQS, and Qdrant
+ * emulators. Model calls go to a local mock gateway.
  */
 export default defineConfig({
   testDir: "./e2e",
@@ -45,6 +46,17 @@ export default defineConfig({
         AI_GATEWAY_API_KEY: "mock",
         AI_GATEWAY_URL: MOCK_GATEWAY_URL,
       },
+      timeout: 60_000,
+    },
+    {
+      // Indexes uploaded documents: SQS upload events, then parse, embed, and store in Qdrant.
+      command: "pnpm exec tsx src/worker.ts",
+      cwd: "../worker",
+      url: "http://localhost:4200/health",
+      reuseExistingServer: !isCI,
+      // Worker logs go to the CI log, since ingestion failures only show there.
+      stdout: isCI ? "pipe" : "ignore",
+      env: { AI_GATEWAY_API_KEY: "mock", AI_GATEWAY_URL: MOCK_GATEWAY_URL },
       timeout: 60_000,
     },
     {

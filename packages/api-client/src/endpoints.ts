@@ -4,6 +4,11 @@ import {
   modelListResponseSchema,
   usageSummarySchema,
   attachmentSchema,
+  createDocumentResponseSchema,
+  documentListResponseSchema,
+  documentSchema,
+  downloadResponseSchema,
+  searchResponseSchema,
   threadListResponseSchema,
   threadResponseSchema,
   threadSummarySchema,
@@ -17,6 +22,10 @@ import {
   type ModelListResponse,
   type UsageSummary,
   type Attachment,
+  type DocumentSummary,
+  type PresignedUpload,
+  type SearchRequest,
+  type SearchResponse,
   type ThreadListResponse,
   type ThreadResponse,
   type ThreadSummary,
@@ -27,6 +36,7 @@ import {
 } from "@tessel/contracts";
 import type { z } from "zod";
 import type { ApiClient } from "./client";
+import { ApiClientError } from "./errors";
 import { createChatStream } from "./stream";
 
 /**
@@ -127,6 +137,48 @@ export function createApi(client: ApiClient) {
           })
         ).data,
     },
+    documents: {
+      list: async (workspaceId: string): Promise<DocumentSummary[]> =>
+        parse(
+          documentListResponseSchema,
+          (await http.get(`/workspaces/${workspaceId}/documents`)).data,
+        ).documents,
+      /**
+       * Uploads a file straight to storage: register it, PUT the bytes to the
+       * presigned URL (with progress), then tell the API the upload is done.
+       */
+      upload: async (
+        workspaceId: string,
+        file: File,
+        onProgress?: (fraction: number) => void,
+      ): Promise<DocumentSummary> => {
+        const base = `/workspaces/${workspaceId}/documents`;
+        const { document, upload } = parse(
+          createDocumentResponseSchema,
+          (await http.post(base, { filename: file.name, sizeBytes: file.size })).data,
+        );
+        await putToStorage(upload, file, onProgress);
+        return parse(documentSchema, (await http.post(`${base}/${document.id}/complete`)).data);
+      },
+      reprocess: async (workspaceId: string, documentId: string): Promise<DocumentSummary> =>
+        parse(
+          documentSchema,
+          (await http.post(`/workspaces/${workspaceId}/documents/${documentId}/reprocess`)).data,
+        ),
+      remove: async (workspaceId: string, documentId: string): Promise<void> => {
+        await http.delete(`/workspaces/${workspaceId}/documents/${documentId}`);
+      },
+      downloadUrl: async (workspaceId: string, documentId: string): Promise<string> =>
+        parse(
+          downloadResponseSchema,
+          (await http.get(`/workspaces/${workspaceId}/documents/${documentId}/download`)).data,
+        ).url,
+      search: async (workspaceId: string, input: SearchRequest): Promise<SearchResponse> =>
+        parse(
+          searchResponseSchema,
+          (await http.post(`/workspaces/${workspaceId}/search`, input)).data,
+        ),
+    },
     usage: {
       summary: async (workspaceId: string, days = 30): Promise<UsageSummary> =>
         parse(
@@ -138,3 +190,42 @@ export function createApi(client: ApiClient) {
 }
 
 export type Api = ReturnType<typeof createApi>;
+
+/**
+ * PUTs a file to a presigned storage URL. XMLHttpRequest rather than fetch,
+ * because fetch can't report upload progress.
+ */
+function putToStorage(
+  upload: PresignedUpload,
+  file: Blob,
+  onProgress?: (fraction: number) => void,
+) {
+  return new Promise<void>((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open(upload.method, upload.url);
+    for (const [name, value] of Object.entries(upload.headers))
+      request.setRequestHeader(name, value);
+    request.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress?.(event.loaded / event.total);
+    };
+    request.onload = () =>
+      request.status >= 200 && request.status < 300
+        ? resolve()
+        : reject(
+            new ApiClientError(
+              request.status,
+              "upload_failed",
+              "The file couldn't be uploaded. Try again.",
+            ),
+          );
+    request.onerror = () =>
+      reject(
+        new ApiClientError(
+          0,
+          "network_error",
+          "Can't reach file storage. Check your connection and try again.",
+        ),
+      );
+    request.send(file);
+  });
+}

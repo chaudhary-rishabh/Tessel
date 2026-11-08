@@ -1,6 +1,7 @@
-import type { Ai } from "@tessel/ai";
+import type { Ai, VectorIndex } from "@tessel/ai";
 import type { Database } from "@tessel/db";
 import type { Logger } from "@tessel/logger";
+import type { ObjectStore, UploadEventQueue } from "@tessel/storage";
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import express, { type Express } from "express";
@@ -24,6 +25,9 @@ import type { DependencyCheckFn } from "./modules/health/checks";
 import { createChatController } from "./modules/chat/chat.controller";
 import { createChatRouter } from "./modules/chat/chat.routes";
 import { createChatService } from "./modules/chat/chat.service";
+import { createDocumentsController } from "./modules/documents/documents.controller";
+import { createDocumentsRouter } from "./modules/documents/documents.routes";
+import { createDocumentsService } from "./modules/documents/documents.service";
 import { createHealthRouter } from "./modules/health/health.routes";
 import { createUsageController } from "./modules/usage/usage.controller";
 import { createUsageRouter } from "./modules/usage/usage.routes";
@@ -41,6 +45,10 @@ export interface AppDependencies {
   db: Database;
   /** Every model call goes through this: spend caps, moderation, usage ledger. */
   ai: Ai;
+  /** S3 for files, SQS for upload events. */
+  storage: { objects: ObjectStore; uploads: UploadEventQueue; uploadEvents: "s3" | "api" };
+  /** Qdrant: document chunks for search. */
+  vectorIndex: VectorIndex;
   readinessChecks: DependencyCheckFn[];
   /** Rate limit storage per limiter. Defaults to in-memory (single instance only). */
   rateLimitStoreFactory?: RateLimitStoreFactory;
@@ -55,6 +63,8 @@ export function createApp({
   logger,
   db,
   ai,
+  storage,
+  vectorIndex,
   readinessChecks,
   rateLimitStoreFactory,
   passwordHasher = createPasswordHasher(),
@@ -118,10 +128,21 @@ export function createApp({
     createUsageService({ db, spend: ai.spend, registry: ai.registry }),
   );
   const chatController = createChatController({
-    service: createChatService({ db, ai, logger }),
+    service: createChatService({ db, ai, logger, objects: storage.objects }),
     ai,
     logger,
   });
+  const documentsController = createDocumentsController(
+    createDocumentsService({
+      db,
+      ai,
+      objects: storage.objects,
+      uploads: storage.uploads,
+      uploadEvents: storage.uploadEvents,
+      index: vectorIndex,
+      logger,
+    }),
+  );
   const authenticate = requireAuth(accessTokens);
 
   // Feature modules
@@ -167,6 +188,15 @@ export function createApp({
     "/workspaces/:workspaceId",
     createChatRouter({
       controller: chatController,
+      authenticate,
+      rateLimit: config.rateLimits.ai,
+      storeFactory: rateLimitStoreFactory,
+    }),
+  );
+  app.use(
+    "/workspaces/:workspaceId",
+    createDocumentsRouter({
+      controller: documentsController,
       authenticate,
       rateLimit: config.rateLimits.ai,
       storeFactory: rateLimitStoreFactory,

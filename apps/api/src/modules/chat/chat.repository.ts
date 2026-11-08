@@ -11,7 +11,7 @@ import {
 } from "@tessel/db";
 import { and, asc, desc, eq, inArray, isNull, lt } from "drizzle-orm";
 
-export type AttachmentMeta = Omit<AttachmentRow, "data">;
+export type AttachmentMeta = AttachmentRow;
 
 export function toThread(row: ThreadRow): ThreadSummary {
   return {
@@ -55,6 +55,7 @@ const attachmentMeta = {
   mediaType: attachments.mediaType,
   kind: attachments.kind,
   sizeBytes: attachments.sizeBytes,
+  storageKey: attachments.storageKey,
   createdAt: attachments.createdAt,
 };
 
@@ -161,7 +162,7 @@ export const chatRepository = {
     return row;
   },
 
-  /** Attachment metadata for a set of messages, without file contents. */
+  /** Attachment rows for a set of messages. The bytes live in object storage. */
   attachmentsForMessages(tx: Transaction, messageIds: string[]): Promise<AttachmentMeta[]> {
     if (messageIds.length === 0) return Promise.resolve([]);
     return tx
@@ -171,19 +172,9 @@ export const chatRepository = {
       .orderBy(asc(attachments.createdAt));
   },
 
-  /** Attachments with contents, for building model input. */
-  attachmentFiles(tx: Transaction, messageIds: string[]): Promise<AttachmentRow[]> {
-    if (messageIds.length === 0) return Promise.resolve([]);
-    return tx
-      .select()
-      .from(attachments)
-      .where(inArray(attachments.messageId, messageIds))
-      .orderBy(asc(attachments.createdAt));
-  },
-
   async insertAttachment(
     tx: Transaction,
-    values: Omit<AttachmentRow, "id" | "createdAt" | "messageId">,
+    values: Omit<AttachmentRow, "createdAt" | "messageId">,
   ): Promise<AttachmentMeta> {
     const [row] = await tx.insert(attachments).values(values).returning(attachmentMeta);
     if (!row) throw new Error("Failed to insert attachment");

@@ -10,6 +10,8 @@ import {
 } from "@tessel/ai";
 import type { AuthResponse } from "@tessel/contracts";
 import { createDatabase, createUsageLedger, type DatabaseConnection } from "@tessel/db";
+import { memoryObjectStore, memoryUploadQueue } from "@tessel/storage/testing";
+import { memoryVectorIndex } from "@tessel/ai";
 import { createLogger } from "@tessel/logger";
 import type { Express } from "express";
 import request from "supertest";
@@ -109,6 +111,8 @@ export function createTestApp(
     logger: silentLogger,
     db: connect().db,
     ai: createTestAi(),
+    storage: { objects: memoryObjectStore(), uploads: memoryUploadQueue(), uploadEvents: "api" },
+    vectorIndex: memoryVectorIndex(),
     readinessChecks: [],
     passwordHasher: fastHasher,
     ...deps,

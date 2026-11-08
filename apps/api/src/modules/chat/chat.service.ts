@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { HumanMessage, SystemMessage, type BaseMessage } from "@langchain/core/messages";
 import type { Ai, AiCallContext, ModelInfo } from "@tessel/ai";
 import type {
@@ -11,10 +12,11 @@ import type {
 import { sendMessageRequestSchema } from "@tessel/contracts";
 import { withUserContext, type Database, type MessageStatus } from "@tessel/db";
 import type { Logger } from "@tessel/logger";
+import { storageKeys, type ObjectStore } from "@tessel/storage";
 import { errors } from "../../lib/errors";
 import { workspacesRepository } from "../workspaces/workspaces.repository";
 import { classifyUpload } from "./chat.files";
-import { buildModelMessages } from "./chat.history";
+import { buildModelMessages, type AttachmentFile } from "./chat.history";
 import { chatRepository, toAttachment, toMessage, toThread } from "./chat.repository";
 
 export interface Actor {
@@ -42,7 +44,17 @@ function fallbackTitle(text: string): string {
   return words.length > 60 ? `${words.slice(0, 57)}…` : words || "New chat";
 }
 
-export function createChatService({ db, ai, logger }: { db: Database; ai: Ai; logger: Logger }) {
+export function createChatService({
+  db,
+  ai,
+  logger,
+  objects,
+}: {
+  db: Database;
+  ai: Ai;
+  logger: Logger;
+  objects: ObjectStore;
+}) {
   async function requireMembership(actor: Actor) {
     const workspace = await withUserContext(db, actor.userId, (tx) =>
       workspacesRepository.findForUser(tx, actor.workspaceId, actor.userId),
@@ -115,13 +127,18 @@ export function createChatService({ db, ai, logger }: { db: Database; ai: Ai; lo
     ): Promise<Attachment> {
       await requireMembership(actor);
       const classified = classifyUpload(file.originalname, file.buffer);
+      const id = randomUUID();
+      const storageKey = storageKeys.attachment(actor.workspaceId, id);
+      // Bytes first: a row never points at a file that isn't there.
+      await objects.put(storageKey, file.buffer, classified.mediaType);
       const row = await withUserContext(db, actor.userId, (tx) =>
         chatRepository.insertAttachment(tx, {
+          id,
           workspaceId: actor.workspaceId,
           userId: actor.userId,
           ...classified,
           sizeBytes: file.buffer.length,
-          data: file.buffer,
+          storageKey,
         }),
       );
       return toAttachment(row);
@@ -132,7 +149,7 @@ export function createChatService({ db, ai, logger }: { db: Database; ai: Ai; lo
         chatRepository.findAttachment(tx, { ...actor, attachmentId }),
       );
       if (!row) throw errors.notFound("Attachment not found");
-      return row;
+      return { ...row, data: await objects.get(row.storageKey) };
     },
 
     /**
@@ -177,8 +194,8 @@ export function createChatService({ db, ai, logger }: { db: Database; ai: Ai; lo
         hasImages: files.some((file) => file.kind === "image"),
       });
 
-      return withUserContext(db, actor.userId, async (tx) => {
-        const now = new Date();
+      const now = new Date();
+      const saved = await withUserContext(db, actor.userId, async (tx) => {
         const thread = existingThread
           ? ((await chatRepository.updateThread(tx, existingThread.id, {
               modelId: model.id,
@@ -215,24 +232,29 @@ export function createChatService({ db, ai, logger }: { db: Database; ai: Ai; lo
 
         const rows = await chatRepository.listMessages(tx, thread.id);
         const history = rows.filter((row) => row.id !== assistantRow.id);
-        const historyFiles = await chatRepository.attachmentFiles(
+        const historyRows = await chatRepository.attachmentsForMessages(
           tx,
           history.filter((row) => row.role === "user").map((row) => row.id),
         );
-
-        return {
-          context,
-          model,
-          thread: toThread(thread),
-          isNewThread: !existingThread,
-          userMessage: toMessage(
-            userRow,
-            files.map((file) => ({ ...file, messageId: userRow.id })),
-          ),
-          assistantMessageId: assistantRow.id,
-          history: buildModelMessages(history, historyFiles, now),
-        };
+        return { thread, userRow, assistantRow, history, historyRows };
       });
+
+      // Files are read after the transaction, so storage latency never holds a connection.
+      const historyFiles: AttachmentFile[] = await Promise.all(
+        saved.historyRows.map(async (row) => ({ ...row, data: await objects.get(row.storageKey) })),
+      );
+      return {
+        context,
+        model,
+        thread: toThread(saved.thread),
+        isNewThread: !existingThread,
+        userMessage: toMessage(
+          saved.userRow,
+          files.map((file) => ({ ...file, messageId: saved.userRow.id })),
+        ),
+        assistantMessageId: saved.assistantRow.id,
+        history: buildModelMessages(saved.history, historyFiles, now),
+      };
     },
 
     async finishReply(

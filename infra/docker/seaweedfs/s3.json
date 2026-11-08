@@ -1,0 +1,9 @@
+{
+  "identities": [
+    {
+      "name": "tessel-local",
+      "credentials": [{ "accessKey": "tessel-local", "secretKey": "tessel-local-secret" }],
+      "actions": ["Admin", "Read", "List", "Tagging", "Write"]
+    }
+  ]
+}

@@ -15,7 +15,7 @@ An AI workspace for teams. Tessel lets a team chat with AI over its own document
 ## What it will do
 
 - **Chat** with streaming answers and a model picker across providers, with every model call capped, moderated, and recorded in a usage ledger.
-- **Answer from your documents** with hybrid search, reranking, and citations.
+- **Answer from your documents**: uploads go straight to S3, a worker indexes them, and hybrid search (meaning plus keywords) finds the right passages. Reranking and citations come next.
 - **Run agents** (ReAct, plan-and-execute, reflection, supervisor) that pause for approval before write actions.
 - **Use skills**: built-in and user-created instructions the agent loads when needed.
 - **Connect tools through MCP**, both as a client (GitHub, Notion, Slack) and as a server for outside MCP clients.
@@ -69,7 +69,8 @@ packages/
   contracts/    Zod schemas shared by frontend and backend
   db/           Drizzle schema, migrations, database client
   queue/        Queue names, job schemas, Redis connection
-  ai/           Model gateway, model registry, spend caps, moderation, usage ledger
+  ai/           Model gateway, registry, spend caps, moderation, ledger, chunking, hybrid search
+  storage/      S3 files, SQS upload events, object key layout
   api-client/   axios client with token refresh, typed endpoints, query hooks
   ui/           Shared React components and the Tessel mark
 infra/docker/   Dockerfiles and local data services
@@ -85,7 +86,7 @@ docs/           Architecture, decisions, roadmap, backlog
 ```bash
 pnpm install
 cp .env.example .env
-pnpm infra:up        # Postgres, Redis x2, Qdrant, Neo4j
+pnpm infra:up        # Postgres, Redis x2, Qdrant, Neo4j, S3 and SQS emulators
 pnpm db:migrate      # apply migrations and set up the app database role
 pnpm dev             # web :3000, api :4000, mcp-server :4100, worker
 ```

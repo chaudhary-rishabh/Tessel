@@ -28,6 +28,7 @@ WEB_DOMAIN=$WEB_DOMAIN
 API_DOMAIN=$API_DOMAIN
 MCP_DOMAIN=$MCP_DOMAIN
 ACME_EMAIL=$ACME_EMAIL
+BACKUP_BUCKET=${BACKUP_BUCKET:-}
 EOF
 )
 
@@ -39,6 +40,8 @@ commands=$(
     --arg compose "$(b64 docker-compose.prod.yml)" \
     --arg caddy "$(b64 Caddyfile)" \
     --arg script "$(b64 deploy.sh)" \
+    --arg backup "$(b64 backup.sh)" \
+    --arg restore "$(b64 restore.sh)" \
     --arg env "$(printf '%s\n' "$deploy_env" | b64)" \
     --arg tag "$TAG" \
     '{commands: [
@@ -47,6 +50,8 @@ commands=$(
       "echo \($compose) | base64 -d > docker-compose.prod.yml",
       "echo \($caddy) | base64 -d > Caddyfile",
       "echo \($script) | base64 -d > deploy.sh && chmod +x deploy.sh",
+      "echo \($backup) | base64 -d > backup.sh && chmod +x backup.sh",
+      "echo \($restore) | base64 -d > restore.sh && chmod +x restore.sh",
       "echo \($env) | base64 -d > deploy.env",
       "./deploy.sh \($tag)"
     ], executionTimeout: ["2400"]}'

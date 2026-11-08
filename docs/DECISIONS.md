@@ -54,7 +54,7 @@ Phase 1 starts with email and password (argon2, 15-minute access JWT, rotating r
 
 ## D-013 Local AWS emulation decided in step 7
 
-LocalStack no longer offers a free tier, so it is not part of the local stack. Step 7 will choose between free local emulators for S3 and SQS or a small real AWS development account.
+LocalStack no longer offers a free tier, so it is not part of the local stack. Step 7 chose free emulators (see D-035).
 
 ## D-014 Docker images on EC2 with Docker Compose
 
@@ -139,3 +139,23 @@ Threads, messages, and attachments carry the owner's user ID, and row-level secu
 ## D-034 Attachments in Postgres until S3 arrives
 
 Step 6 accepts images (PNG, JPEG, GIF, WebP up to 5 MB) and UTF-8 text files (up to 1 MB), identified by their contents, not the type the browser claims. They are stored in Postgres so chat works before S3 exists; step 7 moves file storage to S3 and adds PDFs and office documents through ingestion. Text files are sent to the model inside `<attachment>` tags as data; images go to models that can read them, and other models refuse the message up front.
+
+## D-035 SeaweedFS and ElasticMQ stand in for S3 and SQS outside AWS
+
+Local development, CI tests, and the production-image smoke test use SeaweedFS (S3 API, signed requests, presigned URLs, CORS) and ElasticMQ (SQS API). Both are actively maintained, Apache-licensed, and run in a container each, so the same AWS SDK code runs everywhere with only endpoints changed. Neither can send S3 bucket notifications, so `UPLOAD_EVENTS=api` makes the API put the same S3-shaped event on the queue when the browser reports an upload done; in AWS (`UPLOAD_EVENTS=s3`) S3 sends it. The worker can't tell the difference. MinIO was ruled out because its community edition no longer ships images.
+
+## D-036 Uploads go S3 → SQS → BullMQ → worker
+
+The browser uploads straight to S3 through a presigned URL that fixes the key, size, and type, so files never pass through the API. S3 announces new originals on SQS, which survives worker restarts and moves repeatedly failing messages to a dead-letter queue. The worker's consumer turns each message into a BullMQ job (job ID from the document ID, so duplicates collapse) and deletes the message only after the job is queued. BullMQ then gives retries with backoff, concurrency limits, and job locks for long documents. Ingestion is idempotent: chunk IDs are stable and old chunks are removed before new ones are written.
+
+## D-037 Hybrid search: dense vectors plus BM25-style keyword vectors in Qdrant
+
+Each chunk gets a dense embedding (meaning) and a sparse vector of hashed terms with BM25 term-frequency saturation (exact words, names, codes). Qdrant stores both, applies inverse document frequency to the sparse side itself (the `idf` modifier), and fuses the two result lists with reciprocal rank fusion in one query. Every query is filtered by `workspace_id`, which is a tenant payload index so each workspace's points sit together. Computing sparse vectors in-process avoids running a second model; a learned sparse model (SPLADE) can replace it later without changing storage. Reranking arrives with the RAG pipeline in step 8.
+
+## D-038 Documents belong to the workspace; ingestion acts as the uploader
+
+Documents are shared knowledge: every member can read and search them, and the uploader, owners, and admins can change or delete them (row-level security in `0004_documents.sql`). S3 events carry only the object key, so a narrow `SECURITY DEFINER` function tells the worker who uploaded a document; everything after that runs as that user, under the same row-level security as the API, and embeddings count against the uploader's spend caps.
+
+## D-039 Nightly Postgres backups to S3 from the host
+
+While Postgres runs on the EC2 host, `deploy.sh` installs a systemd timer that runs `pg_dump` (custom format) into an encrypted S3 bucket each night, and an S3 lifecycle rule expires old backups. `restore.sh` restores one with the apps stopped. Moving to RDS replaces this with RDS automated backups and point-in-time recovery.

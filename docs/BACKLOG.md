@@ -2,7 +2,6 @@
 
 Things noticed along the way that are not needed yet. Each item names the step where it fits best.
 
-- **Local S3 and SQS:** Pick free local emulators or a real AWS development account (see D-013). (Step 7)
 - **Neo4j health check:** Switch the readiness probe from HTTP to a Bolt `RETURN 1` once the driver is added. (Step 16)
 - **TypeScript 7:** Upgrade when `typescript-eslint` supports it (see D-003).
 - **Signup email enumeration:** Signup returns `email_taken`. Switch to a neutral response once email verification exists. (Step 17)
@@ -13,7 +12,6 @@ Things noticed along the way that are not needed yet. Each item names the step w
 - **Theme switch:** Let users override the system light or dark setting. (Step 20)
 - **Toasts:** A shared notification pattern for actions that finish away from their form. (Step 18)
 - **Visual regression:** Screenshot comparisons in CI for key screens. (Phase 3)
-- **Database backups:** Nightly `pg_dump` of the on-host Postgres to S3, plus a tested restore. Not needed once on RDS. (Step 7, with S3)
 - **Centralised logs:** Ship container logs to CloudWatch (the `awslogs` driver) with retention. (Step 20)
 - **Image vulnerability scans in CI:** Run Trivy on the built images. (Phase 3)
 - **Gateway cost reconciliation:** Compare ledger costs with the gateway's own usage report nightly, and use the cost the gateway reports for chat calls too (it is already used for embeddings). (Step 18)
@@ -22,7 +20,12 @@ Things noticed along the way that are not needed yet. Each item names the step w
 - **Output moderation:** Check model replies as well as user input, after the stream finishes. (Step 10)
 - **Anthropic fallback test:** The direct Anthropic route is built but only the OpenAI route is covered by tests. Add a mock of the Messages API. (Step 20)
 - **Prompt caching:** Turn on the gateway's automatic caching for long system prompts and documents. (Step 15)
-- **Attachments to S3:** Move attachment storage from Postgres to S3 with presigned uploads, and remove the bytea column. (Step 7)
 - **Edit and regenerate:** Edit a sent message or regenerate a reply, keeping the earlier version. (Step 20)
 - **Chat search and paging:** Search chat titles and load older chats in the sidebar (the API already pages with `before`). (Step 20)
 - **Resume a stream after reconnecting:** Buffer live tokens in Redis so a dropped connection or a second tab can pick up a reply in progress, and stop it from any API instance. (Step 15)
+- **Multipart uploads:** Presigned multipart uploads for files over 50 MB, with resume. (Phase 2)
+- **Scanned documents:** Text recognition (OCR) for PDFs without a text layer, which now fail with `no_text`. (Phase 2)
+- **More formats:** Spreadsheets (.xlsx) and slides (.pptx). (Phase 2)
+- **Upload scanning:** Malware scanning of uploaded files before they are parsed. (Phase 3)
+- **Qdrant snapshots:** Back up the search index too (it can also be rebuilt from S3 by re-indexing). (Step 20)
+- **Dead-letter alerts:** Alarm when messages land in the upload dead-letter queue. (Step 20, with CloudWatch)
