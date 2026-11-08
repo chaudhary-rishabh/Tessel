@@ -18,6 +18,8 @@ export const jobSchemas = {
       requestedAt: z.iso.datetime(),
       source: z.string().min(1),
     }),
+    /** Daily housekeeping: old tokens, unanswered approvals, old checkpoints. */
+    maintenance: z.object({}).passthrough(),
   },
   documents: {
     ingest: z.object({
@@ -50,6 +52,9 @@ export type IngestJobData = z.infer<typeof jobSchemas.documents.ingest>;
  * ID, and jobs are removed when they finish so a document can be re-queued.
  */
 export const ingestJobId = (documentId: string) => `ingest-${documentId}`;
+
+/** When the maintenance job runs: daily at 03:17 UTC, off the hour. */
+export const MAINTENANCE_SCHEDULE = "17 3 * * *";
 
 export type SystemJobName = keyof typeof jobSchemas.system;
 export type SystemJobData<N extends SystemJobName> = z.infer<(typeof jobSchemas.system)[N]>;
