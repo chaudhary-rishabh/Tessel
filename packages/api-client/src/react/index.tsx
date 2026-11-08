@@ -1,6 +1,7 @@
 "use client";
 
 import type {
+  ConnectedApp,
   Identity,
   IdentityProvider,
   PhoneVerifyRequest,
@@ -52,6 +53,7 @@ export const queryKeys = {
   me: ["users", "me"] as const,
   sessions: ["auth", "sessions"] as const,
   signInOptions: ["auth", "options"] as const,
+  connectedApps: ["users", "me", "connected-apps"] as const,
   identities: ["users", "me", "identities"] as const,
   workspaces: ["workspaces"] as const,
   workspace: (id: string) => ["workspaces", id] as const,
@@ -573,4 +575,21 @@ export function usePhoneActions() {
       onSuccess: setMe,
     }),
   };
+}
+
+export function useConnectedApps() {
+  const api = useApi();
+  return useQuery({ queryKey: queryKeys.connectedApps, queryFn: api.oauth.apps });
+}
+
+export function useDisconnectApp() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<void, ApiClientError, string>({
+    mutationFn: (appId) => api.oauth.disconnect(appId),
+    onSuccess: (_result, appId) =>
+      queryClient.setQueryData<ConnectedApp[]>(queryKeys.connectedApps, (current) =>
+        current?.filter((app) => app.id !== appId),
+      ),
+  });
 }

@@ -31,6 +31,8 @@ export interface TokenIdentity {
 }
 
 export const TOKEN_PREFIX = "tsl_pat_";
+/** Hour-long tokens issued to OAuth clients; stored and checked like personal ones. */
+export const OAUTH_TOKEN_PREFIX = "tsl_oat_";
 const MAX_ACTIVE_TOKENS = 20;
 const DAY_MS = 86_400_000;
 const TOUCH_INTERVAL = sql`interval '1 minute'`;
@@ -54,10 +56,12 @@ function toAccessToken(row: PersonalAccessTokenRow): AccessToken {
  * as its owner in one workspace, with limited scopes; only its hash is stored.
  */
 export function createAccessTokensService({ db }: { db: Database }) {
+  // Tokens made by hand; OAuth clients' tokens are managed through their grants.
   const live = (actor: Actor) =>
     and(
       eq(personalAccessTokens.userId, actor.userId),
       eq(personalAccessTokens.workspaceId, actor.workspaceId),
+      isNull(personalAccessTokens.grantId),
       isNull(personalAccessTokens.revokedAt),
       or(isNull(personalAccessTokens.expiresAt), sql`${personalAccessTokens.expiresAt} > now()`),
     );
@@ -131,7 +135,7 @@ export function createAccessTokensService({ db }: { db: Database }) {
 
     /** Finds who a token acts as, or null if it isn't valid now. Notes when it was last used. */
     async resolve(token: string): Promise<TokenIdentity | null> {
-      if (!token.startsWith(TOKEN_PREFIX)) return null;
+      if (!token.startsWith(TOKEN_PREFIX) && !token.startsWith(OAUTH_TOKEN_PREFIX)) return null;
       const result = await db.execute<{
         token_id: string;
         user_id: string;

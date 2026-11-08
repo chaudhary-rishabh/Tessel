@@ -155,10 +155,15 @@ function tesselServer(call: ReturnType<typeof apiClient>, workspace: { id: strin
 
 const bearerOf = (req: Request) => req.get("authorization")?.match(/^Bearer\s+(\S+)$/i)?.[1];
 
-function unauthorized(res: express.Response, message: string) {
-  const body: ApiError = { error: { code: "unauthorized", message } };
-  res.status(401).set("WWW-Authenticate", 'Bearer realm="tessel"').json(body);
+/** Where outside clients find this server and the API that signs them in. */
+export interface McpOAuthSettings {
+  /** This server's MCP endpoint as clients reach it, e.g. https://mcp.example.com/mcp. */
+  resourceUrl: string;
+  /** The API as clients reach it, which is the OAuth authorization server. */
+  authorizationServerUrl: string;
 }
+
+const METADATA_CACHE_MS = 5 * 60_000;
 
 /**
  * Tessel as an MCP server (Streamable HTTP, stateless). Clients send a
@@ -172,6 +177,7 @@ export function createMcpServerApp({
   logger,
   fetchFn = fetch,
   requestsPerMinute = 120,
+  oauth,
 }: {
   service: string;
   /** The API as this server reaches it, e.g. http://api:4000. */
@@ -180,10 +186,63 @@ export function createMcpServerApp({
   fetchFn?: typeof fetch;
   /** Per token, on top of the API's own per-user limits. */
   requestsPerMinute?: number;
+  /** Lets clients sign in with OAuth instead of pasting a token (MCP authorization spec). */
+  oauth?: McpOAuthSettings | undefined;
 }): Express {
   const app = express();
   app.disable("x-powered-by");
   app.use(express.json({ limit: "1mb" }));
+
+  const resourceMetadataUrl = oauth
+    ? new URL(
+        `/.well-known/oauth-protected-resource${new URL(oauth.resourceUrl).pathname.replace(/\/$/, "")}`,
+        oauth.resourceUrl,
+      ).toString()
+    : undefined;
+
+  function unauthorized(res: express.Response, message: string) {
+    const body: ApiError = { error: { code: "unauthorized", message } };
+    // Points clients at the metadata that says where to sign in (RFC 9728).
+    const challenge = resourceMetadataUrl
+      ? `Bearer realm="tessel", resource_metadata="${resourceMetadataUrl}"`
+      : 'Bearer realm="tessel"';
+    res.status(401).set("WWW-Authenticate", challenge).json(body);
+  }
+
+  if (oauth) {
+    // Protected resource metadata: this server's tokens come from the API.
+    const protectedResource = {
+      resource: oauth.resourceUrl,
+      authorization_servers: [oauth.authorizationServerUrl],
+      scopes_supported: ["documents:read"],
+      bearer_methods_supported: ["header"],
+      resource_name: "Tessel",
+    };
+    const sendProtectedResource: express.RequestHandler = (_req, res) => {
+      res.set("Access-Control-Allow-Origin", "*").set("Cache-Control", "public, max-age=3600");
+      res.json(protectedResource);
+    };
+    app.get(new URL(resourceMetadataUrl!).pathname, sendProtectedResource);
+    app.get("/.well-known/oauth-protected-resource", sendProtectedResource);
+
+    // Older clients look for the authorization server's metadata on this host.
+    let cached: { body: unknown; at: number } | undefined;
+    app.get("/.well-known/oauth-authorization-server", async (_req, res) => {
+      if (!cached || Date.now() - cached.at > METADATA_CACHE_MS) {
+        const response = await fetchFn(
+          new URL("/.well-known/oauth-authorization-server", apiUrl),
+        ).catch(() => undefined);
+        if (!response?.ok) {
+          const body: ApiError = {
+            error: { code: "unavailable", message: "Sign-in metadata is unavailable" },
+          };
+          return res.status(503).json(body);
+        }
+        cached = { body: await response.json(), at: Date.now() };
+      }
+      res.set("Access-Control-Allow-Origin", "*").json(cached.body);
+    });
+  }
 
   app.get("/health", (_req, res) => {
     const body: HealthResponse = {
@@ -216,7 +275,9 @@ export function createMcpServerApp({
 
   app.post("/mcp", perToken, async (req, res) => {
     const token = bearerOf(req);
-    if (!token) return unauthorized(res, "Send a Tessel personal access token as a bearer token");
+    if (!token) {
+      return unauthorized(res, "Sign in, or send a Tessel personal access token as a bearer token");
+    }
     const call = apiClient(apiUrl, token, fetchFn);
     let current: z.infer<typeof currentTokenSchema>;
     try {

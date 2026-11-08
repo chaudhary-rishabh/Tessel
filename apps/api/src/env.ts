@@ -56,6 +56,8 @@ export const envSchema = z
     GITHUB_CLIENT_SECRET: optional,
     /** Development and tests: a mock Google and GitHub (see src/testing/mock-oauth.ts). */
     SOCIAL_LOGIN_MOCK_URL: optional,
+    /** Tessel's MCP server as outside clients reach it; the API signs those clients in. */
+    MCP_PUBLIC_URL: z.url().optional(),
     /** sns texts with Amazon SNS; outbox keeps texts in memory; off hides phone sign-in. */
     SMS_TRANSPORT: z.enum(["sns", "outbox", "off"]).optional(),
     SMS_SENDER_ID: optional,
@@ -73,6 +75,14 @@ export const envSchema = z
         code: "custom",
         path: ["MAIL_TRANSPORT"],
         message: "Production must send email with SES",
+      });
+    }
+    if (env.NODE_ENV === "production" && !env.MCP_PUBLIC_URL) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["MCP_PUBLIC_URL"],
+        message:
+          "Set MCP_PUBLIC_URL to the MCP server's public address, like https://mcp.example.com",
       });
     }
     if (env.NODE_ENV === "production" && env.SOCIAL_LOGIN_MOCK_URL) {
