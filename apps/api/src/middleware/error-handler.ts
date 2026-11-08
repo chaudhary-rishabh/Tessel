@@ -2,6 +2,7 @@ import { AiError, CostCapExceededError } from "@tessel/ai";
 import type { ApiError } from "@tessel/contracts";
 import type { Logger } from "@tessel/logger";
 import type { ErrorRequestHandler, RequestHandler } from "express";
+import multer from "multer";
 import { z } from "zod";
 import { AppError } from "../lib/errors";
 
@@ -18,6 +19,13 @@ export const notFoundHandler: RequestHandler = (req, res) => {
 export function errorHandler(logger: Logger): ErrorRequestHandler {
   return (error: unknown, req, res, _next) => {
     const requestId = req.requestId;
+
+    // A streamed response has already started; all that's left is to close it.
+    if (res.headersSent) {
+      logger.error({ err: error, requestId }, "Error after the response started");
+      res.end();
+      return;
+    }
 
     if (error instanceof AppError) {
       send(res, error.status, {
@@ -40,6 +48,16 @@ export function errorHandler(logger: Logger): ErrorRequestHandler {
         message: error.message,
         requestId,
         ...(error.details === undefined ? {} : { details: error.details }),
+      });
+      return;
+    }
+
+    if (error instanceof multer.MulterError) {
+      const tooLarge = error.code === "LIMIT_FILE_SIZE";
+      send(res, tooLarge ? 413 : 400, {
+        code: tooLarge ? "file_too_large" : "invalid_upload",
+        message: tooLarge ? "Files can be up to 5 MB" : "Send one file in the `file` field",
+        requestId,
       });
       return;
     }
