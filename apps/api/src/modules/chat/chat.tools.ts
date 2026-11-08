@@ -4,9 +4,32 @@ import {
   defineTool,
   type Source,
   type ToolDefinition,
+  type WorkerSpec,
 } from "@tessel/ai";
 import { z } from "zod";
 import type { DocumentsService } from "../documents/documents.service";
+
+/** The specialists a supervisor can hand work to in team mode. */
+export const teamWorkers: WorkerSpec[] = [
+  {
+    name: "researcher",
+    title: "Researcher",
+    description: "Finds facts in the workspace's documents and lists what's there.",
+    tools: ["search_documents", "list_documents"],
+  },
+  {
+    name: "analyst",
+    title: "Analyst",
+    description: "Does exact calculations and date and time arithmetic.",
+    tools: ["calculator", "current_time"],
+  },
+  {
+    name: "editor",
+    title: "Editor",
+    description: "Creates or deletes documents in the workspace (the user approves each change).",
+    tools: ["create_document", "delete_document"],
+  },
+];
 
 const escapeAttribute = (value: string) => value.replace(/[<>"&]/g, " ");
 

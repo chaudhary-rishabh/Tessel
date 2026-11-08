@@ -114,7 +114,13 @@ describe("chat", () => {
       .select()
       .from(usageEvents)
       .where(eq(usageEvents.userId, user.auth.user.id));
-    expect(ledger.map((row) => row.feature).sort()).toEqual(["chat", "moderation", "title"]);
+    // The message and the finished reply are both moderated.
+    expect(ledger.map((row) => row.feature).sort()).toEqual([
+      "chat",
+      "moderation",
+      "moderation",
+      "title",
+    ]);
   });
 
   it("sends earlier turns as context when continuing a chat", async () => {
