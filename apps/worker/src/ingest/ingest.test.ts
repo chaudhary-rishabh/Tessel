@@ -8,6 +8,7 @@ import {
 } from "@tessel/ai";
 import { memoryLedger, startMockGateway, type MockGateway } from "@tessel/ai/testing";
 import type { DocumentRow } from "@tessel/db";
+import { memoryGraphStore } from "@tessel/graph";
 import { createLogger } from "@tessel/logger";
 import { ingestJobId } from "@tessel/queue";
 import { objectCreatedEventBody, storageKeys } from "@tessel/storage";
@@ -161,6 +162,39 @@ describe("ingestDocument", () => {
       limit: 1,
     });
     expect(hits[0]!.payload.text).toContain("zephyrine");
+  });
+
+  it("builds the knowledge graph from the document, without failing it when that breaks", async () => {
+    const { ai, objects, index } = setup();
+    const { store } = fakeStore({ filename: "org.md" });
+    const graph = memoryGraphStore();
+    await objects.put(
+      storageKeys.documentOriginal(workspaceId, documentId),
+      "# Org\n\nMOCK_REL: Alice Chen (Person) | MANAGES | Payments Team (Team)\nMOCK_REL: Payments Team (Team) | OWNS | Ledger Service (System)",
+      "text/markdown",
+    );
+    const outcome = await ingestDocument(
+      { store, objects, index, ai, logger, graph },
+      { workspaceId, documentId },
+      { isLastAttempt: false },
+    );
+    expect(outcome).toBe("ready");
+    expect(await graph.counts(workspaceId)).toEqual({ entities: 3, relations: 2 });
+    const [alice] = await graph.findEntities(workspaceId, ["Alice Chen"]);
+    const facts = await graph.neighborhood(workspaceId, [alice!.key]);
+    expect(facts.map((fact) => [fact.type, fact.filename])).toEqual([
+      ["MANAGES", "org.md"],
+      ["OWNS", "org.md"],
+    ]);
+
+    const broken = { ...graph, replaceDocument: () => Promise.reject(new Error("Neo4j is down")) };
+    expect(
+      await ingestDocument(
+        { store, objects, index, ai, logger, graph: broken },
+        { workspaceId, documentId },
+        { isLastAttempt: false },
+      ),
+    ).toBe("ready");
   });
 
   it("re-indexing replaces the old chunks", async () => {
