@@ -62,3 +62,68 @@ jobs:
         run: pnpm build
         env:
           NEXT_TELEMETRY_DISABLED: "1"
+
+  e2e:
+    name: End-to-end (desktop and mobile)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: tessel
+          POSTGRES_PASSWORD: tessel
+          POSTGRES_DB: tessel
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tessel -d tessel"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      redis-cache:
+        image: redis:8-alpine
+        ports:
+          - 6379:6379
+        options: --health-cmd "redis-cli ping" --health-interval 5s --health-retries 10
+      redis-queue:
+        image: redis:8-alpine
+        ports:
+          - 6380:6379
+        options: --health-cmd "redis-cli ping" --health-interval 5s --health-retries 10
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # The example values match the CI services above.
+      - run: cp .env.example .env
+
+      - name: Migrate database
+        run: pnpm db:migrate
+
+      - name: Build web app
+        run: pnpm --filter @tessel/web build
+
+      - name: Install browser
+        run: pnpm --filter @tessel/web exec playwright install --with-deps chromium
+
+      - name: Run end-to-end tests
+        run: pnpm test:e2e
+
+      - name: Upload test report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report
+          retention-days: 7

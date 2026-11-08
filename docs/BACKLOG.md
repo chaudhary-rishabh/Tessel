@@ -10,3 +10,7 @@ Things noticed along the way that are not needed yet. Each item names the step w
 - **Session list:** Let users see and revoke their active sessions (data is already stored per refresh token family). (Step 17)
 - **Token cleanup:** Scheduled worker job to delete expired and long-revoked refresh tokens. (Step 15)
 - **Member management:** Endpoints to invite, change roles, and remove workspace members (RLS policies already cover these). (Step 18)
+- **Forgot password link:** Add to the login page with the reset flow. (Step 17)
+- **Theme switch:** Let users override the system light or dark setting. (Step 20)
+- **Toasts:** A shared notification pattern for actions that finish away from their form. (Step 6)
+- **Visual regression:** Screenshot comparisons in CI for key screens. (Phase 3)

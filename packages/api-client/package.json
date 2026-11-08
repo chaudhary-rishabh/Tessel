@@ -1,0 +1,28 @@
+{
+  "name": "@tessel/api-client",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./react": "./src/react/index.tsx"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@tessel/contracts": "workspace:*",
+    "axios": "^1.21.0",
+    "zod": "^4.6.7"
+  },
+  "peerDependencies": {
+    "@tanstack/react-query": "^5.0.0",
+    "react": "^19.0.0"
+  },
+  "devDependencies": {
+    "@tanstack/react-query": "^5.107.1",
+    "@tessel/config": "workspace:*",
+    "@types/react": "^19.3.0",
+    "react": "^19.3.1"
+  }
+}

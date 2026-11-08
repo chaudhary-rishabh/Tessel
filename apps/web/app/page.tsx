@@ -1,26 +1,85 @@
+"use client";
+
+import { Button, TesselMark } from "@tessel/ui";
+import Link from "next/link";
+import { Tessellation } from "@/components/tessellation";
+import { useSessionStore } from "@/lib/session-store";
+
 const capabilities = [
-  "Chat with streaming answers",
-  "Answers grounded in your documents",
-  "Agents that ask before they act",
-  "Your tools, connected through MCP",
+  {
+    title: "Answers from your documents",
+    body: "Upload handbooks, specs, and notes. Tessel answers with citations you can check.",
+  },
+  {
+    title: "Agents that ask first",
+    body: "Agents use your tools to get work done, and pause for your approval before changing anything.",
+  },
+  {
+    title: "Your tools, connected",
+    body: "Bring in GitHub, Notion, and Slack through MCP, or reach your workspace from other AI apps.",
+  },
 ];
 
 export default function HomePage() {
+  const signedIn = useSessionStore((state) => state.status === "authenticated");
+
   return (
-    <main className="mx-auto flex min-h-dvh max-w-2xl flex-col justify-center px-6 py-16">
-      <p className="text-sm font-medium tracking-wide text-neutral-500 uppercase">Tessel</p>
-      <h1 className="mt-3 text-4xl font-semibold tracking-tight sm:text-5xl">
-        One AI workspace for your team&apos;s knowledge and tools.
-      </h1>
-      <ul className="mt-8 space-y-2 text-lg text-neutral-600 dark:text-neutral-400">
-        {capabilities.map((capability) => (
-          <li key={capability} className="flex items-center gap-3">
-            <span aria-hidden className="size-1.5 rounded-full bg-neutral-400" />
-            {capability}
-          </li>
-        ))}
-      </ul>
-      <p className="mt-10 text-sm text-neutral-500">In development.</p>
-    </main>
+    <div className="flex min-h-dvh flex-col">
+      <header className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-5">
+        <Link href="/" className="font-display flex items-center gap-2.5 text-lg font-semibold">
+          <TesselMark />
+          Tessel
+        </Link>
+        <nav className="flex items-center gap-2">
+          {signedIn ? (
+            <Button asChild size="sm">
+              <Link href="/chat">Open Tessel</Link>
+            </Button>
+          ) : (
+            <>
+              <Button asChild variant="ghost" size="sm">
+                <Link href="/login">Log in</Link>
+              </Button>
+              <Button asChild size="sm">
+                <Link href="/signup">Create account</Link>
+              </Button>
+            </>
+          )}
+        </nav>
+      </header>
+
+      <main className="mx-auto grid w-full max-w-6xl flex-1 items-center gap-12 px-6 py-12 md:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
+        <div>
+          <h1 className="max-w-xl text-4xl leading-[1.05] font-semibold tracking-tight sm:text-6xl">
+            One AI workspace for your team&apos;s knowledge and tools.
+          </h1>
+          <p className="text-muted mt-6 max-w-lg text-lg">
+            Chat over your own documents, hand work to agents you stay in control of, and keep it
+            all in one place your whole team can use.
+          </p>
+          <div className="mt-8 flex flex-wrap gap-3">
+            <Button asChild>
+              <Link href={signedIn ? "/chat" : "/signup"}>
+                {signedIn ? "Open Tessel" : "Create your workspace"}
+              </Link>
+            </Button>
+          </div>
+        </div>
+        <div className="aspect-[4/5] max-h-[34rem] w-full overflow-hidden rounded-3xl md:aspect-auto md:h-[34rem]">
+          <Tessellation className="h-full w-full" />
+        </div>
+      </main>
+
+      <section className="border-line bg-surface border-t">
+        <ul className="mx-auto grid max-w-6xl gap-8 px-6 py-14 md:grid-cols-3">
+          {capabilities.map((item) => (
+            <li key={item.title}>
+              <h2 className="text-xl font-semibold">{item.title}</h2>
+              <p className="text-muted mt-2">{item.body}</p>
+            </li>
+          ))}
+        </ul>
+      </section>
+    </div>
   );
 }

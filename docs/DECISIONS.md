@@ -75,3 +75,19 @@ Limits are shared across instances through the cache Redis. If Redis is unavaila
 ## D-018 Argon2id through @node-rs/argon2
 
 Prebuilt native binaries, so no install scripts or build toolchain in CI and Docker images. Defaults follow the OWASP minimum (19 MiB, 2 iterations).
+
+## D-019 Access token in memory, refresh on demand
+
+The access token never touches browser storage, so a cross-site scripting bug can't read a long-lived credential from `localStorage`. The page restores a session by calling `/auth/refresh` with the httpOnly cookie. The axios client refreshes only when a request returns 401, shares one refresh across concurrent requests, and signs the user out only when the API rejects the refresh.
+
+## D-020 Client-side route gates
+
+Protected pages are gated in the browser rather than in Next.js middleware: the refresh cookie is scoped to the API host and path, so the web server can't read it. The API enforces every permission; the gates only decide what to show.
+
+## D-021 Self-hosted fonts and a token-based design system
+
+Fonts ship through Fontsource packages, so builds never fetch from a font CDN and pages don't depend on third-party requests. Colors, fonts, and radii are defined once as Tailwind v4 theme tokens, with a dark palette under `prefers-color-scheme`.
+
+## D-022 Playwright end-to-end tests on desktop and phone
+
+Every end-to-end test runs twice: Desktop Chrome and a Pixel 7 viewport. Tests run the real web app against the real API and database, with rate limits scaled up through `RATE_LIMIT_SCALE` for the test run only.
