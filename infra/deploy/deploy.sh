@@ -23,6 +23,14 @@ set +a
 : "${AWS_REGION:?set AWS_REGION in deploy.env}"
 SSM_PATH=${SSM_PATH:-/tessel/prod}
 export COMPOSE_PROFILES=${COMPOSE_PROFILES:-edge,data}
+if [[ ",$COMPOSE_PROFILES," == *",edge,"* ]]; then
+  for name in WEB_DOMAIN API_DOMAIN MCP_DOMAIN ACME_EMAIL; do
+    if [[ -z "${!name:-}" ]]; then
+      echo "$name must be set in deploy.env when the edge profile is on" >&2
+      exit 1
+    fi
+  done
+fi
 
 compose() {
   IMAGE_TAG=$1 docker compose --file docker-compose.prod.yml --env-file deploy.env "${@:2}"

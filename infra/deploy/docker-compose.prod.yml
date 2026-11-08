@@ -8,6 +8,7 @@
 #   tools   the one-off migrate job (deploy.sh runs it before starting apps)
 #
 # Compose variables come from deploy.env (IMAGE_TAG, ECR_REGISTRY, domains).
+# deploy.sh checks the domains are set whenever the edge profile is on.
 # App secrets come from .env, written by deploy.sh from AWS SSM Parameter Store.
 
 name: tessel
@@ -102,10 +103,10 @@ services:
       - "443:443"
       - "443:443/udp"
     environment:
-      WEB_DOMAIN: ${WEB_DOMAIN:?set WEB_DOMAIN in deploy.env}
-      API_DOMAIN: ${API_DOMAIN:?set API_DOMAIN in deploy.env}
-      MCP_DOMAIN: ${MCP_DOMAIN:?set MCP_DOMAIN in deploy.env}
-      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in deploy.env}
+      WEB_DOMAIN: ${WEB_DOMAIN:-}
+      API_DOMAIN: ${API_DOMAIN:-}
+      MCP_DOMAIN: ${MCP_DOMAIN:-}
+      ACME_EMAIL: ${ACME_EMAIL:-}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
