@@ -8,9 +8,9 @@ An AI workspace for teams. Tessel lets a team chat with AI over its own document
 
 ## Screenshots
 
-| Log in                                                            | Workspace (desktop)                                                | Navigation (phone)                                                 |
-| ----------------------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------ |
-| ![Login page with the Tessel tile pattern](docs/images/login.png) | ![Signed-in workspace with sidebar and chat](docs/images/chat.png) | ![Navigation drawer on a phone](docs/images/mobile-navigation.png) |
+| Log in                                                            | Workspace (desktop)                                                             | Navigation (phone)                                                 |
+| ----------------------------------------------------------------- | ------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| ![Login page with the Tessel tile pattern](docs/images/login.png) | ![A streamed chat reply with Markdown, a table, and code](docs/images/chat.png) | ![Navigation drawer on a phone](docs/images/mobile-navigation.png) |
 
 ## What it will do
 

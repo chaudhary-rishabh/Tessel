@@ -122,7 +122,8 @@ Counters live in the cache Redis, so limits hold across API instances. If Redis 
 | Login                           | 10 per 15 minutes | IP + hashed email |
 | Refresh                         | 30 per minute     | IP                |
 | Password change                 | 5 per 15 minutes  | IP + user         |
-| Completions                     | 20 per minute     | IP + user         |
+| Completions and chat messages   | 20 per minute     | IP + user         |
+| Attachment uploads              | 20 per minute     | IP + user         |
 
 ## AI gateway
 
@@ -151,6 +152,21 @@ flowchart LR
 
 Endpoints: `GET /models` (picker list, no prices); `POST /workspaces/:workspaceId/completions` (one non-streaming reply; streaming chat arrives in step 6); `GET /workspaces/:workspaceId/usage?days=30` (owners and admins see the workspace, members see their own usage).
 
+## Chat
+
+| Piece       | How it works                                                                                                                                                                                                                       |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Data        | `threads`, `messages`, and `attachments`, private to the member who started the thread (row-level security in `0003_chat.sql`).                                                                                                    |
+| Sending     | `POST /workspaces/:workspaceId/chat` with `{ threadId?, model?, content, attachmentIds }`. All checks run first; then the user message and an empty assistant message (status `streaming`) are saved and the stream opens.         |
+| Events      | `start` (thread, saved user message, assistant message ID), `token` (text), `done` (saved reply), `title` (new threads only), or `error` (saved failed reply). A comment every 15 seconds keeps proxies from closing idle streams. |
+| Context     | The system prompt plus the newest messages that fit (up to 40 messages and 400k characters). Failed replies are left out; stopped replies stay.                                                                                    |
+| Stopping    | The client aborts the request. The reply is saved as `stopped` with the text the user saw.                                                                                                                                         |
+| Titles      | After the first reply, the utility model names the thread (recorded as feature `title`), with the first words of the message as a fallback.                                                                                        |
+| Attachments | `POST /workspaces/:workspaceId/attachments` (multipart `file`), then referenced by ID when sending. `GET …/attachments/:id/content` serves the file to its owner.                                                                  |
+| Web         | Live replies sit in a Zustand store outside components, so a new chat keeps streaming while the page moves to its URL. Finished messages land in the TanStack Query cache for the thread.                                          |
+
+Other endpoints: `GET /workspaces/:workspaceId/threads?before=` (newest first, paginated), `GET|PATCH|DELETE /workspaces/:workspaceId/threads/:threadId`.
+
 ## Web app
 
 | Concern          | Approach                                                                                                                                                                                                                                                                                                                                                                        |
@@ -161,7 +177,7 @@ Endpoints: `GET /models` (picker list, no prices); `POST /workspaces/:workspaceI
 | Access token     | Kept in memory only. On page load, the app exchanges the httpOnly refresh cookie for a new token.                                                                                                                                                                                                                                                                               |
 | Route protection | Client-side gates (`RequireSession`, `GuestOnly`). The refresh cookie belongs to the API host, so the web server can't see it; the API is the real gate. `next` redirects only accept paths inside the app.                                                                                                                                                                     |
 | Forms            | react-hook-form with the same Zod schemas the API uses. API field errors land on the matching input; other errors show at the top of the form.                                                                                                                                                                                                                                  |
-| Streaming        | `fetch` with SSE for chat (step 6), since axios can't stream response bodies in the browser.                                                                                                                                                                                                                                                                                    |
+| Streaming        | `fetch` with SSE for chat (`api.chat.send` in `@tessel/api-client`), since axios can't stream response bodies in the browser. It refreshes the token once on a 401, like axios.                                                                                                                                                                                                 |
 | Design           | Tokens in `apps/web/app/globals.css` (Tailwind v4 `@theme`), with a matching dark palette. Fonts are bundled (Bricolage Grotesque for headings, Atkinson Hyperlegible Next for text). Shared components live in `@tessel/ui`.                                                                                                                                                   |
 | Mobile           | The sidebar becomes a drawer below 768 px. Inputs use 16 px text so iOS doesn't zoom, tap targets are at least 44 px, and layouts use `dvh` and safe-area insets.                                                                                                                                                                                                               |
 
