@@ -40,6 +40,22 @@ export const toolCallSchema = z.object({
 
 export const knowledgeModeSchema = z.enum(["auto", "always", "off"]);
 
+/**
+ * How the reply is worked out: auto (one agent using tools as needed), plan
+ * (plan, carry out each step, answer), reflect (draft, review, revise), or
+ * team (a supervisor hands tasks to specialists).
+ */
+export const agentModeSchema = z.enum(["auto", "plan", "reflect", "team"]);
+
+/** A visible stage of the work behind a reply: a plan step, a hand-off, a review. */
+export const activityItemSchema = z.object({
+  id: z.string(),
+  kind: z.enum(["plan", "worker", "review"]),
+  title: z.string(),
+  status: z.enum(["pending", "running", "done", "failed", "skipped"]),
+  detail: z.string().optional(),
+});
+
 export const messageSchema = z.object({
   id: z.uuid(),
   role: z.enum(["user", "assistant"]),
@@ -51,6 +67,8 @@ export const messageSchema = z.object({
   attachments: z.array(attachmentSchema),
   sources: z.array(messageSourceSchema).default([]),
   toolCalls: z.array(toolCallSchema).default([]),
+  activity: z.array(activityItemSchema).default([]),
+  agentMode: agentModeSchema.nullable().default(null),
 });
 
 export const threadSummarySchema = z.object({
@@ -99,6 +117,7 @@ export const sendMessageRequestSchema = z.object({
   attachmentIds: z.array(z.uuid()).max(MAX_ATTACHMENTS_PER_MESSAGE).default([]),
   /** Whether to search the workspace's documents: the router decides, always, or never. */
   knowledge: knowledgeModeSchema.default("auto"),
+  mode: agentModeSchema.default("auto"),
 });
 
 /**
@@ -124,6 +143,8 @@ export const chatEventSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("token"), text: z.string() }),
   /** A tool call started, finished, or is waiting for approval. Replaces earlier events for the same call. */
   z.object({ type: z.literal("tool"), call: toolCallSchema }),
+  /** The reply's stages so far, in agent modes. Replaces the previous list. */
+  z.object({ type: z.literal("activity"), items: z.array(activityItemSchema) }),
   z.object({
     type: z.literal("done"),
     /** "waiting": paused until the user decides on a tool call. */
@@ -155,6 +176,8 @@ export type ToolCallView = z.infer<typeof toolCallSchema>;
 export type ToolDecisionRequest = z.infer<typeof toolDecisionRequestSchema>;
 export type MessageSource = z.infer<typeof messageSourceSchema>;
 export type KnowledgeMode = z.infer<typeof knowledgeModeSchema>;
+export type AgentModeName = z.infer<typeof agentModeSchema>;
+export type ActivityItemView = z.infer<typeof activityItemSchema>;
 export type ThreadSummary = z.infer<typeof threadSummarySchema>;
 export type ThreadListResponse = z.infer<typeof threadListResponseSchema>;
 export type ThreadResponse = z.infer<typeof threadResponseSchema>;
