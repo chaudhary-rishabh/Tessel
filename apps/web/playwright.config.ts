@@ -49,6 +49,17 @@ export default defineConfig({
       timeout: 60_000,
     },
     {
+      // Indexes uploaded documents: SQS upload events, then parse, embed, and store in Qdrant.
+      command: "pnpm exec tsx src/worker.ts",
+      cwd: "../worker",
+      url: "http://localhost:4200/health",
+      reuseExistingServer: !isCI,
+      // Worker logs go to the CI log, since ingestion failures only show there.
+      stdout: isCI ? "pipe" : "ignore",
+      env: { AI_GATEWAY_API_KEY: "mock", AI_GATEWAY_URL: MOCK_GATEWAY_URL },
+      timeout: 60_000,
+    },
+    {
       command: isCI ? "pnpm start" : "pnpm dev",
       url: WEB_URL,
       reuseExistingServer: !isCI,
