@@ -9,19 +9,21 @@
     "./migrate": "./src/migrate.ts"
   },
   "scripts": {
+    "build": "tsdown",
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/scripts/migrate.ts",
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
+    "dotenv": "^18.0.9",
     "drizzle-orm": "^0.45.4",
     "pg": "^8.23.1"
   },
   "devDependencies": {
     "@tessel/config": "workspace:*",
     "@types/pg": "^8.23.1",
-    "dotenv": "^18.0.9",
-    "drizzle-kit": "^0.31.11"
+    "drizzle-kit": "^0.31.11",
+    "tsdown": "^0.23.7"
   }
 }
