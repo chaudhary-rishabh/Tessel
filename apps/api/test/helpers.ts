@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import {
   createAi,
   createSpendGuard,
@@ -13,12 +13,15 @@ import { createDatabase, createUsageLedger, type DatabaseConnection } from "@tes
 import { memoryObjectStore, memoryUploadQueue } from "@tessel/storage/testing";
 import { memoryVectorIndex } from "@tessel/ai";
 import { createLogger } from "@tessel/logger";
+import { createSecretBox } from "@tessel/mcp";
 import type { Express } from "express";
 import request from "supertest";
 import { afterAll, inject } from "vitest";
 import { createApp, type AppDependencies } from "../src/app";
 import type { AppConfig, AuthConfig, RateLimitConfig } from "../src/config";
 import { createPasswordHasher } from "../src/modules/auth/password";
+import { connectorCatalog } from "../src/modules/connectors/connectors.catalog";
+import type { ConnectorsSettings } from "../src/modules/connectors/connectors.service";
 
 export const WEB_ORIGIN = "http://localhost:3000";
 export const TEST_PASSWORD = "correct horse battery";
@@ -102,6 +105,17 @@ export function createTestAi({ gatewayUrl, limits, moderation }: TestAiOptions =
   });
 }
 
+/** Connector settings for tests: a throwaway key, local servers allowed. */
+export function testConnectors(overrides: { githubUrl?: string } = {}): ConnectorsSettings {
+  return {
+    box: createSecretBox(randomBytes(32).toString("base64")),
+    catalog: connectorCatalog({ githubUrl: overrides.githubUrl ?? "https://github.invalid/mcp" }),
+    redirectUrl: "http://localhost:4000/connectors/oauth/callback",
+    webOrigin: "http://localhost:3000",
+    allowPrivate: true,
+  };
+}
+
 export function createTestApp(
   overrides: { config?: ConfigOverrides } & Partial<Omit<AppDependencies, "config">> = {},
 ): Express {
@@ -114,6 +128,7 @@ export function createTestApp(
     storage: { objects: memoryObjectStore(), uploads: memoryUploadQueue(), uploadEvents: "api" },
     vectorIndex: memoryVectorIndex(),
     readinessChecks: [],
+    connectors: testConnectors(),
     passwordHasher: fastHasher,
     ...deps,
   });

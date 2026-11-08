@@ -1,5 +1,6 @@
 import { aiEnvShape } from "@tessel/ai";
 import { logLevelSchema, nodeEnvSchema } from "@tessel/config/env";
+import { connectorsEnvShape } from "@tessel/mcp";
 import { storageEnvShape } from "@tessel/storage";
 import { z } from "zod";
 
@@ -43,8 +44,26 @@ export const envSchema = z
     COOKIE_SECURE: z.stringbool().optional(),
     ...aiEnvShape,
     ...storageEnvShape,
+    ...connectorsEnvShape,
   })
   .superRefine((env, ctx) => {
+    if (env.NODE_ENV === "production" && env.CONNECTORS_ALLOW_PRIVATE_NETWORKS) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["CONNECTORS_ALLOW_PRIVATE_NETWORKS"],
+        message: "Private networks must stay blocked for connectors in production",
+      });
+    }
+    if (
+      env.NODE_ENV === "production" &&
+      Buffer.from(env.CONNECTOR_SECRET_KEY, "base64").toString("latin1").includes(DEV_SECRET_MARKER)
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["CONNECTOR_SECRET_KEY"],
+        message: "Replace the development connector key before running in production",
+      });
+    }
     if (env.NODE_ENV === "production" && env.JWT_ACCESS_SECRET.includes(DEV_SECRET_MARKER)) {
       ctx.addIssue({
         code: "custom",

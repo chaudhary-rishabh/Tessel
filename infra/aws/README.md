@@ -113,6 +113,8 @@ Every app secret is an SSM `SecureString` under `/tessel/prod`. [`../deploy/secr
 ```bash
 put() { aws ssm put-parameter --region ap-south-1 --type SecureString --overwrite --name "/tessel/prod/$1" --value "$2"; }
 put JWT_ACCESS_SECRET "$(openssl rand -base64 48)"
+put CONNECTOR_SECRET_KEY "$(openssl rand -base64 32)"
+put API_PUBLIC_URL "https://api.example.com"
 put WEB_ORIGIN "https://app.example.com"
 put S3_BUCKET "BUCKET_NAME"
 put SQS_UPLOADS_QUEUE_URL "https://sqs.ap-south-1.amazonaws.com/ACCOUNT_ID/tessel-uploads"
