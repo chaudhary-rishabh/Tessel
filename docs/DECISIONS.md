@@ -91,3 +91,19 @@ Fonts ship through Fontsource packages, so builds never fetch from a font CDN an
 ## D-022 Playwright end-to-end tests on desktop and phone
 
 Every end-to-end test runs twice: Desktop Chrome and a Pixel 7 viewport. Tests run the real web app against the real API and database, with rate limits scaled up through `RATE_LIMIT_SCALE` for the test run only.
+
+## D-023 Caddy on the host instead of a load balancer (for now)
+
+The plan named an Application Load Balancer with ACM. With one EC2 host, Caddy in the Compose stack does the same job (HTTPS with automatic Let's Encrypt certificates, routing by domain, streaming responses) without the load balancer's monthly cost or setup. When there is more than one app host, add a load balancer and drop the `edge` profile; nothing else changes.
+
+## D-024 Secrets in SSM Parameter Store
+
+App secrets are `SecureString` parameters under `/tessel/prod`, written to a root-only `.env` on each deploy. Parameter Store is free at this scale and the EC2 role reads only that path. Secrets Manager adds automatic rotation; switch when rotation is needed (for example with RDS-managed passwords).
+
+## D-025 One Dockerfile for every Node service
+
+`infra/docker/node.Dockerfile` builds any workspace package: `turbo prune` reduces the repo to that package, dependencies install from manifests first for layer caching, and `pnpm deploy --prod` produces a folder with only production dependencies. Images run as the unprivileged `node` user. The web app has its own Dockerfile because it uses Next.js standalone output.
+
+## D-026 Deploys over Systems Manager with automatic rollback
+
+GitHub Actions assumes an AWS role through OIDC (no stored keys), pushes images tagged with the commit, and runs `deploy.sh` on the host through SSM (no SSH port). The script runs migrations, starts the new version, waits for every health check, and restores the previous tag if any check fails. Because migrations run before the new version starts, they must stay compatible with the version still running.

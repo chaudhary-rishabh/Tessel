@@ -71,7 +71,9 @@ packages/
   queue/        Queue names, job schemas, Redis connection
   api-client/   axios client with token refresh, typed endpoints, query hooks
   ui/           Shared React components and the Tessel mark
-infra/docker/   Local data services (Docker Compose)
+infra/docker/   Dockerfiles and local data services
+infra/deploy/   Production Compose stack, Caddy, deploy script
+infra/aws/      AWS setup guide, IAM policies, EC2 bootstrap
 docs/           Architecture, decisions, roadmap, backlog
 ```
 
@@ -105,6 +107,10 @@ curl localhost:4000/health/ready
 | `pnpm infra:up`                        | Start local data services and wait until healthy |
 | `pnpm infra:down`                      | Stop local data services                         |
 | `pnpm db:generate` / `pnpm db:migrate` | Create and apply database migrations             |
+
+## Deployment
+
+Pushes to `main` that pass CI deploy automatically to AWS: images go to ECR and run on EC2 with Docker Compose, behind Caddy with automatic HTTPS. Every pull request also builds the production images and boots the full stack in CI. One-time setup: [infra/aws/README.md](infra/aws/README.md).
 
 ## Contributing
 

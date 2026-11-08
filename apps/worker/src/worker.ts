@@ -3,6 +3,7 @@ import { createLogger } from "@tessel/logger";
 import { createQueueConnection, QUEUE_NAMES } from "@tessel/queue";
 import { Worker } from "bullmq";
 import { envSchema } from "./env";
+import { startHealthServer } from "./health";
 import { processSystemJob } from "./processors/system";
 
 const SERVICE = "worker";
@@ -24,6 +25,11 @@ systemWorker.on("failed", (job, error) =>
 );
 systemWorker.on("error", (error) => logger.error({ err: error }, "Worker error"));
 
+const healthServer = startHealthServer(env.WORKER_HEALTH_PORT, {
+  isRunning: () => systemWorker.isRunning(),
+  isConnected: () => connection.status === "ready",
+});
+
 let shuttingDown = false;
 async function shutdown(signal: string): Promise<void> {
   if (shuttingDown) return;
@@ -36,6 +42,7 @@ async function shutdown(signal: string): Promise<void> {
   }, SHUTDOWN_TIMEOUT_MS);
   forceExit.unref();
 
+  healthServer.close();
   await systemWorker.close();
   await connection.quit();
   logger.info("Shutdown complete");

@@ -1,0 +1,30 @@
+# Caddy terminates HTTPS with automatic Let's Encrypt certificates and routes
+# each domain to its service. Domains come from deploy.env.
+{
+	email {$ACME_EMAIL}
+}
+
+(common) {
+	encode zstd gzip
+	header -Server
+}
+
+{$WEB_DOMAIN} {
+	import common
+	reverse_proxy web:3000
+}
+
+{$API_DOMAIN} {
+	import common
+	# Streamed responses (chat, server-sent events) are flushed as they arrive.
+	reverse_proxy api:4000 {
+		flush_interval -1
+	}
+}
+
+{$MCP_DOMAIN} {
+	import common
+	reverse_proxy mcp-server:4100 {
+		flush_interval -1
+	}
+}

@@ -7,7 +7,7 @@ Phase 1 is built in 20 steps. Each step ends tested, merged, and (from step 4) d
 | 1    | Foundation               | Monorepo, shared packages, app shells, local data services, CI                 | Everything installs, builds, and passes checks       | Done   |
 | 2    | Foundation               | API core, email and password login, workspaces, roles, row-level security      | Login and cross-workspace tests pass                 | Done   |
 | 3    | Foundation               | Web app shell, axios and token refresh, TanStack Query, Zustand, mobile layout | Login works end to end on desktop and mobile         | Done   |
-| 4    | Foundation               | Docker images, CI/CD to ECR and EC2                                            | A push to main deploys automatically                 |        |
+| 4    | Foundation               | Docker images, CI/CD to ECR and EC2                                            | A push to main deploys automatically                 | Done   |
 | 5    | Chat                     | AI gateway, model registry, moderation, usage ledger, daily cost cap           | Every model call is recorded                         |        |
 | 6    | Chat                     | Streaming chat, stop, model picker, attachments                                | A streamed chat works on desktop and mobile          |        |
 | 7    | Knowledge                | Ingestion: S3, SQS, worker, Qdrant hybrid search                               | An uploaded PDF reaches ready                        |        |

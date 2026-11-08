@@ -1,0 +1,212 @@
+# Production stack for one EC2 host, run by deploy.sh.
+#
+# Profiles:
+#   (none)  web, api, worker, mcp-server: always on
+#   edge    Caddy on ports 80/443 with automatic HTTPS
+#   data    Postgres, Redis x2, Qdrant, Neo4j on the same host
+#           (leave this off when using RDS, ElastiCache, or managed services)
+#   tools   the one-off migrate job (deploy.sh runs it before starting apps)
+#
+# Compose variables come from deploy.env (IMAGE_TAG, ECR_REGISTRY, domains).
+# deploy.sh checks the domains are set whenever the edge profile is on.
+# App secrets come from .env, written by deploy.sh from AWS SSM Parameter Store.
+
+name: tessel
+
+x-app: &app
+  restart: unless-stopped
+  env_file: .env
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "5"
+
+x-data-dependencies: &data-dependencies
+  postgres: { condition: service_healthy, required: false }
+  redis-cache: { condition: service_healthy, required: false }
+  redis-queue: { condition: service_healthy, required: false }
+
+services:
+  migrate:
+    <<: *app
+    image: ${ECR_REGISTRY}/tessel-migrate:${IMAGE_TAG}
+    restart: "no"
+    profiles: [tools]
+    depends_on:
+      postgres: { condition: service_healthy, required: false }
+
+  api:
+    <<: *app
+    image: ${ECR_REGISTRY}/tessel-api:${IMAGE_TAG}
+    environment:
+      NODE_ENV: production
+      API_PORT: "4000"
+    depends_on: *data-dependencies
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4000/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 15s
+
+  worker:
+    <<: *app
+    image: ${ECR_REGISTRY}/tessel-worker:${IMAGE_TAG}
+    environment:
+      NODE_ENV: production
+      WORKER_HEALTH_PORT: "4200"
+    depends_on: *data-dependencies
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4200/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 15s
+    # Give running jobs time to finish on deploys.
+    stop_grace_period: 35s
+
+  mcp-server:
+    <<: *app
+    image: ${ECR_REGISTRY}/tessel-mcp-server:${IMAGE_TAG}
+    environment:
+      NODE_ENV: production
+      MCP_PORT: "4100"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4100/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 10s
+
+  web:
+    image: ${ECR_REGISTRY}/tessel-web:${IMAGE_TAG}
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 15s
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    profiles: [edge]
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      WEB_DOMAIN: ${WEB_DOMAIN:-}
+      API_DOMAIN: ${API_DOMAIN:-}
+      MCP_DOMAIN: ${MCP_DOMAIN:-}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      web: { condition: service_healthy }
+      api: { condition: service_healthy }
+      mcp-server: { condition: service_healthy }
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    profiles: [data]
+    # Only POSTGRES_PASSWORD, split out of .env by deploy.sh.
+    env_file:
+      - path: postgres.env
+        required: false
+    environment:
+      POSTGRES_USER: tessel
+      POSTGRES_DB: tessel
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tessel -d tessel"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis-cache:
+    image: redis:8-alpine
+    restart: unless-stopped
+    profiles: [data]
+    command:
+      [
+        "redis-server",
+        "--maxmemory",
+        "512mb",
+        "--maxmemory-policy",
+        "allkeys-lru",
+        "--save",
+        "",
+        "--appendonly",
+        "no",
+      ]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis-queue:
+    image: redis:8-alpine
+    restart: unless-stopped
+    profiles: [data]
+    command: ["redis-server", "--maxmemory-policy", "noeviction", "--appendonly", "yes"]
+    volumes:
+      - redis-queue-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  qdrant:
+    image: qdrant/qdrant:v1.17.0
+    restart: unless-stopped
+    profiles: [data]
+    volumes:
+      - qdrant-data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  neo4j:
+    image: neo4j:2026.05.0
+    restart: unless-stopped
+    profiles: [data]
+    # Only NEO4J_AUTH, split out of .env by deploy.sh. Neo4j treats every NEO4J_*
+    # variable as a setting, so it must not see the apps' variables.
+    env_file:
+      - path: neo4j.env
+        required: false
+    environment:
+      NEO4J_server_memory_heap_max__size: 1G
+      NEO4J_server_memory_pagecache_size: 512M
+    volumes:
+      - neo4j-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:7474 >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+volumes:
+  caddy-data:
+  caddy-config:
+  postgres-data:
+  redis-queue-data:
+  qdrant-data:
+  neo4j-data:
