@@ -138,7 +138,7 @@ jobs:
       - uses: docker/setup-buildx-action@v3
 
       # Exposes the GitHub Actions cache to docker buildx in run steps.
-      - uses: crazy-max/ghaction-github-runtime@v3
+      - uses: crazy-max/ghaction-github-runtime@v4
 
       - name: Build images
         run: infra/scripts/build-images.sh tessel-ci "${{ github.sha }}" load
