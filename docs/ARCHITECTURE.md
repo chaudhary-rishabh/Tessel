@@ -137,6 +137,19 @@ Counters live in the cache Redis, so limits hold across API instances. If Redis 
 | Design           | Tokens in `apps/web/app/globals.css` (Tailwind v4 `@theme`), with a matching dark palette. Fonts are bundled (Bricolage Grotesque for headings, Atkinson Hyperlegible Next for text). Shared components live in `@tessel/ui`.                                                                                                                                                   |
 | Mobile           | The sidebar becomes a drawer below 768 px. Inputs use 16 px text so iOS doesn't zoom, tap targets are at least 44 px, and layouts use `dvh` and safe-area insets.                                                                                                                                                                                                               |
 
+## Deployment
+
+| Piece            | Where                                                                                                                                                              |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Images           | `infra/docker/node.Dockerfile` (api, worker, mcp-server, migrate) and `infra/docker/web.Dockerfile`, built by `infra/scripts/build-images.sh`                      |
+| Production stack | `infra/deploy/docker-compose.prod.yml` with profiles: apps (always), `edge` (Caddy + HTTPS), `data` (databases on the host), `tools` (migrate job)                 |
+| Deploy           | `.github/workflows/deploy.yml` runs after CI passes on `main`: build, push to ECR, run `infra/deploy/deploy.sh` on EC2 through SSM                                 |
+| Secrets          | SSM Parameter Store under `/tessel/prod`, written to a root-only `.env` on each deploy                                                                             |
+| Health           | Every service has a health check; deploys wait for all of them and roll back on failure                                                                            |
+| CI safety net    | Every pull request builds all production images and boots the full production stack (`infra/scripts/smoke-test.sh`), including a signup through the real API image |
+
+Setup steps: [infra/aws/README.md](../infra/aws/README.md).
+
 ## Conventions
 
 - **Configuration:** Each app validates its environment with Zod at startup (`parseEnv`) and fails fast with every problem listed. Locally, `.env` at the repo root is loaded; in containers, variables come from the environment.
