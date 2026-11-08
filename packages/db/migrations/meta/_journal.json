@@ -43,6 +43,13 @@
       "when": 1794154853952,
       "tag": "0005_attachments_in_s3",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794162926633,
+      "tag": "0006_message_sources",
+      "breakpoints": true
     }
   ]
 }
