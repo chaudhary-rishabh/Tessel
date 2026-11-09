@@ -62,8 +62,12 @@ function MemoryRow({ workspaceId, memory }: { workspaceId: string; memory: Memor
 
   async function save(event: FormEvent) {
     event.preventDefault();
-    await update.mutateAsync({ memoryId: memory.id, content: draft });
-    setEditing(false);
+    // A failure shows under the field (update.error), so it's caught here.
+    const saved = await update.mutateAsync({ memoryId: memory.id, content: draft }).then(
+      () => true,
+      () => false,
+    );
+    if (saved) setEditing(false);
   }
 
   if (editing) {
@@ -149,8 +153,12 @@ export function MemorySection({ workspaceId }: { workspaceId: string }) {
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (!draft.trim()) return;
-    await add.mutateAsync(draft);
-    setDraft("");
+    // A failure shows above the list (add.error), so it's caught here.
+    const added = await add.mutateAsync(draft).then(
+      () => true,
+      () => false,
+    );
+    if (added) setDraft("");
   }
 
   return (

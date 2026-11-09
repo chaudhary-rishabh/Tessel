@@ -1,3 +1,4 @@
+import { safeNextPath as safeNextPathIn } from "@tessel/ui";
 import { toApiClientError } from "@tessel/api-client";
 import type { FieldValues, Path, UseFormSetError } from "react-hook-form";
 
@@ -29,8 +30,5 @@ export function applyApiError<T extends FieldValues>(
 
 /** Only allow redirects to paths inside this app, never to another site. */
 export function safeNextPath(next: string | null, fallback = "/chat"): string {
-  if (!next || !next.startsWith("/") || next.startsWith("//") || next.startsWith("/\\")) {
-    return fallback;
-  }
-  return next;
+  return safeNextPathIn(next, fallback);
 }

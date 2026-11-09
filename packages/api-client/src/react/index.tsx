@@ -40,6 +40,7 @@ import {
   useMutation,
   useQuery,
   useQueryClient,
+  type QueryClient,
   type UseQueryOptions,
 } from "@tanstack/react-query";
 import { createContext, useContext, type ReactNode } from "react";
@@ -125,17 +126,20 @@ export function useRenameWorkspace() {
   });
 }
 
+/** Drops a workspace the person no longer belongs to from every cached list and query. */
+export function forgetWorkspace(queryClient: QueryClient, workspaceId: string) {
+  queryClient.setQueryData<Workspace[]>(queryKeys.workspaces, (current = []) =>
+    current.filter((item) => item.id !== workspaceId),
+  );
+  queryClient.removeQueries({ queryKey: ["workspaces", workspaceId] });
+}
+
 export function useDeleteWorkspace() {
   const api = useApi();
   const queryClient = useQueryClient();
   return useMutation<void, ApiClientError, { workspaceId: string; name: string }>({
     mutationFn: ({ workspaceId, name }) => api.workspaces.remove(workspaceId, name),
-    onSuccess: (_result, { workspaceId }) => {
-      queryClient.setQueryData<Workspace[]>(queryKeys.workspaces, (current = []) =>
-        current.filter((item) => item.id !== workspaceId),
-      );
-      queryClient.removeQueries({ queryKey: ["workspaces", workspaceId] });
-    },
+    onSuccess: (_result, { workspaceId }) => forgetWorkspace(queryClient, workspaceId),
   });
 }
 
@@ -222,6 +226,27 @@ export function useLoadOlderThreads(workspaceId: string) {
   });
 }
 
+/**
+ * Applies a change to every cached list of chats in a workspace: the sidebar
+ * list and any search results. A single chat's own query is left alone.
+ */
+export function updateThreadLists(
+  queryClient: QueryClient,
+  workspaceId: string,
+  update: (threads: ThreadSummary[]) => ThreadSummary[],
+) {
+  const [, , scope] = queryKeys.threads(workspaceId);
+  queryClient.setQueriesData<ThreadListResponse>(
+    {
+      queryKey: queryKeys.threads(workspaceId),
+      // ["workspaces", id, "threads"] is the list, [..., "search", q] a search.
+      predicate: ({ queryKey }) =>
+        queryKey[2] === scope && (queryKey.length === 3 || queryKey[3] === "search"),
+    },
+    (current) => (current ? { ...current, threads: update(current.threads) } : current),
+  );
+}
+
 /** Puts a thread at the top of the cached chat list, adding or updating it. */
 export function upsertThreadInList(
   queryClient: ReturnType<typeof useQueryClient>,
@@ -241,13 +266,8 @@ export function useRenameThread(workspaceId: string) {
   return useMutation<ThreadSummary, ApiClientError, { threadId: string; title: string }>({
     mutationFn: ({ threadId, title }) => api.chat.rename(workspaceId, threadId, title),
     onSuccess: (thread) => {
-      queryClient.setQueryData<ThreadListResponse>(queryKeys.threads(workspaceId), (current) =>
-        current
-          ? {
-              ...current,
-              threads: current.threads.map((item) => (item.id === thread.id ? thread : item)),
-            }
-          : current,
+      updateThreadLists(queryClient, workspaceId, (threads) =>
+        threads.map((item) => (item.id === thread.id ? thread : item)),
       );
       queryClient.setQueryData<ThreadResponse>(
         queryKeys.thread(workspaceId, thread.id),
@@ -263,10 +283,8 @@ export function useDeleteThread(workspaceId: string) {
   return useMutation<void, ApiClientError, string>({
     mutationFn: (threadId) => api.chat.remove(workspaceId, threadId),
     onSuccess: (_result, threadId) => {
-      queryClient.setQueryData<ThreadListResponse>(queryKeys.threads(workspaceId), (current) =>
-        current
-          ? { ...current, threads: current.threads.filter((item) => item.id !== threadId) }
-          : current,
+      updateThreadLists(queryClient, workspaceId, (threads) =>
+        threads.filter((item) => item.id !== threadId),
       );
       queryClient.removeQueries({ queryKey: queryKeys.thread(workspaceId, threadId) });
     },
@@ -696,13 +714,20 @@ export function useMemberActions(workspaceId: string) {
     }),
     remove: useMutation<void, ApiClientError, string>({
       mutationFn: (userId) => api.members.remove(workspaceId, userId),
-      onSuccess: refresh,
+      onSuccess: async (_result, userId) => {
+        // Leaving: the workspace is gone from this person's list straight away.
+        if (userId === queryClient.getQueryData<PublicUser>(queryKeys.me)?.id) {
+          forgetWorkspace(queryClient, workspaceId);
+          return;
+        }
+        await refresh();
+      },
     }),
     transfer: useMutation<void, ApiClientError, string>({
       mutationFn: (userId) => api.members.transferOwnership(workspaceId, userId),
       onSuccess: async () => {
         await refresh();
-        await queryClient.invalidateQueries({ queryKey: queryKeys.workspaces });
+        await queryClient.invalidateQueries({ queryKey: queryKeys.workspaces, exact: true });
       },
     }),
   };

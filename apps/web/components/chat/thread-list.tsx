@@ -25,6 +25,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useId, useState, type ReactNode } from "react";
 import { FormError } from "@/components/form-error";
+import { useShallow } from "zustand/react/shallow";
 import { useChatStore } from "@/lib/chat-store";
 
 const titleOf = (thread: ThreadSummary) => thread.title ?? "New chat";
@@ -138,7 +139,8 @@ function ThreadRows({
   onDelete: (thread: ThreadSummary) => void;
 }) {
   const pathname = usePathname();
-  const streaming = useChatStore((state) => state.replies);
+  // Only which chats are replying, not their text, so rows don't re-render on every token.
+  const streaming = new Set(useChatStore(useShallow((state) => Object.keys(state.replies))));
   return (
     <ul className="-mx-2 mt-1.5 flex flex-col gap-0.5" aria-label={label}>
       {threads.map((thread) => {
@@ -157,7 +159,7 @@ function ThreadRows({
               )}
             >
               <span className="truncate">{titleOf(thread)}</span>
-              {streaming[thread.id] ? (
+              {streaming.has(thread.id) ? (
                 <span
                   className="bg-accent ml-2 size-1.5 shrink-0 rounded-full"
                   aria-label="Replying"
@@ -167,7 +169,7 @@ function ThreadRows({
             <DropdownMenu>
               <DropdownMenuTrigger
                 aria-label={`Options for ${titleOf(thread)}`}
-                className="text-muted hover:text-ink focus-visible:outline-accent absolute top-1/2 right-1 flex size-8 -translate-y-1/2 items-center justify-center rounded-md opacity-100 focus-visible:opacity-100 focus-visible:outline-2 data-[state=open]:opacity-100 md:opacity-0 md:group-hover:opacity-100"
+                className="text-muted hover:text-ink focus-visible:outline-accent absolute top-1/2 right-1 flex size-8 -translate-y-1/2 items-center justify-center rounded-md focus-visible:outline-2 pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:focus-visible:opacity-100 pointer-fine:data-[state=open]:opacity-100"
               >
                 <Ellipsis className="size-4" aria-hidden="true" />
               </DropdownMenuTrigger>

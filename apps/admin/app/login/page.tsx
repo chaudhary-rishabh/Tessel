@@ -2,19 +2,15 @@
 
 import { toApiClientError } from "@tessel/api-client";
 import { useApi } from "@tessel/api-client/react";
-import { Button, TesselMark, TextField } from "@tessel/ui";
+import { Button, safeNextPath, TesselMark, TextField } from "@tessel/ui";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState, type FormEvent } from "react";
 import { useSessionStore } from "@/lib/session-store";
 
-function safeNext(next: string | null) {
-  return next && next.startsWith("/") && !next.startsWith("//") ? next : "/";
-}
-
 function LoginForm() {
   const api = useApi();
   const router = useRouter();
-  const next = safeNext(useSearchParams().get("next"));
+  const next = safeNextPath(useSearchParams().get("next"));
   const status = useSessionStore((state) => state.status);
   const setSession = useSessionStore((state) => state.setSession);
   const [email, setEmail] = useState("");

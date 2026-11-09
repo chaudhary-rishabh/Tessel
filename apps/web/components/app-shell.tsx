@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { useCurrentWorkspace } from "@/hooks/use-current-workspace";
 import { ThreadList } from "./chat/thread-list";
 import { UserMenu } from "./user-menu";
@@ -31,6 +31,8 @@ const NAV = [
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const { current } = useCurrentWorkspace();
+  // The sidebar renders twice on phones (hidden desktop copy and drawer).
+  const recentId = useId();
 
   return (
     <div className="flex h-full flex-col gap-4 p-3">
@@ -65,8 +67,8 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         })}
       </nav>
 
-      <section aria-labelledby="recent-heading" className="min-h-0 flex-1 overflow-y-auto px-3">
-        <h2 id="recent-heading" className="text-muted font-sans text-sm font-medium">
+      <section aria-labelledby={recentId} className="min-h-0 flex-1 overflow-y-auto px-3">
+        <h2 id={recentId} className="text-muted font-sans text-sm font-medium">
           Recent chats
         </h2>
         {current ? (

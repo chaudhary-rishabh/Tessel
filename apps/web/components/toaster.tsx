@@ -9,10 +9,8 @@ export function Toaster() {
   const toasts = useToasts((state) => state.toasts);
   const dismiss = useToasts((state) => state.dismiss);
   return (
-    <div
-      aria-live="polite"
-      className="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex flex-col items-center gap-2 px-4 sm:inset-x-auto sm:right-6 sm:bottom-6 sm:items-end"
-    >
+    // Each toast's own role (status or alert) announces it; a live region here too would read it twice.
+    <div className="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex flex-col items-center gap-2 px-4 sm:inset-x-auto sm:right-6 sm:bottom-6 sm:items-end">
       {toasts.map((item) => {
         const Icon = item.tone === "error" ? CircleAlert : CircleCheck;
         return (

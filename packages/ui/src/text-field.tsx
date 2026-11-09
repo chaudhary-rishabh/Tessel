@@ -24,7 +24,8 @@ export function TextField({
 }: TextFieldProps) {
   const generatedId = useId();
   const inputId = id ?? generatedId;
-  const hintId = hint ? `${inputId}-hint` : undefined;
+  // The hint gives way to the error, so only describe the field by what is shown.
+  const hintId = hint && !error ? `${inputId}-hint` : undefined;
   const errorId = error ? `${inputId}-error` : undefined;
 
   return (

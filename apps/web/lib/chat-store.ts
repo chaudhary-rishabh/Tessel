@@ -173,3 +173,13 @@ export const replyControllers = {
   stop: (key: string) => controllers.get(key)?.abort(),
   delete: (key: string) => controllers.delete(key),
 };
+
+/**
+ * Stops every reply in progress and forgets them, when the person signs out
+ * or someone else signs in: nothing streams into the next session.
+ */
+export function resetChatSession() {
+  for (const controller of controllers.values()) controller.abort();
+  controllers.clear();
+  useChatStore.setState({ replies: {} });
+}

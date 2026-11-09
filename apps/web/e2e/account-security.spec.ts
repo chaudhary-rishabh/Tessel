@@ -110,7 +110,7 @@ test.describe("account security", () => {
     const devices = page.getByRole("list", { name: "Signed-in devices" });
     await expect(devices.getByRole("listitem")).toHaveCount(2);
     await expect(devices).toContainText("This device");
-    await devices.getByRole("button", { name: "Sign out Safari on iOS" }).click();
+    await devices.getByRole("button", { name: "Log out Safari on iOS" }).click();
     await expect(devices.getByRole("listitem")).toHaveCount(1);
 
     // The phone's session is over: its next refresh fails and it's sent to log in.

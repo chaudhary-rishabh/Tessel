@@ -1,5 +1,7 @@
 "use client";
 
+import { toApiClientError } from "@tessel/api-client";
+
 import {
   useConnectors,
   useDeleteConnection,
@@ -30,6 +32,7 @@ import { Suspense, useState } from "react";
 import { ConnectDialog } from "@/components/connectors/connect-dialog";
 import { FormError } from "@/components/form-error";
 import { useCurrentWorkspace } from "@/hooks/use-current-workspace";
+import { toast } from "@/lib/toast-store";
 
 const STATUS: Record<ConnectorConnection["status"], { label: string; tone: string }> = {
   connected: { label: "Connected", tone: "text-accent" },
@@ -140,8 +143,12 @@ function ConnectionRow({
   })();
 
   async function checkAgain() {
-    const result = await refresh.mutateAsync(connection.id);
-    if (result.authorizationUrl) window.location.assign(result.authorizationUrl);
+    try {
+      const result = await refresh.mutateAsync(connection.id);
+      if (result.authorizationUrl) window.location.assign(result.authorizationUrl);
+    } catch (error) {
+      toast.error(toApiClientError(error).message);
+    }
   }
 
   return (

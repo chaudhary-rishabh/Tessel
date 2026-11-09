@@ -104,7 +104,7 @@ function UserMessage({
         {message.content}
       </div>
       {onEdit ? (
-        <div className="text-muted flex gap-1 opacity-100 transition-opacity group-hover:opacity-100 focus-within:opacity-100 md:opacity-0">
+        <div className="text-muted flex gap-1 transition-opacity pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:focus-within:opacity-100">
           <CopyButton text={message.content} label="Copy message" />
           <button
             type="button"
@@ -209,7 +209,7 @@ function AssistantMessage({
           ) : null}
           {message.status === "stopped" ? <span>Stopped</span> : null}
           {modelLabel ? (
-            <span className="opacity-0 transition-opacity group-hover:opacity-100">
+            <span className="transition-opacity pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100">
               {modelLabel}
             </span>
           ) : null}
