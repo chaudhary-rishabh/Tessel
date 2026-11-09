@@ -1,6 +1,10 @@
 import type { AddressInfo } from "node:net";
 import { startMockGateway, type MockGateway } from "@tessel/ai/testing";
-import { threadListResponseSchema, type ChatEvent } from "@tessel/contracts";
+import {
+  threadListResponseSchema,
+  type ChatEvent,
+  type ThreadListResponse,
+} from "@tessel/contracts";
 import { threads, usageEvents, withUserContext, workspaceMembers } from "@tessel/db";
 import { eq, sql } from "drizzle-orm";
 import type { Express } from "express";
@@ -272,12 +276,12 @@ describe("chat", () => {
     const seen: string[] = [];
     let cursor: string | null = null;
     do {
-      const page = await request(app)
+      const page: { status: number; body: ThreadListResponse } = await request(app)
         .get(`${base}/threads`)
         .query({ limit: 2, ...(cursor ? { before: cursor } : {}) })
         .set("Authorization", bearer(user));
       expect(page.status).toBe(200);
-      seen.push(...page.body.threads.map((thread: { id: string }) => thread.id));
+      seen.push(...page.body.threads.map((thread) => thread.id));
       cursor = page.body.nextCursor;
     } while (cursor);
     expect(seen.sort()).toEqual([...ids].sort());
