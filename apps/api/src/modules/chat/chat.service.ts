@@ -103,7 +103,7 @@ export function createChatService({
   return {
     async listThreads(
       actor: Actor,
-      { limit, before }: { limit: number; before?: string },
+      { limit, before, q }: { limit: number; before?: string; q?: string },
     ): Promise<ThreadListResponse> {
       await requireMembership(actor);
       const rows = await withUserContext(db, actor.userId, (tx) =>
@@ -112,6 +112,7 @@ export function createChatService({
           userId: actor.userId,
           limit: limit + 1,
           ...(before ? { before: new Date(before) } : {}),
+          ...(q ? { search: q } : {}),
         }),
       );
       const page = rows.slice(0, limit);
@@ -205,26 +206,46 @@ export function createChatService({
         ...(actor.requestId ? { requestId: actor.requestId } : {}),
       };
 
-      const { existingThread, files } = await withUserContext(db, actor.userId, async (tx) => {
-        const workspace = await workspacesRepository.findForUser(
-          tx,
-          actor.workspaceId,
-          actor.userId,
-        );
-        if (!workspace) throw errors.notFound("Workspace not found");
-        const thread = request.threadId
-          ? await chatRepository.findThread(tx, { ...actor, threadId: request.threadId })
-          : undefined;
-        if (request.threadId && !thread) throw errors.notFound("Chat not found");
-        const pending = await chatRepository.pendingAttachments(tx, {
-          ...actor,
-          ids: request.attachmentIds,
-        });
-        if (pending.length !== new Set(request.attachmentIds).size) {
-          throw errors.badRequest("invalid_attachments", "One or more attachments can't be used");
-        }
-        return { existingThread: thread, files: pending };
-      });
+      const { existingThread, files, editTarget, keptFiles } = await withUserContext(
+        db,
+        actor.userId,
+        async (tx) => {
+          const workspace = await workspacesRepository.findForUser(
+            tx,
+            actor.workspaceId,
+            actor.userId,
+          );
+          if (!workspace) throw errors.notFound("Workspace not found");
+          const thread = request.threadId
+            ? await chatRepository.findThread(tx, { ...actor, threadId: request.threadId })
+            : undefined;
+          if (request.threadId && !thread) throw errors.notFound("Chat not found");
+          if (request.editMessageId) {
+            const target = thread
+              ? await chatRepository.findMessage(tx, request.editMessageId)
+              : undefined;
+            if (!target || target.threadId !== thread?.id || target.role !== "user") {
+              throw errors.notFound("Message not found");
+            }
+            if (request.attachmentIds.length > 0) {
+              throw errors.badRequest(
+                "invalid_attachments",
+                "An edited message keeps its own attachments",
+              );
+            }
+            const kept = await chatRepository.attachmentsForMessages(tx, [target.id]);
+            return { existingThread: thread, files: [], editTarget: target, keptFiles: kept };
+          }
+          const pending = await chatRepository.pendingAttachments(tx, {
+            ...actor,
+            ids: request.attachmentIds,
+          });
+          if (pending.length !== new Set(request.attachmentIds).size) {
+            throw errors.badRequest("invalid_attachments", "One or more attachments can't be used");
+          }
+          return { existingThread: thread, files: pending, editTarget: undefined, keptFiles: [] };
+        },
+      );
 
       if (limits) {
         await limits.check(
@@ -235,7 +256,7 @@ export function createChatService({
       const { model } = await ai.preflight(context, {
         model: request.model ?? existingThread?.modelId,
         text: request.content,
-        hasImages: files.some((file) => file.kind === "image"),
+        hasImages: [...files, ...keptFiles].some((file) => file.kind === "image"),
       });
 
       const now = new Date();
@@ -252,19 +273,38 @@ export function createChatService({
               userId: actor.userId,
               modelId: model.id,
             });
-        const userRow = await chatRepository.insertMessage(tx, {
-          threadId: thread.id,
-          workspaceId: actor.workspaceId,
-          userId: actor.userId,
-          role: "user",
-          content: request.content,
-          createdAt: now,
-        });
-        await chatRepository.attachToMessage(
-          tx,
-          files.map((file) => file.id),
-          userRow.id,
-        );
+        let userRow;
+        let replyAt = now;
+        if (editTarget) {
+          // Everything after the edited message goes; the summary may cover it, so it restarts.
+          await chatRepository.deleteMessagesAfter(tx, thread.id, editTarget.createdAt);
+          if (thread.summaryThrough && thread.summaryThrough >= editTarget.createdAt) {
+            await chatRepository.updateThread(tx, thread.id, {
+              summary: null,
+              summaryThrough: null,
+            });
+            thread.summary = null;
+            thread.summaryThrough = null;
+          }
+          userRow =
+            (await chatRepository.setMessageContent(tx, editTarget.id, request.content)) ??
+            editTarget;
+          replyAt = editTarget.createdAt;
+        } else {
+          userRow = await chatRepository.insertMessage(tx, {
+            threadId: thread.id,
+            workspaceId: actor.workspaceId,
+            userId: actor.userId,
+            role: "user",
+            content: request.content,
+            createdAt: now,
+          });
+          await chatRepository.attachToMessage(
+            tx,
+            files.map((file) => file.id),
+            userRow.id,
+          );
+        }
         const assistantRow = await chatRepository.insertMessage(tx, {
           threadId: thread.id,
           workspaceId: actor.workspaceId,
@@ -274,7 +314,7 @@ export function createChatService({
           modelId: model.id,
           agentMode: request.mode,
           // Strictly after the user's message, so ordering never ties.
-          createdAt: new Date(now.getTime() + 1),
+          createdAt: new Date(replyAt.getTime() + 1),
         });
 
         const rows = await chatRepository.listMessages(tx, thread.id);
@@ -304,7 +344,7 @@ export function createChatService({
         isNewThread: !existingThread,
         userMessage: toMessage(
           saved.userRow,
-          files.map((file) => ({ ...file, messageId: saved.userRow.id })),
+          editTarget ? keptFiles : files.map((file) => ({ ...file, messageId: saved.userRow.id })),
         ),
         assistantMessageId: saved.assistantRow.id,
         history: buildModelMessages(saved.history, historyFiles, now, {

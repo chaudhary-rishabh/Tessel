@@ -177,6 +177,66 @@ describe("paying with Stripe", () => {
     expect(charge!.amount).toBeGreaterThanOrEqual(1);
   });
 
+  it("ends the subscription at once when its workspace is deleted", async () => {
+    const owner = await signUp(app);
+    const team = await request(app)
+      .post("/workspaces")
+      .set("Authorization", bearer(owner))
+      .send({ name: "Wind-down" });
+    const workspaceId = team.body.id as string;
+    const checkout = await request(app)
+      .post(`/workspaces/${workspaceId}/billing/checkout`)
+      .set("Authorization", bearer(owner))
+      .send({ plan: "team", provider: "stripe" });
+    await pay(checkout.body.url);
+    const [account] = await ownerDb()
+      .select()
+      .from(billingAccounts)
+      .where(eq(billingAccounts.workspaceId, workspaceId));
+
+    const removed = await request(app)
+      .delete(`/workspaces/${workspaceId}`)
+      .set("Authorization", bearer(owner))
+      .send({ name: "Wind-down" });
+    expect(removed.status).toBe(204);
+    const subscription = await fetch(
+      `${payments.url}/stripe/v1/subscriptions/${account!.subscriptionId}`,
+      { headers: { Authorization: "Bearer sk_test" } },
+    );
+    expect(((await subscription.json()) as { status: string }).status).toBe("canceled");
+    expect(
+      await ownerDb()
+        .select()
+        .from(billingAccounts)
+        .where(eq(billingAccounts.workspaceId, workspaceId)),
+    ).toHaveLength(0);
+
+    // A late event about it is acknowledged, so the provider stops retrying.
+    const body = JSON.stringify({
+      id: `evt_late_${workspaceId}`,
+      type: "customer.subscription.updated",
+      data: {
+        object: {
+          id: "sub_gone",
+          customer: "cus_gone",
+          status: "active",
+          metadata: { workspaceId, plan: "team" },
+          items: { data: [{ quantity: 2, price: { id: "price_team" } }] },
+        },
+      },
+    });
+    const timestamp = Math.floor(Date.now() / 1000);
+    const signature = createHmac("sha256", STRIPE_SECRET)
+      .update(`${timestamp}.${body}`)
+      .digest("hex");
+    const late = await request(app)
+      .post("/billing/webhooks/stripe")
+      .set("Content-Type", "application/json")
+      .set("Stripe-Signature", `t=${timestamp},v1=${signature}`)
+      .send(body);
+    expect(late.status).toBe(200);
+  });
+
   it("refuses webhooks with a bad signature, and applies a repeated one once", async () => {
     const body = JSON.stringify({
       id: "evt_forged",

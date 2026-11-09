@@ -23,6 +23,8 @@ export interface SendInput {
   attachments: Attachment[];
   knowledge?: KnowledgeMode;
   mode?: AgentModeName;
+  /** Rewrite the chat from this user message (edit, or the same text to regenerate). */
+  editMessageId?: string;
 }
 
 export type SendResult = { ok: true } | { ok: false; error: ApiClientError | null };
@@ -155,9 +157,22 @@ export function useReplyStream(workspaceId: string | undefined) {
       attachments,
       knowledge,
       mode,
+      editMessageId,
     }: SendInput): Promise<SendResult> => {
       if (!workspaceId) return { ok: false, error: null };
       const temporaryKey = threadId ?? `new-${crypto.randomUUID()}`;
+      // An edit drops the message and everything after it straight away; the
+      // live reply shows the new text until the server confirms it.
+      const before =
+        threadId && editMessageId
+          ? queryClient.getQueryData<ThreadResponse>(queryKeys.thread(workspaceId, threadId))
+          : undefined;
+      if (threadId && editMessageId) {
+        setThreadMessages(queryClient, workspaceId, threadId, (messages) => {
+          const index = messages.findIndex((message) => message.id === editMessageId);
+          return index === -1 ? messages : messages.slice(0, index);
+        });
+      }
       let liveKey = temporaryKey;
       let started = false;
       let assistantMessageId = "";
@@ -176,6 +191,7 @@ export function useReplyStream(workspaceId: string | undefined) {
             ...(mode ? { mode } : {}),
             ...(threadId ? { threadId } : {}),
             ...(model ? { model } : {}),
+            ...(editMessageId ? { editMessageId } : {}),
           },
           {
             signal: controller.signal,
@@ -206,6 +222,9 @@ export function useReplyStream(workspaceId: string | undefined) {
         return { ok: true };
       } catch (error) {
         if (!started) {
+          if (before && threadId) {
+            queryClient.setQueryData(queryKeys.thread(workspaceId, threadId), before);
+          }
           return { ok: false, error: controller.signal.aborted ? null : toApiClientError(error) };
         }
         if (controller.signal.aborted) {

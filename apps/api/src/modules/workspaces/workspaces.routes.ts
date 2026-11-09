@@ -14,5 +14,6 @@ export function createWorkspacesRouter({
   router.post("/", controller.create);
   router.get("/:workspaceId", controller.get);
   router.patch("/:workspaceId", controller.rename);
+  router.delete("/:workspaceId", controller.remove);
   return router;
 }

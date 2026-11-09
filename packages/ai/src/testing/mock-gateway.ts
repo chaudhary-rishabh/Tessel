@@ -3,8 +3,8 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import type { AddressInfo } from "node:net";
 
 /**
- * A local stand-in for the AI Gateway's OpenAI-compatible API, for tests and
- * offline development. Replies are scripted with `enqueue`; otherwise it
+ * A local stand-in for the AI Gateway's OpenAI-compatible API (and Anthropic's
+ * Messages API, for the fallback route), for tests and offline development. Replies are scripted with `enqueue`; otherwise it
  * answers with an echo of the last user message.
  *
  * Moderation: text containing MOCK_BLOCK is flagged as "weapons" and text
@@ -283,6 +283,17 @@ async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> 
   return raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
 }
 
+function lastAnthropicUserText(body: Record<string, unknown>): string {
+  const messages = (body.messages ?? []) as { role: string; content: unknown }[];
+  const last = messages.toReversed().find((message) => message.role === "user");
+  if (!last) return "";
+  if (typeof last.content === "string") return last.content;
+  return (last.content as { type: string; text?: string }[])
+    .filter((block) => block.type === "text")
+    .map((block) => block.text ?? "")
+    .join("");
+}
+
 function sendJson(res: ServerResponse, status: number, body: unknown) {
   res.writeHead(status, { "Content-Type": "application/json" });
   res.end(JSON.stringify(body));
@@ -323,6 +334,62 @@ export async function startMockGateway({ port = 0 }: { port?: number } = {}): Pr
           usage: { prompt_tokens: promptTokens, total_tokens: promptTokens },
           providerMetadata: { gateway: { cost: ((promptTokens * 0.02) / 1e6).toFixed(10) } },
         });
+      }
+
+      // Anthropic's Messages API, for the emergency fallback route.
+      if (path.endsWith("/messages")) {
+        const reply = queue.shift() ?? { text: `Echo: ${lastAnthropicUserText(body)}` };
+        if (reply.networkError) return req.socket.destroy();
+        if (reply.status) {
+          return sendJson(res, reply.status, {
+            type: "error",
+            error: { type: "api_error", message: `Mock ${reply.status}` },
+          });
+        }
+        counter += 1;
+        const text = reply.text ?? "";
+        const inputTokens = reply.usage?.promptTokens ?? tokens(JSON.stringify(body.messages));
+        const outputTokens = reply.usage?.completionTokens ?? tokens(text);
+        const message = {
+          id: `msg_mock_${counter}`,
+          type: "message",
+          role: "assistant",
+          model: body.model,
+          stop_sequence: null,
+        };
+        if (!body.stream) {
+          return sendJson(res, 200, {
+            ...message,
+            content: [{ type: "text", text }],
+            stop_reason: "end_turn",
+            usage: { input_tokens: inputTokens, output_tokens: outputTokens },
+          });
+        }
+        res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" });
+        const send = (event: string, data: unknown) =>
+          res.write(
+            `event: ${event}\ndata: ${JSON.stringify({ type: event, ...(data as object) })}\n\n`,
+          );
+        send("message_start", {
+          message: {
+            ...message,
+            content: [],
+            stop_reason: null,
+            usage: { input_tokens: inputTokens, output_tokens: 0 },
+          },
+        });
+        send("content_block_start", { index: 0, content_block: { type: "text", text: "" } });
+        for (const piece of text.match(/\S+\s*/g) ?? []) {
+          if (res.destroyed) return;
+          send("content_block_delta", { index: 0, delta: { type: "text_delta", text: piece } });
+        }
+        send("content_block_stop", { index: 0 });
+        send("message_delta", {
+          delta: { stop_reason: "end_turn", stop_sequence: null },
+          usage: { output_tokens: outputTokens },
+        });
+        send("message_stop", {});
+        return res.end();
       }
 
       if (!path.endsWith("/chat/completions"))

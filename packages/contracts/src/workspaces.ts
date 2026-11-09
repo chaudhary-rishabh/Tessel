@@ -19,9 +19,12 @@ export const workspaceListResponseSchema = z.object({
 
 export const createWorkspaceRequestSchema = z.object({ name: workspaceNameSchema });
 export const updateWorkspaceRequestSchema = z.object({ name: workspaceNameSchema });
+/** Deleting a workspace asks for its name, so it can't happen by accident. */
+export const deleteWorkspaceRequestSchema = z.object({ name: z.string().trim().min(1) });
 export const workspaceParamsSchema = z.object({ workspaceId: z.uuid("Invalid workspace ID") });
 
 export type WorkspaceRole = z.infer<typeof workspaceRoleSchema>;
 export type Workspace = z.infer<typeof workspaceSchema>;
 export type CreateWorkspaceRequest = z.infer<typeof createWorkspaceRequestSchema>;
 export type UpdateWorkspaceRequest = z.infer<typeof updateWorkspaceRequestSchema>;
+export type DeleteWorkspaceRequest = z.infer<typeof deleteWorkspaceRequestSchema>;

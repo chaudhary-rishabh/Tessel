@@ -88,6 +88,8 @@ export const threadListResponseSchema = z.object({
 export const threadListQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(30),
   before: z.iso.datetime().optional(),
+  /** Finds chats whose title or messages contain this text. */
+  q: z.string().trim().min(1).max(200).optional(),
 });
 
 export const threadResponseSchema = z.object({
@@ -118,6 +120,12 @@ export const sendMessageRequestSchema = z.object({
   /** Whether to search the workspace's documents: the router decides, always, or never. */
   knowledge: knowledgeModeSchema.default("auto"),
   mode: agentModeSchema.default("auto"),
+  /**
+   * Rewrites a chat from one of its user messages: the message gets `content`
+   * (the same text regenerates the reply), keeps its attachments, everything
+   * after it is removed, and a new reply is written. Needs `threadId`.
+   */
+  editMessageId: z.uuid().optional(),
 });
 
 /**

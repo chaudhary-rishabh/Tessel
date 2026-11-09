@@ -4,9 +4,21 @@ import { sql } from "drizzle-orm";
 import request from "supertest";
 import { describe, expect, it } from "vitest";
 import { inject } from "vitest";
-import { bearer, connect, createTestApp, signUp, type SignedUpUser } from "./helpers";
+import { memoryObjectStore, memoryUploadQueue } from "@tessel/storage/testing";
+import {
+  bearer,
+  connect,
+  createTestApp,
+  signUp,
+  testOutbox,
+  uniqueEmail,
+  type SignedUpUser,
+} from "./helpers";
 
-const app = createTestApp();
+const objects = memoryObjectStore();
+const app = createTestApp({
+  storage: { objects, uploads: memoryUploadQueue(), uploadEvents: "api" },
+});
 
 async function personalWorkspaceId(user: SignedUpUser): Promise<string> {
   const res = await request(app).get("/workspaces").set("Authorization", bearer(user));
@@ -166,5 +178,65 @@ describe("row-level security", () => {
           .values({ workspaceId: aliceWorkspace, userId: mallory.auth.user.id, role: "owner" });
       }),
     ).rejects.toThrow();
+  });
+
+  it("lets the owner delete a team workspace with its files, once they type its name", async () => {
+    const owner = await signUp(app);
+    const created = await request(app)
+      .post("/workspaces")
+      .set("Authorization", bearer(owner))
+      .send({ name: "Old project" });
+    const workspaceId = created.body.id as string;
+    // A member, and a file attached in chat.
+    const email = uniqueEmail();
+    await request(app)
+      .post(`/workspaces/${workspaceId}/invitations`)
+      .set("Authorization", bearer(owner))
+      .send({ email, role: "admin" });
+    const token = /\/invite\/([\w-]+)/.exec(testOutbox.latest(email)!.text)![1]!;
+    const admin = await signUp(app, { email });
+    await request(app).post(`/invitations/${token}/accept`).set("Authorization", bearer(admin));
+    await request(app)
+      .patch(`/workspaces/${workspaceId}/members/${admin.auth.user.id}`)
+      .set("Authorization", bearer(owner))
+      .send({ role: "admin" });
+    await request(app)
+      .post(`/workspaces/${workspaceId}/attachments`)
+      .set("Authorization", bearer(owner))
+      .attach("file", Buffer.from("notes"), "notes.txt");
+    const stored = () => [...objects.objects.keys()].filter((key) => key.includes(workspaceId));
+    expect(stored()).toHaveLength(1);
+
+    const remove = (user: SignedUpUser, name: string) =>
+      request(app)
+        .delete(`/workspaces/${workspaceId}`)
+        .set("Authorization", bearer(user))
+        .send({ name });
+    expect((await remove(admin, "Old project")).status).toBe(403);
+    const wrongName = await remove(owner, "old project");
+    expect(wrongName.status).toBe(400);
+    expect(wrongName.body.error.code).toBe("name_mismatch");
+
+    expect((await remove(owner, "Old project")).status).toBe(204);
+    expect(stored()).toHaveLength(0);
+    for (const user of [owner, admin]) {
+      const list = await request(app).get("/workspaces").set("Authorization", bearer(user));
+      expect(list.body.workspaces.map((w: { id: string }) => w.id)).not.toContain(workspaceId);
+    }
+    const audit = await connect(inject("testDatabaseOwnerUrl")).db.execute(
+      sql`select action from audit_events where target = ${`workspace:${workspaceId}`}`,
+    );
+    expect(audit.rows).toEqual([{ action: "workspace.deleted" }]);
+  });
+
+  it("never deletes a personal workspace", async () => {
+    const user = await signUp(app);
+    const workspaceId = await personalWorkspaceId(user);
+    const res = await request(app)
+      .delete(`/workspaces/${workspaceId}`)
+      .set("Authorization", bearer(user))
+      .send({ name: "Ada's workspace" });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe("personal_workspace");
   });
 });

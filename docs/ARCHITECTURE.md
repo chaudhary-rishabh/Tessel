@@ -442,7 +442,8 @@ flowchart LR
 | Deploy           | `.github/workflows/deploy.yml` runs after CI passes on `main`: build, push to ECR, run `infra/deploy/deploy.sh` on EC2 through SSM                                                           |
 | Secrets          | SSM Parameter Store under `/tessel/prod`, written to a root-only `.env` on each deploy                                                                                                       |
 | Health           | Every service has a health check; deploys wait for all of them and roll back on failure                                                                                                      |
-| Backups          | Nightly `pg_dump` to S3 from a systemd timer when Postgres runs on the host (`infra/deploy/backup.sh`, `restore.sh`)                                                                         |
+| Backups          | Nightly `pg_dump` and a Qdrant snapshot to S3 from a systemd timer when the databases run on the host (`infra/deploy/backup.sh`, `restore.sh`)                                               |
+| Logs             | With `LOG_GROUP` set, every container logs to CloudWatch through a Compose override written by `deploy.sh`; otherwise rotated local files                                                    |
 | CI safety net    | Every pull request builds all production images and boots the full production stack (`infra/scripts/smoke-test.sh`) with S3 and SQS emulators, including a signup through the real API image |
 
 Setup steps: [infra/aws/README.md](../infra/aws/README.md).

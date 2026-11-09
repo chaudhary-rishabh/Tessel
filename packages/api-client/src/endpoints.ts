@@ -366,6 +366,10 @@ export function createApi(client: ApiClient) {
         parse(workspaceSchema, (await http.get(`/workspaces/${workspaceId}`)).data),
       rename: async (workspaceId: string, name: string): Promise<Workspace> =>
         parse(workspaceSchema, (await http.patch(`/workspaces/${workspaceId}`, { name })).data),
+      /** Deletes a team workspace and everything in it. Owners only; `name` must match. */
+      remove: async (workspaceId: string, name: string): Promise<void> => {
+        await http.delete(`/workspaces/${workspaceId}`, { data: { name } });
+      },
     },
     models: {
       list: async (): Promise<ModelListResponse> =>
@@ -384,10 +388,14 @@ export function createApi(client: ApiClient) {
     chat: {
       /** send streams a reply; decide continues one waiting on a tool call. See ChatEvent. */
       ...createChatStream(client),
-      threads: async (workspaceId: string, before?: string): Promise<ThreadListResponse> =>
+      /** A page of chats, newest first: older ones with `before`, matching ones with `q`. */
+      threads: async (
+        workspaceId: string,
+        { before, q }: { before?: string; q?: string } = {},
+      ): Promise<ThreadListResponse> =>
         parse(
           threadListResponseSchema,
-          (await http.get(`/workspaces/${workspaceId}/threads`, { params: { before } })).data,
+          (await http.get(`/workspaces/${workspaceId}/threads`, { params: { before, q } })).data,
         ),
       thread: async (workspaceId: string, threadId: string): Promise<ThreadResponse> =>
         parse(

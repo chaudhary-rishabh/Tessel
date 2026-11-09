@@ -125,6 +125,20 @@ export function useRenameWorkspace() {
   });
 }
 
+export function useDeleteWorkspace() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<void, ApiClientError, { workspaceId: string; name: string }>({
+    mutationFn: ({ workspaceId, name }) => api.workspaces.remove(workspaceId, name),
+    onSuccess: (_result, { workspaceId }) => {
+      queryClient.setQueryData<Workspace[]>(queryKeys.workspaces, (current = []) =>
+        current.filter((item) => item.id !== workspaceId),
+      );
+      queryClient.removeQueries({ queryKey: ["workspaces", workspaceId] });
+    },
+  });
+}
+
 export function useModels(options: QueryOptions<ModelListResponse> = {}) {
   const api = useApi();
   // The model list changes only on deploys.
@@ -174,6 +188,37 @@ export function useThread(
     queryFn: () => api.chat.thread(workspaceId!, threadId!),
     enabled: Boolean(workspaceId && threadId),
     ...options,
+  });
+}
+
+/** Chats whose title or messages contain `q`; idle until there is something to search for. */
+export function useThreadSearch(workspaceId: string | undefined, q: string) {
+  const api = useApi();
+  const text = q.trim();
+  return useQuery({
+    queryKey: [...queryKeys.threads(workspaceId ?? "none"), "search", text] as const,
+    queryFn: () => api.chat.threads(workspaceId!, { q: text }),
+    enabled: Boolean(workspaceId) && text.length > 0,
+    placeholderData: (previous) => previous,
+  });
+}
+
+/** Loads the next page of older chats onto the end of the cached chat list. */
+export function useLoadOlderThreads(workspaceId: string) {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<ThreadListResponse, ApiClientError, string>({
+    mutationFn: (before) => api.chat.threads(workspaceId, { before }),
+    onSuccess: (page) => {
+      queryClient.setQueryData<ThreadListResponse>(queryKeys.threads(workspaceId), (current) => {
+        if (!current) return page;
+        const seen = new Set(current.threads.map((thread) => thread.id));
+        return {
+          threads: [...current.threads, ...page.threads.filter((thread) => !seen.has(thread.id))],
+          nextCursor: page.nextCursor,
+        };
+      });
+    },
   });
 }
 

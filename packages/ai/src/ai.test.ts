@@ -188,6 +188,53 @@ describe("emergency fallback", () => {
     expect(ledger.events[0]).toMatchObject({ route: "direct", status: "ok" });
   });
 
+  it("falls back to Anthropic's own API for Claude models", async () => {
+    const { ai, ledger } = setup({
+      ...noModeration,
+      fallback: {
+        // The Anthropic client adds /v1/messages itself.
+        anthropic: { apiKey: "anthropic-key", baseURL: direct.url.replace(/\/v1$/, "") },
+      },
+    });
+    gateway.enqueue({ status: 503 }, { networkError: true });
+    direct.enqueue({
+      text: "From Anthropic",
+      usage: { promptTokens: 1_000, completionTokens: 200 },
+    });
+
+    const result = await ai.complete(context, {
+      model: "anthropic/claude-sonnet-5",
+      messages: [{ role: "user", content: "Hi" }],
+    });
+
+    expect(result).toMatchObject({ text: "From Anthropic", route: "direct" });
+    const sent = direct.requests.find((request) => request.path.endsWith("/v1/messages"))!;
+    expect(sent.body.model).toBe("claude-sonnet-5");
+    expect(sent.body.max_tokens).toBeGreaterThan(0);
+    expect(sent.headers.authorization).toBe("Bearer anthropic-key");
+    expect(ledger.events).toHaveLength(1);
+    expect(ledger.events[0]).toMatchObject({ route: "direct", status: "ok" });
+    expect(ledger.events[0]!.costNanoUsd).toBeGreaterThan(0);
+  });
+
+  it("streams from Anthropic's own API", async () => {
+    const { ai } = setup({
+      ...noModeration,
+      gateway: undefined,
+      fallback: {
+        anthropic: { apiKey: "anthropic-key", baseURL: direct.url.replace(/\/v1$/, "") },
+      },
+    });
+    direct.enqueue({ text: "Streaming from Anthropic now" });
+    const model = ai.chatModel(context, "anthropic/claude-sonnet-5");
+    let streamed = "";
+    for await (const chunk of await model.stream([{ role: "user", content: "Hi" }])) {
+      streamed += typeof chunk.content === "string" ? chunk.content : "";
+    }
+    expect(streamed).toBe("Streaming from Anthropic now");
+    expect(direct.requests.at(-1)!.body.stream).toBe(true);
+  });
+
   it("doesn't fall back when the request itself is invalid", async () => {
     const { ai, ledger } = setup(noModeration);
     gateway.enqueue({ status: 400 });

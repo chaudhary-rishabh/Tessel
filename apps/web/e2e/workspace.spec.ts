@@ -18,6 +18,36 @@ test.describe("workspace and settings", () => {
     );
   });
 
+  test("deletes a team workspace after typing its name", async ({ page }) => {
+    await signUp(page);
+    await openNavigation(page);
+    await page.getByRole("button", { name: "Switch workspace" }).click();
+    await page.getByRole("menuitem", { name: "New workspace" }).click();
+    const create = page.getByRole("dialog", { name: "New workspace" });
+    await create.getByLabel("Workspace name").fill("Short project");
+    await create.getByRole("button", { name: "Create workspace" }).click();
+    await expect(create).toBeHidden();
+
+    await page.goto("/settings#workspace");
+    await page.getByRole("button", { name: "Delete workspace" }).click();
+    const dialog = page.getByRole("dialog", { name: "Delete Short project?" });
+    const confirm = dialog.getByRole("button", { name: "Delete workspace" });
+    await expect(confirm).toBeDisabled();
+    await dialog.getByLabel("Type Short project to confirm").fill("Short project");
+    await confirm.click();
+
+    await expect(page.getByText("Short project was deleted")).toBeVisible();
+    await expect(page).toHaveURL(/\/chat$/);
+    await openNavigation(page);
+    await expect(page.getByRole("button", { name: "Switch workspace" })).toContainText(
+      "Ada's workspace",
+    );
+    // The personal workspace has no delete button.
+    await page.goto("/settings#workspace");
+    await expect(page.getByLabel("Workspace name")).toHaveValue("Ada's workspace");
+    await expect(page.getByRole("button", { name: "Delete workspace" })).toHaveCount(0);
+  });
+
   test("renames the current workspace", async ({ page }) => {
     await signUp(page);
     await page.goto("/settings");

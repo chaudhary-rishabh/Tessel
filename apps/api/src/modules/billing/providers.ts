@@ -51,6 +51,8 @@ export interface PaymentProvider {
   updateSeats(account: BillingAccountRow, seats: number): Promise<void>;
   /** Cancels at the end of the period, or undoes that. */
   setCancelAtPeriodEnd(account: BillingAccountRow, cancel: boolean): Promise<void>;
+  /** Ends the subscription now, with no further charges (the workspace is being deleted). */
+  cancelNow(account: BillingAccountRow): Promise<void>;
   /** The provider's own page for payment methods and invoices, when it has one. */
   portal?(account: BillingAccountRow, returnUrl: string): Promise<string>;
   /** Adds extra usage to the next invoice. */
@@ -125,7 +127,7 @@ export function createStripeProvider(config: StripeConfig): PaymentProvider {
   const fetcher = config.fetch ?? fetch;
 
   async function call<T>(
-    method: "GET" | "POST",
+    method: "GET" | "POST" | "DELETE",
     path: string,
     body?: Record<string, unknown>,
   ): Promise<T> {
@@ -226,6 +228,10 @@ export function createStripeProvider(config: StripeConfig): PaymentProvider {
       await call("POST", `/subscriptions/${account.subscriptionId}`, {
         cancel_at_period_end: cancel,
       });
+    },
+
+    async cancelNow(account) {
+      await call("DELETE", `/subscriptions/${account.subscriptionId}`);
     },
 
     async portal(account, returnUrl) {
@@ -421,6 +427,12 @@ export function createRazorpayProvider(config: RazorpayConfig): PaymentProvider 
       }
       await call("POST", `/subscriptions/${account.subscriptionId}/cancel`, {
         cancel_at_cycle_end: 1,
+      });
+    },
+
+    async cancelNow(account) {
+      await call("POST", `/subscriptions/${account.subscriptionId}/cancel`, {
+        cancel_at_cycle_end: 0,
       });
     },
 

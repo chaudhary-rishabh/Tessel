@@ -51,16 +51,28 @@
       "Resource": "arn:aws:sqs:REGION:ACCOUNT_ID:tessel-uploads"
     },
     {
-      "Sid": "PostgresBackups",
+      "Sid": "Backups",
       "Effect": "Allow",
       "Action": ["s3:PutObject", "s3:GetObject"],
-      "Resource": "arn:aws:s3:::BACKUP_BUCKET_NAME/postgres/*"
+      "Resource": [
+        "arn:aws:s3:::BACKUP_BUCKET_NAME/postgres/*",
+        "arn:aws:s3:::BACKUP_BUCKET_NAME/qdrant/*"
+      ]
     },
     {
       "Sid": "SendEmail",
       "Effect": "Allow",
       "Action": ["ses:SendEmail"],
       "Resource": "arn:aws:ses:REGION:ACCOUNT_ID:identity/*"
+    },
+    {
+      "Sid": "ContainerLogs",
+      "Effect": "Allow",
+      "Action": ["logs:CreateLogStream", "logs:PutLogEvents", "logs:DescribeLogStreams"],
+      "Resource": [
+        "arn:aws:logs:REGION:ACCOUNT_ID:log-group:/tessel/prod",
+        "arn:aws:logs:REGION:ACCOUNT_ID:log-group:/tessel/prod:*"
+      ]
     }
   ]
 }

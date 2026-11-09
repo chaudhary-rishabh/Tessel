@@ -75,15 +75,17 @@ flowchart LR
      }]
    }'
    ```
-5. Optional, for Postgres on the host: a backups bucket that keeps 30 days of nightly backups.
+5. Optional, for databases on the host: a backups bucket that keeps 30 days of nightly Postgres and search index backups.
    ```bash
    aws s3api create-bucket --region ap-south-1 --bucket BACKUP_BUCKET_NAME \
      --create-bucket-configuration LocationConstraint=ap-south-1
    aws s3api put-public-access-block --bucket BACKUP_BUCKET_NAME \
      --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
    aws s3api put-bucket-lifecycle-configuration --bucket BACKUP_BUCKET_NAME --lifecycle-configuration '{
-     "Rules": [{ "ID": "expire-backups", "Status": "Enabled", "Filter": { "Prefix": "postgres/" },
-                 "Expiration": { "Days": 30 } }]
+     "Rules": [{ "ID": "expire-postgres", "Status": "Enabled", "Filter": { "Prefix": "postgres/" },
+                 "Expiration": { "Days": 30 } },
+               { "ID": "expire-qdrant", "Status": "Enabled", "Filter": { "Prefix": "qdrant/" },
+                 "Expiration": { "Days": 7 } }]
    }'
    ```
 
@@ -110,6 +112,13 @@ Tessel emails signup codes, password reset links, and security notices through S
 3. Set `MAIL_FROM` to an address on the verified domain, such as `Tessel <no-reply@example.com>` (section 5).
 
 The instance role's `SendEmail` statement only allows mail from identities in this account.
+
+4. Stop mailing addresses that bounce or complain. SES keeps an account-level suppression list and skips those addresses from then on, which protects your sending reputation:
+   ```bash
+   aws sesv2 put-account-suppression-attributes --region ap-south-1 \
+     --suppressed-reasons BOUNCE COMPLAINT
+   ```
+   Review it with `aws sesv2 list-suppressed-destinations`, and remove an address someone fixed with `delete-suppressed-destination`.
 
 ### Optional: Google and GitHub sign-in
 
@@ -152,7 +161,13 @@ Test with each provider's test-mode keys first; a test card payment should move 
        --http-tokens required --http-put-response-hop-limit 2
      ```
 3. Attach an Elastic IP so the address survives restarts.
-4. Point DNS `A` records at the Elastic IP: `app.`, `api.`, `mcp.`, and `admin.` on your domain. Caddy requests HTTPS certificates for them on first start.
+4. Optional but recommended: a CloudWatch log group for every container's logs, kept for 30 days. Set `LOG_GROUP` (section 7) to use it.
+   ```bash
+   aws logs create-log-group --region ap-south-1 --log-group-name /tessel/prod
+   aws logs put-retention-policy --region ap-south-1 --log-group-name /tessel/prod --retention-in-days 30
+   ```
+   Each container gets its own stream named after it, such as `tessel-api-1`. Read them under **CloudWatch → Log groups**, or with `aws logs tail /tessel/prod --follow`.
+5. Point DNS `A` records at the Elastic IP: `app.`, `api.`, `mcp.`, and `admin.` on your domain. Caddy requests HTTPS certificates for them on first start.
 
 ## 5. Secrets
 
@@ -203,7 +218,8 @@ In the repository, open **Settings → Secrets and variables → Actions → Var
 | `ACME_EMAIL`          | `you@example.com` (Let's Encrypt expiry notices)             |
 | `COMPOSE_PROFILES`    | `edge,data` (drop `data` when using RDS and ElastiCache)     |
 | `IMAGE_PLATFORM`      | optional: `linux/arm64` for Graviton instances such as `t4g` |
-| `BACKUP_BUCKET`       | optional: `BACKUP_BUCKET_NAME` for nightly Postgres backups  |
+| `BACKUP_BUCKET`       | optional: `BACKUP_BUCKET_NAME` for nightly backups           |
+| `LOG_GROUP`           | optional: `/tessel/prod` to send logs to CloudWatch          |
 
 None of these are secret. Deploys stay off until `AWS_DEPLOY_ROLE_ARN` is set.
 
@@ -212,7 +228,7 @@ None of these are secret. Deploys stay off until `AWS_DEPLOY_ROLE_ARN` is set.
 Run the **Deploy** workflow from the Actions tab (or push to `main`). It:
 
 1. builds and pushes the six images, tagged with the commit,
-2. writes `docker-compose.prod.yml`, `Caddyfile`, `deploy.sh`, and `deploy.env` to `/opt/tessel` over SSM,
+2. writes `docker-compose.prod.yml`, `Caddyfile`, `deploy.sh`, `backup.sh`, `restore.sh`, and `deploy.env` to `/opt/tessel` over SSM,
 3. runs `deploy.sh`: loads secrets, pulls images, starts databases, runs migrations, starts the apps, and waits for every health check,
 4. rolls back to the previous image tag if the new version fails its health checks,
 5. checks the live site over HTTPS.
@@ -238,11 +254,28 @@ cd /opt/tessel
 sudo docker compose -f docker-compose.prod.yml --env-file deploy.env ps
 sudo docker compose -f docker-compose.prod.yml --env-file deploy.env logs -f api
 sudo ./deploy.sh <previous-tag>   # manual rollback
-sudo ./backup.sh                  # back up Postgres now
+sudo ./backup.sh                  # back up Postgres and the search index now
 sudo ./restore.sh postgres/tessel-<timestamp>.dump   # restore a backup (stops the apps meanwhile)
 ```
 
+The search index is rebuilt from the files in S3 if it's lost, so restoring its backup is only faster. To restore one, copy `qdrant/tessel-<timestamp>.snapshot` from the bucket into the `qdrant-data` volume and start Qdrant once with `./qdrant --storage-snapshot <file>` (see Qdrant's snapshot docs). With `LOG_GROUP` set, `docker compose logs` still shows recent lines from Docker's local cache.
+
 ## Checking the upload pipeline
+
+Get an email when an upload fails for good (it lands in the dead-letter queue):
+
+```bash
+aws sns create-topic --region ap-south-1 --name tessel-alerts
+aws sns subscribe --region ap-south-1 --protocol email --notification-endpoint you@example.com \
+  --topic-arn arn:aws:sns:ap-south-1:ACCOUNT_ID:tessel-alerts
+aws cloudwatch put-metric-alarm --region ap-south-1 --alarm-name tessel-upload-failures \
+  --namespace AWS/SQS --metric-name ApproximateNumberOfMessagesVisible \
+  --dimensions Name=QueueName,Value=tessel-uploads-dlq --statistic Maximum \
+  --period 300 --evaluation-periods 1 --threshold 0 --comparison-operator GreaterThanThreshold \
+  --alarm-actions arn:aws:sns:ap-south-1:ACCOUNT_ID:tessel-alerts
+```
+
+Confirm the subscription from the email AWS sends.
 
 - Messages waiting or in flight: `aws sqs get-queue-attributes --queue-url <url> --attribute-names ApproximateNumberOfMessages ApproximateNumberOfMessagesNotVisible`
 - Anything in `tessel-uploads-dlq` failed five times. Read it, fix the cause, then redrive it from the SQS console.

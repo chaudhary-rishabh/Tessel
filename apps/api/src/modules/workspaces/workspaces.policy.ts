@@ -6,4 +6,5 @@ import type { WorkspaceRole } from "@tessel/contracts";
  */
 export const workspacePolicy = {
   canRename: (role: WorkspaceRole): boolean => role === "owner" || role === "admin",
+  canDelete: (role: WorkspaceRole): boolean => role === "owner",
 };
