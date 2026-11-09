@@ -9,6 +9,8 @@ const MOCK_GATEWAY_URL = "http://127.0.0.1:4300/v1";
 const MOCK_GITHUB_MCP_URL = "http://127.0.0.1:4400/mcp";
 // A mock Google and GitHub for "Continue with Google / GitHub".
 const MOCK_OAUTH_URL = "http://127.0.0.1:4500";
+// A mock Stripe and Razorpay that send signed webhooks back to the API.
+const MOCK_PAYMENTS_URL = "http://127.0.0.1:4600";
 
 /**
  * End-to-end tests run the real web app against the real API, on a desktop
@@ -65,6 +67,14 @@ export default defineConfig({
       timeout: 30_000,
     },
     {
+      command: "pnpm mock-payments",
+      cwd: "../api",
+      url: `${MOCK_PAYMENTS_URL}/health`,
+      reuseExistingServer: !isCI,
+      env: { MOCK_PAYMENTS_PORT: "4600", MOCK_PAYMENTS_WEBHOOK_URL: `${API_URL}/billing/webhooks` },
+      timeout: 30_000,
+    },
+    {
       command: "pnpm exec tsx src/server.ts",
       cwd: "../api",
       url: `${API_URL}/health`,
@@ -81,6 +91,18 @@ export default defineConfig({
         GITHUB_CLIENT_SECRET: "e2e-github-secret",
         SOCIAL_LOGIN_MOCK_URL: MOCK_OAUTH_URL,
         SMS_TRANSPORT: "outbox",
+        PAYMENTS_MOCK_URL: MOCK_PAYMENTS_URL,
+        STRIPE_SECRET_KEY: "sk_test_e2e",
+        STRIPE_WEBHOOK_SECRET: "whsec_test",
+        STRIPE_PRICE_PRO: "price_pro",
+        STRIPE_PRICE_MAX: "price_max",
+        STRIPE_PRICE_TEAM: "price_team",
+        RAZORPAY_KEY_ID: "rzp_test_key",
+        RAZORPAY_KEY_SECRET: "rzp_test_secret",
+        RAZORPAY_WEBHOOK_SECRET: "rzp_webhook_test",
+        RAZORPAY_PLAN_PRO: "plan_pro",
+        RAZORPAY_PLAN_MAX: "plan_max",
+        RAZORPAY_PLAN_TEAM: "plan_team",
       },
       timeout: 60_000,
     },

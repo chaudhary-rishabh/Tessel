@@ -126,6 +126,15 @@ Phone sign-in stays hidden until `SMS_TRANSPORT=sns` is set.
 2. New accounts are in the SMS sandbox, which only texts verified numbers. In the SNS console, open **Text messaging (SMS)** and request production access, and raise the monthly spending limit from its 1 USD default.
 3. Indian numbers need DLT registration: register your business and a template such as `{#var#} is your Tessel sign-in code. It expires in 10 minutes. Don't share it.`, then store `SMS_DLT_ENTITY_ID`, `SMS_DLT_TEMPLATE_ID`, and the registered `SMS_SENDER_ID`. Tessel sends two texts (sign-in and confirming a number); register both wordings from `apps/api/src/lib/sms.ts`.
 
+### Optional: payments (Stripe and Razorpay)
+
+Upgrades appear once a provider's keys are stored (section 5). Without any, everyone stays on Free. Offer one or both: Stripe for cards worldwide, Razorpay for UPI and Indian cards.
+
+- **Stripe:** in the dashboard, create three products with monthly recurring prices in USD: Pro ($20), Max ($100), and Team ($30, per unit). Store their price IDs as `STRIPE_PRICE_PRO`, `STRIPE_PRICE_MAX`, and `STRIPE_PRICE_TEAM`. Under **Developers → Webhooks**, add the endpoint `https://api.example.com/billing/webhooks/stripe` with the events `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, and `invoice.created`, and store its signing secret as `STRIPE_WEBHOOK_SECRET`. Turn on the **Customer portal** (Settings → Billing → Customer portal) with plan cancellation and payment method updates. Store the secret key as `STRIPE_SECRET_KEY`.
+- **Razorpay:** under **Subscriptions → Plans**, create three monthly plans in INR: Pro (₹1,950), Max (₹9,750), and Team (₹2,900, charged per quantity). Store their IDs as `RAZORPAY_PLAN_PRO`, `RAZORPAY_PLAN_MAX`, and `RAZORPAY_PLAN_TEAM`. Under **Settings → Webhooks**, add `https://api.example.com/billing/webhooks/razorpay` with the `subscription.*` events and a secret, stored as `RAZORPAY_WEBHOOK_SECRET`. Store the API key pair as `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET`. Extra usage is converted to rupees at `RAZORPAY_USD_TO_INR` (default 85).
+
+Test with each provider's test-mode keys first; a test card payment should move the workspace to Pro in Settings within a few seconds.
+
 ## 4. EC2 host
 
 1. Create an IAM role for EC2 named `tessel-ec2` with:

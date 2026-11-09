@@ -72,6 +72,10 @@ import { createInvitationLinksRouter, createMembersRouter } from "./modules/memb
 import { createMembersService } from "./modules/members/members.service";
 import { createAdminRouter } from "./modules/admin/admin.routes";
 import { createAdminService } from "./modules/admin/admin.service";
+import { createBillingRouter, createBillingWebhookRouter } from "./modules/billing/billing.routes";
+import type { PaymentProvider } from "./modules/billing/providers";
+import { createBillingService } from "./modules/billing/billing.service";
+import { createUsageLimits } from "./modules/billing/usage-limits";
 import { createSkillsRouter } from "./modules/skills/skills.routes";
 import { createSkillsService } from "./modules/skills/skills.service";
 import { createDocumentsService } from "./modules/documents/documents.service";
@@ -92,6 +96,8 @@ export interface AppDependencies {
   db: Database;
   /** Every model call goes through this: spend caps, moderation, usage ledger. */
   ai: Ai;
+  /** Stripe and Razorpay, for paid plans. Each is off when missing. */
+  payments?: Partial<Record<"stripe" | "razorpay", PaymentProvider>>;
   /** The registry `ai` uses, when it can be edited live (the admin app's model settings). */
   models?: LiveModelRegistry;
   /** S3 for files, SQS for upload events. */
@@ -141,6 +147,7 @@ export function createApp({
   graph,
   mailer,
   models = createLiveModelRegistry(readModelsConfig()),
+  payments = {},
   signIn = { apiPublicUrl: "http://localhost:4000" },
   rateLimitStoreFactory,
   passwordHasher = createPasswordHasher(),
@@ -155,6 +162,17 @@ export function createApp({
   app.use(helmet());
 
   const audit = createAuditRecorder({ db, logger });
+  const usageLimits = config.enforcePlanLimits ? createUsageLimits({ db }) : undefined;
+  const billingService = createBillingService({
+    db,
+    limits: usageLimits ?? createUsageLimits({ db }),
+    audit,
+    logger,
+    payments,
+    webOrigin: config.corsOrigins[0]!,
+  });
+  // Payment providers post here; they need the raw body, so this comes before JSON parsing.
+  app.use("/billing/webhooks", createBillingWebhookRouter({ service: billingService }));
 
   // MCP clients sign in through these from any origin, so they come before CORS.
   const accessTokensService = createAccessTokensService({ db, audit });
@@ -255,7 +273,7 @@ export function createApp({
   });
   const usersService = createUsersService({ db });
   const workspacesService = createWorkspacesService({ db, audit });
-  const aiController = createAiController(createAiService({ db, ai }));
+  const aiController = createAiController(createAiService({ db, ai, limits: usageLimits }));
   const usageController = createUsageController(
     createUsageService({ db, spend: ai.spend, registry: ai.registry }),
   );
@@ -291,7 +309,14 @@ export function createApp({
     skills: skillsService,
     connectors: connectorsService,
     memory: memoryService,
-    service: createChatService({ db, ai, logger, objects: storage.objects, memory: memoryStore }),
+    service: createChatService({
+      db,
+      ai,
+      logger,
+      objects: storage.objects,
+      memory: memoryStore,
+      limits: usageLimits,
+    }),
     ai,
     graph: graphService,
     rag: createRagPipeline({
@@ -359,6 +384,7 @@ export function createApp({
     logger,
     mailer,
     audit,
+    onMembershipChange: (workspaceId) => billingService.syncSeats(workspaceId),
     webOrigin: config.corsOrigins[0]!,
   });
   app.use(
@@ -369,6 +395,10 @@ export function createApp({
       inviteRateLimit: config.rateLimits.signup,
       storeFactory: rateLimitStoreFactory,
     }),
+  );
+  app.use(
+    "/workspaces/:workspaceId/billing",
+    createBillingRouter({ service: billingService, authenticate }),
   );
   app.use("/invitations", createInvitationLinksRouter({ service: membersService, authenticate }));
   app.use(

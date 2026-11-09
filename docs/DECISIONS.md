@@ -354,3 +354,19 @@ The admin app is its own Next.js app and image on its own domain, so its pages, 
 ## D-087 Suspension instead of deletion
 
 Admins suspend accounts rather than delete them, so workspaces, documents, and the audit trail stay intact and the decision can be reversed. A suspended account is signed out everywhere and refused at every sign-in method, at token refresh, and at token lookup. Access tokens already issued are short (15 minutes), which is the accepted gap, rather than adding a database lookup to every request.
+
+## D-088 Plans limit spend in two windows, like Claude
+
+Each plan (Free, Pro, Max, Team) has a five-hour limit and a weekly limit, measured in model cost per person per workspace, so heavy and light models count fairly. A window starts with the first request after the last one ended, which matches how people work in bursts. The limits are checked before any model call, from the usage ledger, and a request over either limit gets `usage_limit_reached` with the time it resets. The earlier daily cost caps stay as a safety net for the whole service. Free can only use models marked `free` in the registry; paid plans can use every model. Limits and prices live in `@tessel/contracts`, so the web app shows the same numbers the API enforces.
+
+## D-089 Extra usage is charged at cost on the next invoice
+
+On paid plans, owners and admins can turn on extra usage with a monthly cap. Past a limit, requests keep working and are marked as extra; their cost is summed per billing period and charged at cost when the period closes (a Stripe invoice item on the renewal invoice, a Razorpay add-on on the next charge). Going past the cap refuses requests again. Charging at cost keeps the rule easy to explain and avoids a second price list.
+
+## D-090 Two payment providers behind one interface
+
+Stripe takes cards worldwide, and Razorpay takes UPI and Indian cards in rupees, so both are offered when configured. Each sits behind a small `PaymentProvider` interface (checkout, change plan, cancel, portal, charge, verify webhook) written with `fetch` instead of the vendors' SDKs, which keeps the API image small and lets one mock server stand in for both in tests. The plan a workspace is on is only ever changed by a verified webhook, never by the browser's return from checkout, and each webhook event is stored by ID so a repeated delivery is applied once. Prices in rupees are set on the Razorpay plans; the USD figures are the source of truth.
+
+## D-091 Team seats follow membership
+
+A team workspace pays for at least two seats and one per member. When someone joins or leaves, the subscription's quantity is updated straight away, with the provider's own proration. Personal workspaces can only take Free, Pro, or Max, and shared workspaces only Free or Team, so a plan always matches who uses it.

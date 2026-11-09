@@ -56,9 +56,15 @@ compose up --detach --wait --wait-timeout 180 || fail "apps did not become healt
 http() { compose exec -T api wget -qO- "$@"; }
 
 echo "==> API readiness (every dependency up, including S3, SQS, and Qdrant)"
-ready=$(http http://127.0.0.1:4000/health/ready) || fail "readiness check failed"
+# Emulators can report healthy a little before they serve requests, so allow a minute.
+ready=""
+for _ in $(seq 1 30); do
+  ready=$(http http://127.0.0.1:4000/health/ready 2>/dev/null) && break
+  sleep 2
+done
 echo "$ready"
-grep -q '"status":"ready"' <<<"$ready" || fail "API is not ready"
+grep -q '"status":"ready"' <<<"$ready" ||
+  fail "API is not ready: $(compose exec -T api wget -qO- --content-on-error http://127.0.0.1:4000/health/ready 2>&1 || true)"
 
 echo "==> Signup through the production image (the code arrives by email through SES)"
 started=$(http --header 'Content-Type: application/json' \

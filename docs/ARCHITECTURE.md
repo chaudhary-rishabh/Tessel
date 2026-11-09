@@ -407,6 +407,18 @@ flowchart LR
 | `memory`    | `thread`      | 15 s after a reply, per chat | summary, long-term, and episodic memory                               |
 | `system`    | `maintenance` | daily at 03:17 UTC           | old tokens, unanswered approvals, old checkpoints, abandoned sign-ins |
 
+## Billing
+
+| Concern       | Approach                                                                                                                                                                                                                                                                       |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Plans         | `PLANS` in `@tessel/contracts`: Free, Pro ($20), Max ($100), and Team ($30 a seat, two seats or more). Each has a five-hour and a weekly limit in model cost, per person per workspace, and a model tier.                                                                      |
+| State         | `billing_accounts` (one row per paying workspace: plan, status, provider, subscription, seats, period, extra usage), `usage_windows` (when each person's windows started), `extra_usage_requests` (requests billed as extra), and `billing_events` (webhook IDs already seen). |
+| Enforcement   | `createUsageLimits` runs before each chat and completion request: checks the model tier, then both windows against the usage ledger, then extra usage under its cap. A canceled plan counts as Free.                                                                           |
+| Payments      | `modules/billing/providers.ts`: Stripe (Checkout, Billing Portal, invoice items) and Razorpay (subscriptions, add-ons), both over `fetch`. Webhooks at `/billing/webhooks/stripe` and `/billing/webhooks/razorpay` are verified with the raw body before JSON parsing.         |
+| Plan changes  | Only verified webhooks change a plan. Switching plans updates the existing subscription; team seats follow membership.                                                                                                                                                         |
+| Extra usage   | Charged at cost when a period closes, on the renewal invoice (Stripe) or the next charge (Razorpay).                                                                                                                                                                           |
+| Local and e2e | `pnpm --filter @tessel/api mock-payments` (port 4600) plays Stripe and Razorpay, with payment pages and signed webhooks. Set `PAYMENTS_MOCK_URL` to use it; production refuses it.                                                                                             |
+
 ## Web app
 
 | Concern          | Approach                                                                                                                                                                                                                                                                                                                                                                        |

@@ -42,6 +42,8 @@ export interface MembersServiceDependencies {
   audit: AuditRecorder;
   /** For invitation links: WEB/invite/:token. */
   webOrigin: string;
+  /** Called after someone joins or leaves, so per-seat plans stay in step. */
+  onMembershipChange?: (workspaceId: string) => Promise<void>;
   now?: () => Date;
 }
 
@@ -56,6 +58,7 @@ export function createMembersService({
   mailer,
   audit,
   webOrigin,
+  onMembershipChange = async () => undefined,
   now = () => new Date(),
 }: MembersServiceDependencies) {
   /** The actor's view of a workspace, or not found when they don't belong to it. */
@@ -308,6 +311,7 @@ export function createMembersService({
         );
       }
       logger.info({ userId: actor.userId, workspaceId: workspace.id }, "Joined a workspace");
+      await onMembershipChange(workspace.id);
       await audit.record({
         actorId: actor.userId,
         workspaceId: workspace.id,
@@ -401,6 +405,7 @@ export function createMembersService({
             ),
           );
       });
+      await onMembershipChange(workspaceId);
       await audit.record({
         actorId: actor.userId,
         workspaceId,

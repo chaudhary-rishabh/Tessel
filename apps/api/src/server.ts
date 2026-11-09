@@ -24,6 +24,7 @@ import { createApp } from "./app";
 import { createOutboxMailer, createSesMailer } from "./lib/mailer";
 import { createOutboxSms, createSnsSms } from "./lib/sms";
 import { createSocialProviders } from "./modules/auth/social-providers";
+import { createRazorpayProvider, createStripeProvider } from "./modules/billing/providers";
 import { connectorCatalog } from "./modules/connectors/connectors.catalog";
 import { configFromEnv } from "./config";
 import { envSchema } from "./env";
@@ -119,8 +120,46 @@ function smsFromEnv() {
   });
 }
 
+/** Stripe and Razorpay, each on when its keys are set. */
+function paymentsFromEnv() {
+  const mock = env.PAYMENTS_MOCK_URL?.replace(/\/$/, "");
+  return {
+    ...(env.STRIPE_SECRET_KEY && env.STRIPE_WEBHOOK_SECRET
+      ? {
+          stripe: createStripeProvider({
+            secretKey: env.STRIPE_SECRET_KEY,
+            webhookSecret: env.STRIPE_WEBHOOK_SECRET,
+            prices: {
+              pro: env.STRIPE_PRICE_PRO,
+              max: env.STRIPE_PRICE_MAX,
+              team: env.STRIPE_PRICE_TEAM,
+            },
+            ...(mock ? { baseUrl: `${mock}/stripe` } : {}),
+          }),
+        }
+      : {}),
+    ...(env.RAZORPAY_KEY_ID && env.RAZORPAY_KEY_SECRET && env.RAZORPAY_WEBHOOK_SECRET
+      ? {
+          razorpay: createRazorpayProvider({
+            keyId: env.RAZORPAY_KEY_ID,
+            keySecret: env.RAZORPAY_KEY_SECRET,
+            webhookSecret: env.RAZORPAY_WEBHOOK_SECRET,
+            plans: {
+              pro: env.RAZORPAY_PLAN_PRO,
+              max: env.RAZORPAY_PLAN_MAX,
+              team: env.RAZORPAY_PLAN_TEAM,
+            },
+            usdToInr: env.RAZORPAY_USD_TO_INR,
+            ...(mock ? { baseUrl: `${mock}/razorpay` } : {}),
+          }),
+        }
+      : {}),
+  };
+}
+
 const app = createApp({
   models: registry,
+  payments: paymentsFromEnv(),
   config,
   logger,
   db: database.db,

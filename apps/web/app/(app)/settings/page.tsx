@@ -12,6 +12,7 @@ import { AccessTokensSection } from "@/components/settings/access-tokens-section
 import { ActivitySection } from "@/components/settings/activity-section";
 import { ConnectedAppsSection } from "@/components/settings/connected-apps-section";
 import { MemorySection } from "@/components/settings/memory-section";
+import { BillingReturnNotice, PlanSection } from "@/components/settings/plan-section";
 import { SessionsSection } from "@/components/settings/sessions-section";
 import { SignInMethodsSection } from "@/components/settings/sign-in-methods-section";
 import { TwoFactorSection } from "@/components/settings/two-factor-section";
@@ -132,6 +133,23 @@ function WorkspaceSection() {
           </div>
         ) : null}
       </form>
+    </Section>
+  );
+}
+
+function PlanSettings() {
+  const { current } = useCurrentWorkspace();
+  if (!current) return null;
+  return (
+    <Section
+      id="plan"
+      title="Plan and usage"
+      description={`Limits reset every five hours and every week. ${current.isPersonal ? "Your personal workspace has its own plan." : `${current.name}'s plan covers everyone in it.`}`}
+    >
+      <Suspense fallback={null}>
+        <BillingReturnNotice workspaceId={current.id} />
+      </Suspense>
+      <PlanSection workspaceId={current.id} isPersonal={current.isPersonal} />
     </Section>
   );
 }
@@ -305,6 +323,7 @@ export default function SettingsPage() {
         <ProfileSection />
         <WorkspaceSection />
         <MemorySettings />
+        <PlanSettings />
         <UsageSettings />
         <AccessTokenSettings />
         <ConnectedAppsSettings />
