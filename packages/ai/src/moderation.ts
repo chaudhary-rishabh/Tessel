@@ -59,6 +59,7 @@ Return every category that clearly applies, or an empty list:
 Do not flag ordinary work, fiction, news, history, research, security education, medical questions, or criticism. When unsure, return an empty list.
 Call the ${MODERATION_TOOL} tool with your answer.`;
 
+/** Characters per moderation call; longer text is split into pieces this size. */
 const MAX_CHARACTERS = 16_000;
 
 const moderationTool = {
@@ -87,19 +88,27 @@ export function createModelModerator({
 }): Moderator {
   return {
     async check(context, text) {
-      const content = text.length > MAX_CHARACTERS ? text.slice(0, MAX_CHARACTERS) : text;
       try {
         const model = createModel({ ...context, feature: "moderation" });
         if (!model.bindTools) throw new Error("The moderation model must support tools");
-        const reply = (await model
-          .bindTools([moderationTool], { tool_choice: MODERATION_TOOL })
-          .invoke([
-            new SystemMessage(POLICY),
-            new HumanMessage(`<content>\n${content}\n</content>`),
-          ])) as AIMessageChunk;
-        const call = reply.tool_calls?.find((toolCall) => toolCall.name === MODERATION_TOOL);
-        const { categories } = resultSchema.parse(call?.args ?? {});
-        const unique = [...new Set(categories)];
+        const classifier = model.bindTools([moderationTool], { tool_choice: MODERATION_TOOL });
+        // Long text is checked in pieces, in parallel, so nothing past the
+        // first piece can slip through unread.
+        const pieces: string[] = [];
+        for (let start = 0; start < text.length || pieces.length === 0; start += MAX_CHARACTERS) {
+          pieces.push(text.slice(start, start + MAX_CHARACTERS));
+        }
+        const found = await Promise.all(
+          pieces.map(async (content) => {
+            const reply = (await classifier.invoke([
+              new SystemMessage(POLICY),
+              new HumanMessage(`<content>\n${content}\n</content>`),
+            ])) as AIMessageChunk;
+            const call = reply.tool_calls?.find((toolCall) => toolCall.name === MODERATION_TOOL);
+            return resultSchema.parse(call?.args ?? {}).categories;
+          }),
+        );
+        const unique = [...new Set(found.flat())];
         return {
           allowed: !unique.some((category) => BLOCKING.has(category)),
           categories: unique,

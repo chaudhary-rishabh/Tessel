@@ -39,8 +39,8 @@ export async function ingestDocument(
 ): Promise<IngestOutcome> {
   const userId = await store.uploaderOf(documentId);
   if (!userId) return "skipped"; // deleted before we got to it
-  const document = await store.start(userId, documentId);
-  if (!document || document.workspaceId !== workspaceId) return "skipped";
+  const document = await store.start(userId, workspaceId, documentId);
+  if (!document) return "skipped";
   const log = logger.child({ documentId, workspaceId });
 
   try {

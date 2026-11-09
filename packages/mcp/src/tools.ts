@@ -80,8 +80,10 @@ export function connectorTools(
   for (const remote of source.tools) {
     const risk = toolRisk(remote, source.policies[remote.name] ?? "auto");
     if (!risk) continue;
-    let name = toolName(source.prefix, remote.name);
-    for (let n = 2; taken.has(name); n += 1) name = `${name.slice(0, 60)}_${n}`;
+    // On a clash, try base_2, base_3, ... (not base_2_3).
+    const base = toolName(source.prefix, remote.name);
+    let name = base;
+    for (let n = 2; taken.has(name); n += 1) name = `${base.slice(0, 60)}_${n}`;
     taken.add(name);
     const title = toolTitle(remote);
     tools.push(

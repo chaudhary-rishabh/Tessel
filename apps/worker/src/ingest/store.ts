@@ -1,5 +1,5 @@
 import { documents, withUserContext, type Database, type DocumentRow } from "@tessel/db";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 /**
  * Document status changes made by the worker. Upload events carry only the
@@ -16,12 +16,17 @@ export function createDocumentStore(db: Database) {
     },
 
     /** Marks the document as processing and returns it, or undefined if it no longer exists. */
-    async start(userId: string, documentId: string): Promise<DocumentRow | undefined> {
+    /** Marks the document processing, only if it's in the job's workspace. */
+    async start(
+      userId: string,
+      workspaceId: string,
+      documentId: string,
+    ): Promise<DocumentRow | undefined> {
       return withUserContext(db, userId, async (tx) => {
         const [row] = await tx
           .update(documents)
           .set({ status: "processing", errorCode: null })
-          .where(eq(documents.id, documentId))
+          .where(and(eq(documents.id, documentId), eq(documents.workspaceId, workspaceId)))
           .returning();
         return row;
       });

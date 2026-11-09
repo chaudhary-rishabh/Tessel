@@ -5,7 +5,8 @@ import type { ConnectionCredentials } from "./credentials";
 import { createSecretBox } from "./crypto";
 import { startMockMcpServer, type MockMcpServer } from "./testing";
 import { connectorTools, toolName, toolRisk } from "./tools";
-import { assertSafeUrl, UnsafeUrlError } from "./url-guard";
+import { fetch as undiciFetch, Agent } from "undici";
+import { assertSafeUrl, connectorLookup, isPrivateAddress, UnsafeUrlError } from "./url-guard";
 
 const REDIRECT = "http://localhost:4000/connectors/oauth/callback";
 const run = {
@@ -28,6 +29,40 @@ describe("secret box", () => {
 });
 
 describe("URL guard", () => {
+  it("checks the address again when connecting, as the socket's lookup", async () => {
+    const lookup = (host: string, all: boolean) =>
+      new Promise<unknown>((resolve, reject) =>
+        connectorLookup(host, { all }, (error, address, family) =>
+          error ? reject(error) : resolve(all ? address : { address, family }),
+        ),
+      );
+    await expect(lookup("93.184.215.14", false)).resolves.toEqual({
+      address: "93.184.215.14",
+      family: 4,
+    });
+    await expect(lookup("93.184.215.14", true)).resolves.toEqual([
+      { address: "93.184.215.14", family: 4 },
+    ]);
+    await expect(lookup("127.0.0.1", false)).rejects.toBeInstanceOf(UnsafeUrlError);
+    await expect(lookup("localhost", true)).rejects.toBeInstanceOf(UnsafeUrlError);
+    // Through a real connection attempt, too.
+    const dispatcher = new Agent({ connect: { lookup: connectorLookup } });
+    const refused = await undiciFetch("http://localhost:4999/", { dispatcher }).catch(
+      (error: Error & { cause?: unknown }) => error.cause,
+    );
+    expect(refused).toBeInstanceOf(UnsafeUrlError);
+  });
+
+  it("classifies addresses in every notation", () => {
+    expect(isPrivateAddress("169.254.169.254")).toBe(true);
+    expect(isPrivateAddress("::ffff:a9fe:a9fe")).toBe(true);
+    expect(isPrivateAddress("172.31.255.255")).toBe(true);
+    expect(isPrivateAddress("172.32.0.1")).toBe(false);
+    expect(isPrivateAddress("93.184.215.14")).toBe(false);
+    expect(isPrivateAddress("2606:4700::1111")).toBe(false);
+    expect(isPrivateAddress("not an address")).toBe(true);
+  });
+
   it("allows public https URLs and blocks internal ones", async () => {
     await expect(assertSafeUrl("https://93.184.215.14/mcp")).resolves.toBeInstanceOf(URL);
     for (const url of [
@@ -36,6 +71,16 @@ describe("URL guard", () => {
       "https://169.254.169.254/latest/meta-data",
       "https://10.0.0.5/mcp",
       "https://[::1]/mcp",
+      // IPv4 written as IPv6, in both notations, and in other IPv4 spellings.
+      "https://[::ffff:169.254.169.254]/latest/meta-data",
+      "https://[::ffff:ac12:5]:6333/",
+      "https://0x7f.1/mcp",
+      "https://2130706433/mcp",
+      // NAT64 and 6to4 can carry any IPv4 address.
+      "https://[64:ff9b::a9fe:a9fe]/",
+      "https://[2002:a9fe:a9fe::]/",
+      "https://[fd00::1]/mcp",
+      "https://[fe80::1]/mcp",
       "https://user:pass@example.com/mcp",
       "not a url",
     ]) {

@@ -23,13 +23,20 @@ STAMP=$(date -u +%Y-%m-%dT%H%M%SZ)
 
 compose() { IMAGE_TAG=$TAG docker compose --file docker-compose.prod.yml --env-file deploy.env "$@"; }
 running() { compose ps --status running --services | grep -qx "$1"; }
-upload() { aws s3 cp - "s3://$BACKUP_BUCKET/$1" --region "$AWS_REGION" --sse AES256 --only-show-errors; }
+# Each backup is written to a local file and checked before it's uploaded, so a
+# dump that fails halfway never lands in S3 looking like a good backup.
+WORK=$(mktemp -d /var/tmp/tessel-backup.XXXXXX)
+trap 'rm -rf "$WORK"' EXIT
+upload() { aws s3 cp "$1" "s3://$BACKUP_BUCKET/$2" --region "$AWS_REGION" --sse AES256 --only-show-errors; }
 
 if running postgres; then
   key="postgres/tessel-$STAMP.dump"
   echo "Backing up Postgres to s3://$BACKUP_BUCKET/$key"
   # Custom format is compressed and lets pg_restore restore selectively.
-  compose exec -T postgres pg_dump --username tessel --dbname tessel --format custom | upload "$key"
+  compose exec -T postgres pg_dump --username tessel --dbname tessel --format custom >"$WORK/postgres.dump"
+  # pg_restore can only list a complete archive.
+  compose exec -T postgres pg_restore --list <"$WORK/postgres.dump" >/dev/null
+  upload "$WORK/postgres.dump" "$key"
 fi
 
 if running qdrant && running api; then
@@ -52,7 +59,10 @@ if running qdrant && running api; then
       Readable.fromWeb(download.body).on("error", reject).pipe(process.stdout).on("finish", resolve),
     );
     await call("DELETE", `/snapshots/${result.name}`);
-  ' | upload "$key"
+  ' >"$WORK/qdrant.snapshot"
+  # A snapshot is a tar archive; a cut-off one can't be listed.
+  tar -tf "$WORK/qdrant.snapshot" >/dev/null
+  upload "$WORK/qdrant.snapshot" "$key"
 fi
 
 echo "Backup complete"

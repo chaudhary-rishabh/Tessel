@@ -129,12 +129,24 @@ compose "$TAG" --profile tools run --rm migrate
 
 # Migrations run before the new version starts, so they must stay compatible
 # with the version currently running (add columns, don't rename or drop them).
+# Healthy containers only prove the processes run; readiness proves the API
+# reaches Postgres, Redis, S3, SQS, Qdrant, and Neo4j with this version's settings.
+ready() {
+  for _ in $(seq 1 30); do
+    compose "$TAG" exec -T api wget -qO- http://127.0.0.1:4000/health/ready >/dev/null 2>&1 && return 0
+    sleep 2
+  done
+  log "The API isn't ready:"
+  compose "$TAG" exec -T api wget -qO- --content-on-error http://127.0.0.1:4000/health/ready || true
+  return 1
+}
+
 log "Starting the new version"
-if compose "$TAG" up --detach --wait --wait-timeout 300 --remove-orphans; then
+if compose "$TAG" up --detach --wait --wait-timeout 300 --remove-orphans && ready; then
   echo "$TAG" >.deployed-tag
   log "Deployed $TAG"
 else
-  log "New version failed its health checks"
+  log "New version failed its health or readiness checks"
   compose "$TAG" ps
   compose "$TAG" logs --tail 50 api worker mcp-server web admin || true
   if [[ -n "$PREVIOUS" && "$PREVIOUS" != "$TAG" ]]; then

@@ -34,6 +34,8 @@ export interface EpisodeIndex {
   remove(threadId: string): Promise<void>;
   /** Removes every episode of a user in a workspace, e.g. when they turn chat search off. */
   removeAll(workspaceId: string, userId: string): Promise<void>;
+  /** Removes every episode in a workspace, for everyone who was ever in it. */
+  removeWorkspace(workspaceId: string): Promise<void>;
   search(query: {
     workspaceId: string;
     userId: string;
@@ -113,6 +115,12 @@ export function createQdrantEpisodeIndex({
     async removeAll(workspaceId, userId) {
       await client.delete(collection, { wait: true, filter: ownerFilter(workspaceId, userId) });
     },
+    async removeWorkspace(workspaceId) {
+      await client.delete(collection, {
+        wait: true,
+        filter: { must: [{ key: "workspace_id", match: { value: workspaceId } }] },
+      });
+    },
     async search({ workspaceId, userId, dense, sparse, limit, excludeThreadId }) {
       const filter = ownerFilter(workspaceId, userId, excludeThreadId);
       const result = await client.query(collection, {
@@ -156,6 +164,11 @@ export function memoryEpisodeIndex(): EpisodeIndex & { episodes: Map<string, Ind
       for (const [id, episode] of episodes) {
         if (episode.payload.workspace_id === workspaceId && episode.payload.user_id === userId)
           episodes.delete(id);
+      }
+    },
+    removeWorkspace: async (workspaceId) => {
+      for (const [id, episode] of episodes) {
+        if (episode.payload.workspace_id === workspaceId) episodes.delete(id);
       }
     },
     search: async ({ workspaceId, userId, sparse, limit, excludeThreadId }) =>
