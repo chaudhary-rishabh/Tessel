@@ -14,7 +14,7 @@ import express, { type Express, type Request } from "express";
 import { ipKeyGenerator, rateLimit } from "express-rate-limit";
 import { z } from "zod";
 
-/** Calls the Tessel API with the client's personal access token. */
+/** An error answer from the Tessel API, with its HTTP status. */
 export class TesselApiError extends Error {
   constructor(
     readonly status: number,
@@ -25,6 +25,7 @@ export class TesselApiError extends Error {
   }
 }
 
+/** Calls the Tessel API with the client's personal access token. */
 function apiClient(apiUrl: string, token: string, fetchFn: typeof fetch) {
   return async function call<T>(
     path: string,
@@ -178,6 +179,7 @@ export function createMcpServerApp({
   fetchFn = fetch,
   requestsPerMinute = 120,
   oauth,
+  trustProxy = 0,
 }: {
   service: string;
   /** The API as this server reaches it, e.g. http://api:4000. */
@@ -188,9 +190,12 @@ export function createMcpServerApp({
   requestsPerMinute?: number;
   /** Lets clients sign in with OAuth instead of pasting a token (MCP authorization spec). */
   oauth?: McpOAuthSettings | undefined;
+  /** Proxies in front of the server (1 behind Caddy), so rate limits see each client's own IP. */
+  trustProxy?: number;
 }): Express {
   const app = express();
   app.disable("x-powered-by");
+  app.set("trust proxy", trustProxy);
   app.use(express.json({ limit: "1mb" }));
 
   const resourceMetadataUrl = oauth

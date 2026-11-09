@@ -390,3 +390,22 @@ Only the owner can delete a team workspace, and only after typing its name. The 
 ## D-096 Operations on one host: CloudWatch logs and nightly backups
 
 With `LOG_GROUP` set, the deploy writes a Compose override that sends every container's logs to CloudWatch (non-blocking, so a slow CloudWatch never stalls the apps), and Docker keeps a local copy for `docker compose logs`. The nightly backup takes a Postgres dump and a full Qdrant snapshot, streamed straight to S3 through the API container, which already has Qdrant's address and key. SES's account-level suppression list handles bounces and complaints, so the app doesn't need its own bounce handling.
+
+## D-097 Fixes from the codebase review
+
+A full review before the first deploy changed a few rules worth recording:
+
+- **Request IDs are always the API's own.** They key usage and extra-usage records, so a caller could otherwise reuse one ID to hide extra usage from the cap. A caller's ID is still logged as `upstreamRequestId`.
+- **Billing follows the provider's IDs.** A plan comes from the subscription's price or plan ID, not the metadata written at checkout (which a plan change doesn't update). Webhooks are retried safely: a failed event is forgotten so the retry applies, Stripe charges carry an idempotency key, and late events for a cancelled or replaced subscription are ignored. Seat changes run one at a time per workspace.
+- **Paused or unpaid plans don't last for ever.** `incomplete` counts as Free, and `past_due` keeps the plan for 7 days after the period ends.
+- **Approving a tool call is a model request.** It checks the plan's limits like a new message.
+- **Rate limits for texts and emails are per number or address**, alongside per IP, and every limiter has a unique name (see ARCHITECTURE, Rate limiting). The two-step code step is limited per user.
+- **App sign-ins are tied to the browser that started them** with an httpOnly cookie, so a sign-in link sent to someone else can't connect their account to another person's connector.
+- **Connector addresses are checked with `net.BlockList`**, which understands IPv4 written as IPv6, and checked again at connect time through the socket's own DNS lookup, so DNS rebinding can't reach internal services.
+- **Leaving a workspace revokes that person's access tokens and connected apps for it**, so rejoining starts fresh.
+- **OAuth refresh rotation and the new access token commit together**, so a failed issue doesn't make the client's retry look like token theft.
+- **Forgot-password emails are sent after the response**, so the response time doesn't reveal which emails have accounts.
+- **Deploys check readiness, not just health**, and roll back if the API can't reach its databases and AWS services. The S3 check lists one key under the app's prefix, which the instance role allows.
+- **Backups are verified before upload** (`pg_restore --list`, `tar -t`), and restores download and verify first.
+- **Only pushes to this repository deploy**, never a pull request from a fork's `main`, and every GitHub Action is pinned to a commit.
+- **"Cancelled" is spelled one way** in every API value, including the billing status (migration 0020). Stripe's own "canceled" is translated where it arrives.

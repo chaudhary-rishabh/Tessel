@@ -43,7 +43,7 @@ export default function ResetPasswordPage() {
       <>
         <h1 className="text-3xl font-semibold tracking-tight">Password changed</h1>
         <p className="text-muted mt-2" role="status">
-          You&apos;ve been signed out on every device. Log in with your new password.
+          You&apos;ve been logged out on every device. Log in with your new password.
         </p>
         <Link
           href="/login"

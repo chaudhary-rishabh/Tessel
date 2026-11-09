@@ -12,6 +12,7 @@ import type {
   VerifySignupRequest,
 } from "@tessel/contracts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { resetChatSession } from "@/lib/chat-store";
 import { useSessionStore } from "@/lib/session-store";
 
 /** Starting a new session clears cached data from any previous user. */
@@ -19,6 +20,7 @@ function useStartSession() {
   const queryClient = useQueryClient();
   const setSession = useSessionStore((state) => state.setSession);
   return (auth: Parameters<typeof setSession>[0]) => {
+    resetChatSession();
     queryClient.clear();
     setSession(auth);
   };
@@ -116,6 +118,7 @@ export function useLogout() {
     // Log out locally even if the request fails, so the user is never stuck.
     // RequireSession then sends the user to the login page.
     onSettled: () => {
+      resetChatSession();
       clear("logout");
       queryClient.clear();
     },

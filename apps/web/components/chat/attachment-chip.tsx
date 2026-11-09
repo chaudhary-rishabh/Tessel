@@ -5,7 +5,7 @@ import type { Attachment } from "@tessel/contracts";
 import { cn } from "@tessel/ui";
 import { useQuery } from "@tanstack/react-query";
 import { FileText, X } from "lucide-react";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 
 const formatSize = (bytes: number) =>
   bytes < 1024
@@ -24,12 +24,23 @@ function useImageUrl(workspaceId: string, attachment: Attachment, localUrl?: str
     staleTime: Infinity,
   });
   const url = useMemo(() => (blob.data ? URL.createObjectURL(blob.data) : undefined), [blob.data]);
-  useEffect(
-    () => () => {
-      if (url) URL.revokeObjectURL(url);
-    },
-    [url],
-  );
+  // Revoked a moment after unmounting, so Strict Mode's quick remount (which
+  // keeps the same URL) can cancel it; a real unmount or a new blob revokes it.
+  const pendingRevoke = useRef<{ url: string; timer: number } | undefined>(undefined);
+  useEffect(() => {
+    const pending = pendingRevoke.current;
+    if (pending && pending.url === url) {
+      window.clearTimeout(pending.timer);
+      pendingRevoke.current = undefined;
+    }
+    return () => {
+      if (!url) return;
+      pendingRevoke.current = {
+        url,
+        timer: window.setTimeout(() => URL.revokeObjectURL(url), 0),
+      };
+    };
+  }, [url]);
   return localUrl ?? url;
 }
 

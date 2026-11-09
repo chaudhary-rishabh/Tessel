@@ -1,14 +1,13 @@
 "use client";
 
-import { ApiClientError, toApiClientError } from "@tessel/api-client";
-import { queryKeys, upsertThreadInList, useApi } from "@tessel/api-client/react";
+import { toApiClientError, type ApiClientError } from "@tessel/api-client";
+import { queryKeys, updateThreadLists, upsertThreadInList, useApi } from "@tessel/api-client/react";
 import type {
   AgentModeName,
   Attachment,
   ChatEvent,
   ChatMessage,
   KnowledgeMode,
-  ThreadListResponse,
   ThreadResponse,
 } from "@tessel/contracts";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
@@ -108,9 +107,7 @@ export function useReplyStream(workspaceId: string | undefined) {
         case "title": {
           const rename = <T extends { id: string; title: string | null }>(thread: T): T =>
             thread.id === event.threadId ? { ...thread, title: event.title } : thread;
-          queryClient.setQueryData<ThreadListResponse>(queryKeys.threads(workspaceId), (current) =>
-            current ? { ...current, threads: current.threads.map(rename) } : current,
-          );
+          updateThreadLists(queryClient, workspaceId, (threads) => threads.map(rename));
           queryClient.setQueryData<ThreadResponse>(
             queryKeys.thread(workspaceId, event.threadId),
             (current) => (current ? { ...current, thread: rename(current.thread) } : current),
@@ -313,5 +310,3 @@ export function useReplyStream(workspaceId: string | undefined) {
 export function useSendMessage(workspaceId: string | undefined) {
   return useReplyStream(workspaceId).send;
 }
-
-export { ApiClientError };

@@ -25,9 +25,38 @@ export interface UsageActor {
   requestId?: string | undefined;
 }
 
-/** The plan in force: a canceled subscription falls back to free. */
-export function effectivePlan(account: BillingAccountRow | undefined): Plan {
-  if (!account || account.status === "canceled") return PLANS.free;
+/**
+ * The tier of the model a request will use. An unknown model counts as free:
+ * the model call itself refuses it with a clearer error.
+ */
+export function modelTier(
+  registry: { resolve(id: string | undefined, role: "chat"): { tier: "free" | "pro" } },
+  id: string | undefined,
+): "free" | "pro" {
+  try {
+    return registry.resolve(id, "chat").tier;
+  } catch {
+    return "free";
+  }
+}
+
+/** How long a failed payment keeps the paid plan after the period it was for ends. */
+export const PAST_DUE_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * The plan in force. A cancelled or never-paid subscription counts as free,
+ * and a past-due one keeps its plan for a short grace period after its
+ * billing period ends, so a fixed card doesn't interrupt anyone but an
+ * unpaid plan doesn't last for ever.
+ */
+export function effectivePlan(account: BillingAccountRow | undefined, now = new Date()): Plan {
+  if (!account || account.status === "cancelled" || account.status === "incomplete") {
+    return PLANS.free;
+  }
+  if (account.status === "past_due") {
+    const end = account.currentPeriodEnd?.getTime();
+    if (end === undefined || now.getTime() > end + PAST_DUE_GRACE_MS) return PLANS.free;
+  }
   return PLANS[account.plan as PlanId];
 }
 
@@ -144,12 +173,12 @@ export function createUsageLimits({
 
   return {
     account,
-    effectivePlan,
+    effectivePlan: (current: BillingAccountRow | undefined) => effectivePlan(current, now()),
     extraSpent,
 
     /** The person's usage in a workspace, as shares of each limit. */
     async status(actor: UsageActor): Promise<{ session: UsageWindow; week: UsageWindow }> {
-      const plan = effectivePlan(await account(actor.workspaceId));
+      const plan = effectivePlan(await account(actor.workspaceId), now());
       const state = await windows(actor, plan);
       const view = (kind: WindowKind): UsageWindow => ({
         used: state[kind].limit > 0 ? state[kind].used / state[kind].limit : 0,
@@ -164,7 +193,7 @@ export function createUsageLimits({
      */
     async check(actor: UsageActor, modelTier: "free" | "pro"): Promise<"included" | "extra"> {
       const current = await account(actor.workspaceId);
-      const plan = effectivePlan(current);
+      const plan = effectivePlan(current, now());
       if (modelTier === "pro" && plan.modelTier === "free") {
         throw errors.forbidden(
           "This model needs a paid plan. Pick another model, or upgrade in Settings.",

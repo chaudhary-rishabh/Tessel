@@ -12,6 +12,8 @@ declare global {
     interface Request {
       /** Set by the request ID middleware for every request. */
       requestId: string;
+      /** The caller's own request ID, when it sent a safe one; for logs only. */
+      upstreamRequestId?: string;
       /** Set by requireAuth on authenticated routes. */
       auth?: AuthContext;
     }

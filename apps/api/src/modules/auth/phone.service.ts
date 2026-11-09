@@ -1,4 +1,4 @@
-import { createHash, randomInt, randomUUID, timingSafeEqual } from "node:crypto";
+import { randomInt, randomUUID } from "node:crypto";
 import type { PhoneCodeSentResponse, PhoneVerifyRequest, PublicUser } from "@tessel/contracts";
 import { phoneChallenges, users, type Database } from "@tessel/db";
 import type { Logger } from "@tessel/logger";
@@ -12,14 +12,10 @@ import { usersRepository } from "../users/users.repository";
 import type { LoginOutcome, SessionMeta, SignInMethod } from "./auth.service";
 import { assertNotLastSignInMethod } from "./sign-in-methods";
 import type { UserRow } from "@tessel/db";
+import { hashCode, sameHash } from "./tokens";
 
 const CODE_TTL_MS = 10 * 60_000;
 const MAX_ATTEMPTS = 5;
-
-const codeHash = (challengeId: string, code: string) =>
-  createHash("sha256").update(`${challengeId}:${code}`).digest("hex");
-const sameHash = (a: string, b: string) =>
-  a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 
 const INVALID_CODE = () =>
   errors.badRequest("invalid_code", "That code is wrong or has expired. Ask for a new one.");
@@ -66,7 +62,7 @@ export function createPhoneService({
       purpose: input.purpose,
       phone: input.phone,
       userId: input.userId,
-      codeHash: input.send ? codeHash(challengeId, code) : null,
+      codeHash: input.send ? hashCode(challengeId, code) : null,
       expiresAt: new Date(now().getTime() + CODE_TTL_MS),
     });
     if (input.send) await sender().send(texts.code(input.phone, code, input.purpose));
@@ -86,7 +82,7 @@ export function createPhoneService({
       }
       if (
         !challenge.codeHash ||
-        !sameHash(challenge.codeHash, codeHash(challenge.id, input.code))
+        !sameHash(challenge.codeHash, hashCode(challenge.id, input.code))
       ) {
         await tx
           .update(phoneChallenges)

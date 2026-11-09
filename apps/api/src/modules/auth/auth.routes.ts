@@ -1,8 +1,15 @@
-import { createHash } from "node:crypto";
 import { Router, type RequestHandler } from "express";
+import { decodeJwt } from "jose";
 import type { RateLimitConfig } from "../../config";
 import { requireAllowedOrigin } from "../../middleware/origin-check";
-import { createRateLimiter, type RateLimitStoreFactory } from "../../middleware/rate-limit";
+import {
+  createRateLimiter,
+  emailKey,
+  hashedKey,
+  type CreateRateLimiterOptions,
+  type RateLimitRule,
+  type RateLimitStoreFactory,
+} from "../../middleware/rate-limit";
 import type { createAuthController } from "./auth.controller";
 
 export function createAuthRouter({
@@ -20,48 +27,57 @@ export function createAuthRouter({
 }): Router {
   const router = Router();
 
-  const signupLimiter = createRateLimiter({ name: "signup", ...rateLimits.signup, storeFactory });
-  const loginLimiter = createRateLimiter({
-    name: "login",
-    ...rateLimits.login,
-    storeFactory,
-    // Per IP and email, so one attacker can't lock out a user from elsewhere.
-    // The email is hashed so limiter keys don't store it in Redis.
-    keySuffix: (req) => {
-      const email: unknown = req.body?.email;
-      if (typeof email !== "string") return undefined;
-      return createHash("sha256").update(email.trim().toLowerCase()).digest("hex").slice(0, 32);
-    },
-  });
-  const refreshLimiter = createRateLimiter({
-    name: "refresh",
-    ...rateLimits.refresh,
-    storeFactory,
-  });
+  const limiter = (name: string, rule: RateLimitRule, key?: CreateRateLimiterOptions["key"]) =>
+    createRateLimiter({ name, ...rule, storeFactory, key });
+  // Looser per-IP rules for offices and phone networks behind one address.
+  const perIp = (rule: RateLimitRule, factor: number) => ({ ...rule, limit: rule.limit * factor });
 
-  const emailLimiter = createRateLimiter({
-    name: "email",
-    ...rateLimits.signup,
-    storeFactory,
-    // Per address too, so nobody can flood someone's inbox from many IPs.
-    keySuffix: (req) => {
-      const email: unknown = req.body?.email;
-      if (typeof email !== "string") return undefined;
-      return createHash("sha256").update(email.trim().toLowerCase()).digest("hex").slice(0, 32);
-    },
+  const signupIp = limiter("signup-ip", rateLimits.signup);
+  // Per address, so nobody can flood someone's inbox from many IPs.
+  const signupEmail = limiter("signup-email", rateLimits.signup, emailKey);
+  const signupVerify = limiter("signup-verify", rateLimits.login);
+  const signupResend = limiter("signup-resend", rateLimits.signup, (req) => {
+    const challenge: unknown = req.body?.challengeId;
+    return typeof challenge === "string" ? hashedKey(challenge) : undefined;
   });
+  // Logging in: per IP and email, so an attacker elsewhere can't lock a user
+  // out; per email, so many IPs can't share the guessing; and per IP overall.
+  const loginPair = limiter("login", rateLimits.login, (req, ip) => {
+    const email = emailKey(req);
+    return email ? `${ip}:${email}` : undefined;
+  });
+  const loginEmail = limiter("login-email", perIp(rateLimits.login, 5), emailKey);
+  const loginIp = limiter("login-ip", perIp(rateLimits.login, 10));
+  // A few authenticator codes per user, however many times the password is
+  // entered again for a fresh challenge. The user is read from the challenge
+  // without checking its signature: that only picks the bucket, and the
+  // service still verifies the token.
+  const twoFactor = limiter("login-two-factor", rateLimits.password, (req) => {
+    const challenge: unknown = req.body?.challengeToken;
+    if (typeof challenge !== "string") return undefined;
+    try {
+      const { sub } = decodeJwt(challenge);
+      return sub ? hashedKey(sub) : hashedKey(challenge);
+    } catch {
+      return hashedKey(challenge);
+    }
+  });
+  const forgotEmail = limiter("password-forgot", rateLimits.signup, emailKey);
+  const forgotIp = limiter("password-forgot-ip", perIp(rateLimits.signup, 3));
+  const reset = limiter("password-reset", rateLimits.login);
+  const refresh = limiter("refresh", rateLimits.refresh);
 
   router.use(requireAllowedOrigin(allowedOrigins));
-  router.post("/signup", signupLimiter, emailLimiter, controller.signup);
-  router.post("/signup/verify", loginLimiter, controller.verifySignup);
-  router.post("/signup/resend", signupLimiter, controller.resendSignup);
-  router.post("/login", loginLimiter, controller.login);
-  router.post("/login/two-factor", loginLimiter, controller.twoFactor);
-  router.post("/password/forgot", emailLimiter, controller.forgotPassword);
-  router.post("/password/reset", loginLimiter, controller.resetPassword);
+  router.post("/signup", signupIp, signupEmail, controller.signup);
+  router.post("/signup/verify", signupVerify, controller.verifySignup);
+  router.post("/signup/resend", signupIp, signupResend, controller.resendSignup);
+  router.post("/login", loginIp, loginEmail, loginPair, controller.login);
+  router.post("/login/two-factor", loginIp, twoFactor, controller.twoFactor);
+  router.post("/password/forgot", forgotIp, forgotEmail, controller.forgotPassword);
+  router.post("/password/reset", reset, controller.resetPassword);
   router.get("/sessions", authenticate, controller.listSessions);
   router.delete("/sessions/:sessionId", authenticate, controller.revokeSession);
-  router.post("/refresh", refreshLimiter, controller.refresh);
+  router.post("/refresh", refresh, controller.refresh);
   router.post("/logout", controller.logout);
 
   return router;

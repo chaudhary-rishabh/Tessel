@@ -166,7 +166,7 @@ function PlanSettings() {
       <Suspense fallback={null}>
         <BillingReturnNotice workspaceId={current.id} />
       </Suspense>
-      <PlanSection workspaceId={current.id} isPersonal={current.isPersonal} />
+      <PlanSection key={current.id} workspaceId={current.id} isPersonal={current.isPersonal} />
     </Section>
   );
 }
@@ -324,7 +324,7 @@ function SecuritySettings() {
       <Section
         id="sessions"
         title="Where you're signed in"
-        description="Sign out of any browser or device you don't recognise."
+        description="Log out of any browser or device you don't recognise."
       >
         <SessionsSection />
       </Section>

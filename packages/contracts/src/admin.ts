@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { pageCursorSchema } from "./paging";
 import { identityProviderSchema } from "./auth";
 import { workspaceRoleSchema } from "./workspaces";
 
@@ -32,12 +33,12 @@ export const adminUserListQuerySchema = z.object({
   /** Matches email or name. */
   query: z.string().trim().max(200).optional(),
   /** `nextCursor` from the previous page. */
-  cursor: z.iso.datetime().optional(),
+  cursor: pageCursorSchema.optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
 export const adminUserListResponseSchema = z.object({
   users: z.array(adminUserSchema),
-  nextCursor: z.iso.datetime().nullable(),
+  nextCursor: pageCursorSchema.nullable(),
 });
 export const adminUserDetailSchema = adminUserSchema.extend({
   hasPassword: z.boolean(),
@@ -134,7 +135,7 @@ export const adminAuditQuerySchema = z.object({
   workspaceId: z.uuid().optional(),
   /** A prefix, like "auth." or "member.removed". */
   action: z.string().trim().max(80).optional(),
-  before: z.iso.datetime().optional(),
+  before: pageCursorSchema.optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
 

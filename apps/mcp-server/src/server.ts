@@ -17,6 +17,8 @@ const env = parseEnv(
       /** How outside clients reach this server and the API, for OAuth sign-in. Required in production. */
       MCP_PUBLIC_URL: z.url().optional(),
       API_PUBLIC_URL: z.url().optional(),
+      /** Number of proxies in front of this server (1 behind Caddy). */
+      TRUST_PROXY: z.coerce.number().int().min(0).default(0),
     })
     .refine((env) => env.NODE_ENV !== "production" || (env.MCP_PUBLIC_URL && env.API_PUBLIC_URL), {
       message: "Set MCP_PUBLIC_URL and API_PUBLIC_URL in production",
@@ -29,6 +31,7 @@ const server = createMcpServerApp({
   service: SERVICE,
   apiUrl: env.API_INTERNAL_URL,
   logger,
+  trustProxy: env.TRUST_PROXY,
   oauth: {
     resourceUrl: new URL("/mcp", env.MCP_PUBLIC_URL ?? "http://localhost:4100").toString(),
     authorizationServerUrl: new URL("/", env.API_PUBLIC_URL ?? "http://localhost:4000").toString(),

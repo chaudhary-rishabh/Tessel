@@ -4,6 +4,7 @@ import { useRevokeSession, useSessions } from "@tessel/api-client/react";
 import type { Session } from "@tessel/contracts";
 import { Button, Spinner } from "@tessel/ui";
 import { Laptop, Smartphone } from "lucide-react";
+import { toast } from "@/lib/toast-store";
 
 /** "Chrome on macOS" from a user agent; good enough to recognise a device. */
 export function describeDevice(userAgent: string | null): { label: string; mobile: boolean } {
@@ -67,9 +68,9 @@ function SessionRow({ session, onRevoke }: { session: Session; onRevoke: () => v
           size="sm"
           className="text-danger"
           onClick={onRevoke}
-          aria-label={`Sign out ${device.label}`}
+          aria-label={`Log out ${device.label}`}
         >
-          Sign out
+          Log out
         </Button>
       )}
     </li>
@@ -88,7 +89,15 @@ export function SessionsSection() {
   return (
     <ul className="divide-line border-line divide-y border-y" aria-label="Signed-in devices">
       {sessions.data.map((session) => (
-        <SessionRow key={session.id} session={session} onRevoke={() => revoke.mutate(session.id)} />
+        <SessionRow
+          key={session.id}
+          session={session}
+          onRevoke={() =>
+            revoke.mutate(session.id, {
+              onError: (error) => toast.error(error.message),
+            })
+          }
+        />
       ))}
     </ul>
   );

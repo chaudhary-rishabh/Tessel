@@ -60,6 +60,17 @@
       ]
     },
     {
+      "Sid": "BackupsList",
+      "Effect": "Allow",
+      "Action": ["s3:ListBucket"],
+      "Resource": "arn:aws:s3:::BACKUP_BUCKET_NAME",
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": ["postgres/*", "qdrant/*"]
+        }
+      }
+    },
+    {
       "Sid": "SendEmail",
       "Effect": "Allow",
       "Action": ["ses:SendEmail"],

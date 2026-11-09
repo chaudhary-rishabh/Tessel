@@ -48,11 +48,15 @@ function CreateTokenDialog({ workspaceId, onClose }: { workspaceId: string; onCl
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    const result = await create.mutateAsync({
-      name,
-      expiresInDays: expiry === "never" ? null : (Number(expiry) as 7 | 30 | 90 | 365),
-    });
-    setCreated(result);
+    try {
+      const result = await create.mutateAsync({
+        name,
+        expiresInDays: expiry === "never" ? null : (Number(expiry) as 7 | 30 | 90 | 365),
+      });
+      setCreated(result);
+    } catch {
+      // Shown in the form (create.error).
+    }
   }
 
   return (

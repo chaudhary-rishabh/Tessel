@@ -37,7 +37,7 @@ export default function InvitePage() {
     setError(undefined);
     try {
       const workspace = await api.invitations.accept(token);
-      await queryClient.invalidateQueries({ queryKey: queryKeys.workspaces });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.workspaces, exact: true });
       setCurrentWorkspace(workspace.id);
       router.replace("/chat");
     } catch (caught) {

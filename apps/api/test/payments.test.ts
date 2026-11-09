@@ -304,6 +304,25 @@ describe("paying with Razorpay", () => {
     expect((await summary(owner, workspaceId)).seats).toBe(3);
   });
 
+  it("switches plans on the subscription, and the new plan is what applies", async () => {
+    const user = await signUp(app);
+    const workspaceId = await personal(user);
+    const checkout = await request(app)
+      .post(`/workspaces/${workspaceId}/billing/checkout`)
+      .set("Authorization", bearer(user))
+      .send({ plan: "max", provider: "razorpay" });
+    await pay(checkout.body.url);
+    expect((await summary(user, workspaceId)).plan).toBe("max");
+
+    // The checkout's notes still say "max"; the plan ID on the subscription wins.
+    const change = await request(app)
+      .post(`/workspaces/${workspaceId}/billing/checkout`)
+      .set("Authorization", bearer(user))
+      .send({ plan: "pro", provider: "razorpay" });
+    expect(change.body.url).toBeNull();
+    expect((await summary(user, workspaceId)).plan).toBe("pro");
+  });
+
   it("marks the plan past due when a payment fails, and free once it's cancelled", async () => {
     const user = await signUp(app);
     const workspaceId = await personal(user);
@@ -345,7 +364,7 @@ describe("paying with Razorpay", () => {
     await send("subscription.halted", "halted");
     expect((await summary(user, workspaceId)).status).toBe("past_due");
     await send("subscription.cancelled", "cancelled");
-    expect(await summary(user, workspaceId)).toMatchObject({ plan: "free", status: "canceled" });
+    expect(await summary(user, workspaceId)).toMatchObject({ plan: "free", status: "cancelled" });
   });
 
   it("only lets owners and admins pay", async () => {

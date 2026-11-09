@@ -1,5 +1,7 @@
+import { lookup as dnsLookup, type LookupAddress } from "node:dns";
 import { lookup } from "node:dns/promises";
-import { isIP } from "node:net";
+import { BlockList, isIP, type LookupFunction } from "node:net";
+import { Agent, fetch as pinnedFetch } from "undici";
 
 /** Thrown when a connector URL points somewhere Tessel must not reach. */
 export class UnsafeUrlError extends Error {
@@ -9,37 +11,71 @@ export class UnsafeUrlError extends Error {
   }
 }
 
-function isPrivateIPv4(address: string): boolean {
-  const [a = 0, b = 0] = address.split(".").map(Number);
-  return (
-    a === 0 ||
-    a === 10 ||
-    a === 127 ||
-    (a === 100 && b >= 64 && b <= 127) ||
-    (a === 169 && b === 254) ||
-    (a === 172 && b >= 16 && b <= 31) ||
-    (a === 192 && b === 168) ||
-    (a === 198 && (b === 18 || b === 19)) ||
-    a >= 224
-  );
+/**
+ * Networks Tessel never connects to for a user: private, loopback, link-local
+ * (including the cloud metadata service), shared, benchmark, multicast, and
+ * reserved ranges. BlockList also matches IPv4 addresses written as IPv6
+ * (::ffff:169.254.169.254, in any notation). NAT64 and 6to4 addresses can carry
+ * any IPv4 address inside them, so those ranges are refused whole.
+ */
+const BLOCKED = new BlockList();
+for (const [network, prefix] of [
+  ["0.0.0.0", 8],
+  ["10.0.0.0", 8],
+  ["100.64.0.0", 10],
+  ["127.0.0.0", 8],
+  ["169.254.0.0", 16],
+  ["172.16.0.0", 12],
+  ["192.0.0.0", 24],
+  ["192.168.0.0", 16],
+  ["198.18.0.0", 15],
+  ["224.0.0.0", 3],
+] as const) {
+  BLOCKED.addSubnet(network, prefix, "ipv4");
+}
+for (const [network, prefix] of [
+  ["::", 128],
+  ["::1", 128],
+  ["64:ff9b::", 96],
+  ["64:ff9b:1::", 48],
+  ["2002::", 16],
+  ["fc00::", 7],
+  ["fe80::", 10],
+  ["ff00::", 8],
+] as const) {
+  BLOCKED.addSubnet(network, prefix, "ipv6");
 }
 
-function isPrivateAddress(address: string): boolean {
-  if (isIP(address) === 4) return isPrivateIPv4(address);
-  const lower = address.toLowerCase();
-  if (lower.startsWith("::ffff:")) return isPrivateIPv4(lower.slice(7));
-  return (
-    lower === "::" ||
-    lower === "::1" ||
-    lower.startsWith("fc") ||
-    lower.startsWith("fd") ||
-    lower.startsWith("fe8") ||
-    lower.startsWith("fe9") ||
-    lower.startsWith("fea") ||
-    lower.startsWith("feb") ||
-    lower.startsWith("ff")
-  );
+/** Whether an IP address is on a network connectors may not reach (anything that isn't an IP counts). */
+export function isPrivateAddress(address: string): boolean {
+  const family = isIP(address);
+  if (family === 0) return true;
+  return BLOCKED.check(address, family === 4 ? "ipv4" : "ipv6");
 }
+
+/**
+ * Resolves a host for a connection and refuses private addresses. Used as the
+ * socket's own lookup, so the address checked is the address connected to: a
+ * DNS answer can't change between the check and the connection.
+ */
+export const connectorLookup: LookupFunction = (hostname, options, callback) => {
+  dnsLookup(hostname, { ...options, all: true }, (error, addresses) => {
+    if (error) return callback(error, "", 0);
+    const list = addresses as LookupAddress[];
+    if (list.length === 0 || list.some(({ address }) => isPrivateAddress(address))) {
+      return callback(
+        new UnsafeUrlError("Connectors can't use private or internal addresses"),
+        "",
+        0,
+      );
+    }
+    if (options.all)
+      return (callback as unknown as (e: null, a: LookupAddress[]) => void)(null, list);
+    callback(null, list[0]!.address, list[0]!.family);
+  });
+};
+
+const pinnedAgent = new Agent({ connect: { lookup: connectorLookup } });
 
 /**
  * Checks a URL before Tessel connects to it on a user's behalf: HTTPS only,
@@ -90,7 +126,15 @@ export function guardedFetch({ allowPrivate = false } = {}): typeof fetch {
     let request = init;
     for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
       await assertSafeUrl(url, { allowPrivate });
-      const response = await fetch(url, { ...request, redirect: "manual" });
+      // Without private networks, connect through an agent that re-checks the
+      // address at connect time, so DNS rebinding can't slip past the check above.
+      const response = allowPrivate
+        ? await fetch(url, { ...request, redirect: "manual" })
+        : ((await pinnedFetch(url, {
+            ...(request as object),
+            redirect: "manual",
+            dispatcher: pinnedAgent,
+          })) as unknown as Response);
       const location = response.headers.get("location");
       if (response.status < 300 || response.status >= 400 || !location) return response;
       url = new URL(location, url).toString();

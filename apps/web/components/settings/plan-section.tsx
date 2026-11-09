@@ -2,7 +2,13 @@
 
 import { toApiClientError } from "@tessel/api-client";
 import { queryKeys, useApi, useBilling } from "@tessel/api-client/react";
-import { PLANS, type BillingSummary, type Plan, type UsageWindow } from "@tessel/contracts";
+import {
+  NANO_USD_PER_USD,
+  PLANS,
+  type BillingSummary,
+  type Plan,
+  type UsageWindow,
+} from "@tessel/contracts";
 import { Button, cn, Spinner, TextField } from "@tessel/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -10,7 +16,6 @@ import { useEffect, useRef, useState } from "react";
 import { FormError } from "@/components/form-error";
 import { toast } from "@/lib/toast-store";
 
-const USD = 1_000_000_000;
 /** Long button labels wrap inside narrow plan cards instead of overflowing. */
 const WRAP = "h-auto min-h-10 whitespace-normal py-2 text-center leading-snug";
 
@@ -71,7 +76,7 @@ function PlanCards({
     (plan) => plan.id === "free" || plan.teamOnly === !isPersonal,
   );
   const anyProvider = summary.providers.stripe || summary.providers.razorpay;
-  const subscribed = summary.provider !== null && summary.status !== "canceled";
+  const subscribed = summary.provider !== null && summary.status !== "cancelled";
 
   async function choose(plan: Plan, provider: "stripe" | "razorpay") {
     setBusy(`${plan.id}:${provider}`);
@@ -172,7 +177,7 @@ function ExtraUsage({ summary, workspaceId }: { summary: BillingSummary; workspa
   const api = useApi();
   const queryClient = useQueryClient();
   const [enabled, setEnabled] = useState(summary.extraUsage.enabled);
-  const [cap, setCap] = useState(String(summary.extraUsage.capNanoUsd / USD || 20));
+  const [cap, setCap] = useState(String(summary.extraUsage.capNanoUsd / NANO_USD_PER_USD || 20));
   const [error, setError] = useState<string>();
   const [saving, setSaving] = useState(false);
 
@@ -199,7 +204,7 @@ function ExtraUsage({ summary, workspaceId }: { summary: BillingSummary; workspa
         <h3 className="text-base font-semibold">Extra usage</h3>
         <p className="text-muted mt-0.5 text-sm">
           Keep working past the limits, billed at cost on your next invoice, up to a monthly cap.
-          This month: ${(summary.extraUsage.spentNanoUsd / USD).toFixed(2)}.
+          This month: ${(summary.extraUsage.spentNanoUsd / NANO_USD_PER_USD).toFixed(2)}.
         </p>
       </div>
       <FormError message={error} />
@@ -308,7 +313,7 @@ export function PlanSection({
                 ? `Renews on ${periodEnd}.`
                 : plan.description}
         </p>
-        {summary.canManage && summary.provider && summary.status !== "canceled" ? (
+        {summary.canManage && summary.provider && summary.status !== "cancelled" ? (
           <div className="mt-3 flex flex-wrap gap-2">
             {summary.provider === "stripe" ? (
               <Button
@@ -371,7 +376,7 @@ export function PlanSection({
 
       {summary.canManage && summary.extraUsage.available ? (
         <ExtraUsage
-          key={String(summary.extraUsage.enabled)}
+          key={`${workspaceId}:${summary.extraUsage.enabled}`}
           summary={summary}
           workspaceId={workspaceId}
         />

@@ -82,6 +82,9 @@ export async function processThreadMemory(
   const fresh = messages.filter(
     (row) => !thread.memoryThrough || row.createdAt > thread.memoryThrough,
   );
+  // Turns count as read only once extraction succeeds, so a failure (a spend
+  // cap, a model error) leaves them for the next run instead of skipping them.
+  let memoryRead = true;
   if (settings.memoryEnabled && fresh.some((row) => row.role === "user")) {
     try {
       const existing = (await store.list(job)).map((row) => ({ id: row.id, content: row.content }));
@@ -95,10 +98,11 @@ export async function processThreadMemory(
       report.updated = updates.update.length;
       report.removed = updates.remove.length;
     } catch (error) {
+      memoryRead = false;
       logger.warn({ err: error, threadId: thread.id }, "Updating memories failed");
     }
   }
-  if (messages.length)
+  if (memoryRead && messages.length)
     await store.saveThread(job, thread.id, { memoryThrough: messages.at(-1)!.createdAt });
 
   // Episodic memory

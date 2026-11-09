@@ -10,16 +10,20 @@ import type {
 } from "@tessel/contracts";
 import {
   auditEvents,
+  type Database,
+  encodeCursor,
+  escapeLike,
+  newestFirst,
+  olderThan,
+  type Transaction,
   users,
   withUserContext,
   workspaceInvitations,
   workspaceMembers,
   workspaces,
-  type Database,
-  type Transaction,
 } from "@tessel/db";
 import type { Logger } from "@tessel/logger";
-import { aliasedTable, and, asc, desc, eq, gt, isNull, lt, sql } from "drizzle-orm";
+import { aliasedTable, and, asc, desc, eq, gt, isNull, like, sql } from "drizzle-orm";
 import type { AuditRecorder } from "../../lib/audit";
 import { errors } from "../../lib/errors";
 import { emails, type Mailer } from "../../lib/mailer";
@@ -404,6 +408,8 @@ export function createMembersService({
               eq(workspaceMembers.userId, targetUserId),
             ),
           );
+        // Their tokens and connected apps go too, so rejoining starts fresh.
+        await tx.execute(sql`SELECT app.revoke_member_access(${workspaceId}, ${targetUserId})`);
       });
       await onMembershipChange(workspaceId);
       await audit.record({
@@ -491,11 +497,11 @@ export async function readAuditLog(
       and(
         query.workspaceId ? eq(auditEvents.workspaceId, query.workspaceId) : undefined,
         query.actorId ? eq(auditEvents.actorId, query.actorId) : undefined,
-        query.action ? sql`${auditEvents.action} like ${`${query.action}%`}` : undefined,
-        query.before ? lt(auditEvents.createdAt, new Date(query.before)) : undefined,
+        query.action ? like(auditEvents.action, `${escapeLike(query.action)}%`) : undefined,
+        query.before ? olderThan(auditEvents.createdAt, auditEvents.id, query.before) : undefined,
       ),
     )
-    .orderBy(desc(auditEvents.createdAt))
+    .orderBy(...newestFirst(auditEvents.createdAt, auditEvents.id))
     .limit(query.limit + 1);
   const page = rows.slice(0, query.limit);
   const events: AuditEvent[] = page.map(({ event, actorName, actorEmail }) => ({
@@ -513,7 +519,10 @@ export async function readAuditLog(
   }));
   return {
     events,
-    nextBefore: rows.length > query.limit ? (events.at(-1)?.createdAt ?? null) : null,
+    nextBefore:
+      rows.length > query.limit && page.length
+        ? encodeCursor(page.at(-1)!.event.createdAt, page.at(-1)!.event.id)
+        : null,
   };
 }
 

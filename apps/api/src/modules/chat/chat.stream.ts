@@ -47,7 +47,11 @@ export function openEventStream(res: Response) {
   });
   res.flushHeaders();
   // Comments keep idle connections from being closed by proxies.
-  const heartbeat = setInterval(() => res.write(": keep-alive\n\n"), HEARTBEAT_MS);
+  const heartbeat = setInterval(() => {
+    if (!res.writableEnded) res.write(": keep-alive\n\n");
+  }, HEARTBEAT_MS);
+  // However the reply ends, a closed connection stops the heartbeat.
+  res.once("close", () => clearInterval(heartbeat));
   return {
     send(event: ChatEvent) {
       if (!res.writableEnded) res.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
@@ -358,6 +362,26 @@ export async function streamReply({
   signal: AbortSignal;
 }): Promise<void> {
   const stream = openEventStream(res);
+  try {
+    await replyOnStream({ deps, actor, prepared, stream, signal });
+  } finally {
+    stream.end();
+  }
+}
+
+async function replyOnStream({
+  deps,
+  actor,
+  prepared,
+  stream,
+  signal,
+}: {
+  deps: ReplyDependencies;
+  actor: Actor;
+  prepared: PreparedReply;
+  stream: EventStream;
+  signal: AbortSignal;
+}): Promise<void> {
   stream.send({
     type: "start",
     thread: prepared.thread,
@@ -414,7 +438,6 @@ export async function streamReply({
       initialActivity: [],
       start: () => Promise.reject(error),
     });
-    stream.end();
     return;
   }
 
@@ -450,7 +473,6 @@ export async function streamReply({
         }
       : {}),
   });
-  stream.end();
 }
 
 /** Continues a paused reply once the user approves or declines the pending tool call. */
@@ -474,31 +496,43 @@ export async function streamDecision({
   const { run, message } = claimed;
   const checkpoint = toOrchestratorCheckpoint(run.checkpoint);
   const stream = openEventStream(res);
-  stream.send({ type: "resume", message });
-  const model = deps.ai.registry.list({ kind: "chat" }).find((item) => item.id === run.modelId);
-  await drive({
-    deps,
-    actor,
-    stream,
-    signal,
-    context: {
-      userId: actor.userId,
-      workspaceId: actor.workspaceId,
-      feature: "chat",
-      ...(actor.requestId ? { requestId: actor.requestId } : {}),
-    },
-    threadId: run.threadId,
-    messageId: run.messageId,
-    modelId: run.modelId,
-    canUseTools: model?.capabilities.includes("tools") ?? true,
-    skills: await loadSkills(deps, actor),
-    memorySettings: await deps.memory.settings(actor),
-    sources: run.sources.map(({ cited: _cited, ...source }) => source),
-    initialText: checkpoint.text,
-    initialToolCalls: checkpoint.toolCalls,
-    initialActivity: checkpoint.activity,
-    runId: run.id,
-    start: (options) => resumeOrchestrator(options, checkpoint, { callId, approved }),
-  });
-  stream.end();
+  try {
+    stream.send({ type: "resume", message });
+    const model = deps.ai.registry.list({ kind: "chat" }).find((item) => item.id === run.modelId);
+    // A failure before the agent resumes still goes through drive, so the run
+    // and the message are closed properly instead of left "running".
+    let setupError: unknown;
+    const memorySettings = await deps.memory.settings(actor).catch((error: unknown) => {
+      setupError = error;
+      return { memoryEnabled: false, chatSearchEnabled: false } satisfies MemorySettingsValue;
+    });
+    await drive({
+      deps,
+      actor,
+      stream,
+      signal,
+      context: {
+        userId: actor.userId,
+        workspaceId: actor.workspaceId,
+        feature: "chat",
+        ...(actor.requestId ? { requestId: actor.requestId } : {}),
+      },
+      threadId: run.threadId,
+      messageId: run.messageId,
+      modelId: run.modelId,
+      canUseTools: model?.capabilities.includes("tools") ?? true,
+      skills: setupError ? [] : await loadSkills(deps, actor),
+      memorySettings,
+      sources: run.sources.map(({ cited: _cited, ...source }) => source),
+      initialText: checkpoint.text,
+      initialToolCalls: checkpoint.toolCalls,
+      initialActivity: checkpoint.activity,
+      runId: run.id,
+      start: setupError
+        ? () => Promise.reject(setupError)
+        : (options) => resumeOrchestrator(options, checkpoint, { callId, approved }),
+    });
+  } finally {
+    stream.end();
+  }
 }

@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { SignJWT } from "jose";
 import { describe, expect, it } from "vitest";
-import { createAccessTokens, generateRefreshToken, hashToken } from "./tokens";
+import { createSessionTokens, generateRefreshToken, hashToken } from "./tokens";
 
 const secret = "unit-test-secret-that-is-at-least-32-chars";
 
 describe("access tokens", () => {
-  const tokens = createAccessTokens({ secret, ttlSeconds: 900 });
+  const tokens = createSessionTokens({ secret, ttlSeconds: 900 });
 
   it("round-trip the user and role", async () => {
     const userId = randomUUID();

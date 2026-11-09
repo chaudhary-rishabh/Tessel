@@ -142,7 +142,10 @@ export function Composer({
       setFiles(sentFiles);
       if (result.error) setError(chatErrorMessage(result.error.code, result.error.message));
       textarea.current?.focus();
+      return;
     }
+    // Sent: the previews' local copies aren't needed any more.
+    for (const file of sentFiles) if (file.localUrl) URL.revokeObjectURL(file.localUrl);
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {

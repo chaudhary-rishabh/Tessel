@@ -1,5 +1,7 @@
 "use client";
 
+import { toApiClientError } from "@tessel/api-client";
+
 import { useApi, useDeleteDocument, useReprocessDocument } from "@tessel/api-client/react";
 import type { DocumentSummary } from "@tessel/contracts";
 import {
@@ -18,6 +20,7 @@ import { CircleAlert, Download, Ellipsis, FileText, RotateCw, Trash2 } from "luc
 import { useState } from "react";
 import { FormError } from "@/components/form-error";
 import { documentErrorMessage } from "@/lib/document-errors";
+import { toast } from "@/lib/toast-store";
 
 export const formatBytes = (bytes: number) =>
   bytes < 1024
@@ -73,8 +76,11 @@ export function DocumentList({
   const [deleting, setDeleting] = useState<DocumentSummary>();
 
   async function download(document: DocumentSummary) {
-    const url = await api.documents.downloadUrl(workspaceId, document.id);
-    window.location.assign(url);
+    try {
+      window.location.assign(await api.documents.downloadUrl(workspaceId, document.id));
+    } catch (error) {
+      toast.error(toApiClientError(error).message);
+    }
   }
 
   return (

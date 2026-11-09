@@ -8,7 +8,7 @@ const ACTIONS: Record<string, string> = {
   "auth.two_factor_enabled": "Turned on two-step sign-in",
   "auth.two_factor_disabled": "Turned off two-step sign-in",
   "auth.recovery_codes_regenerated": "Made new recovery codes",
-  "auth.session_revoked": "Signed out a device",
+  "auth.session_revoked": "Logged out a device",
   "auth.sign_in_method_added": "Added a way to sign in",
   "auth.sign_in_method_removed": "Removed a way to sign in",
   "member.invited": "Invited someone",

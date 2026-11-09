@@ -21,10 +21,12 @@ import {
   oauthClients,
   oauthGrants,
   personalAccessTokens,
+  setUserContext,
   withUserContext,
   workspaces,
   type Database,
   type OAuthGrantRow,
+  type Transaction,
 } from "@tessel/db";
 import type { Logger } from "@tessel/logger";
 import type { SecretBox } from "@tessel/mcp";
@@ -103,24 +105,31 @@ export function createOAuthService({
   }
 
   /** A fresh hour-long access token for a grant, stored as the grant user's token. */
-  async function issueTokens(grant: OAuthGrantRow, refreshToken: string): Promise<OAuthTokens> {
+  /**
+   * Issues an access token inside the caller's transaction, so a failure also
+   * undoes the code or refresh token it was issued for, and the client can retry.
+   */
+  async function issueTokens(
+    tx: Transaction,
+    grant: OAuthGrantRow,
+    refreshToken: string,
+  ): Promise<OAuthTokens> {
     const accessToken = `${OAUTH_TOKEN_PREFIX}${random(24)}`;
-    const [client] = await db
+    const [client] = await tx
       .select({ name: oauthClients.name })
       .from(oauthClients)
       .where(eq(oauthClients.id, grant.clientId));
-    await withUserContext(db, grant.userId, (tx) =>
-      tx.insert(personalAccessTokens).values({
-        userId: grant.userId,
-        workspaceId: grant.workspaceId,
-        grantId: grant.id,
-        name: client?.name ?? "MCP client",
-        tokenHash: hashToken(accessToken),
-        prefix: accessToken.slice(0, OAUTH_TOKEN_PREFIX.length + 4),
-        scopes: grant.scopes,
-        expiresAt: new Date(now().getTime() + ACCESS_TOKEN_TTL_SECONDS * 1000),
-      }),
-    );
+    await setUserContext(tx, grant.userId);
+    await tx.insert(personalAccessTokens).values({
+      userId: grant.userId,
+      workspaceId: grant.workspaceId,
+      grantId: grant.id,
+      name: client?.name ?? "MCP client",
+      tokenHash: hashToken(accessToken),
+      prefix: accessToken.slice(0, OAUTH_TOKEN_PREFIX.length + 4),
+      scopes: grant.scopes,
+      expiresAt: new Date(now().getTime() + ACCESS_TOKEN_TTL_SECONDS * 1000),
+    });
     return {
       access_token: accessToken,
       token_type: "bearer",
@@ -128,6 +137,23 @@ export function createOAuthService({
       refresh_token: refreshToken,
       scope: grant.scopes.join(" "),
     };
+  }
+
+  /**
+   * Runs token issuance in one transaction. Row-level security refusing the
+   * token (the person has left the workspace) means the grant no longer applies.
+   */
+  async function inTokenTransaction<T>(work: (tx: Transaction) => Promise<T>): Promise<T> {
+    try {
+      return await db.transaction(work);
+    } catch (error) {
+      const code = (error as { code?: string; cause?: { code?: string } }).code;
+      const causeCode = (error as { cause?: { code?: string } }).cause?.code;
+      if (code === "42501" || causeCode === "42501") {
+        throw new InvalidGrantError("This app no longer has access to the workspace");
+      }
+      throw error;
+    }
   }
 
   /** Ends a grant and every access token it issued. */
@@ -197,45 +223,48 @@ export function createOAuthService({
 
     async exchangeAuthorizationCode(client, code, _verifier, redirectUri, resource) {
       checkResource(resource);
-      // Used once: only one request can move it from approved to used.
-      const [used] = await db
-        .update(oauthAuthorizations)
-        .set({ status: "used" })
-        .where(
-          and(
-            eq(oauthAuthorizations.codeHash, hashToken(code)),
-            eq(oauthAuthorizations.clientId, client.client_id),
-            eq(oauthAuthorizations.status, "approved"),
-            gt(oauthAuthorizations.expiresAt, now()),
-          ),
-        )
-        .returning();
-      if (!used?.userId || !used.workspaceId) {
-        throw new InvalidGrantError("Invalid or expired authorization code");
-      }
-      if (redirectUri !== undefined && redirectUri !== used.redirectUri) {
-        throw new InvalidGrantError("redirect_uri doesn't match the authorization request");
-      }
       const refreshToken = random(32);
-      const [grant] = await db
-        .insert(oauthGrants)
-        .values({
-          clientId: client.client_id,
-          userId: used.userId,
-          workspaceId: used.workspaceId,
-          scopes: used.scopes,
-          refreshTokenHash: hashToken(refreshToken),
-        })
-        .returning();
-      logger.info({ userId: used.userId, clientId: client.client_id }, "MCP client connected");
+      const { grant, tokens } = await inTokenTransaction(async (tx) => {
+        // Used once: only one request can move it from approved to used.
+        const [used] = await tx
+          .update(oauthAuthorizations)
+          .set({ status: "used" })
+          .where(
+            and(
+              eq(oauthAuthorizations.codeHash, hashToken(code)),
+              eq(oauthAuthorizations.clientId, client.client_id),
+              eq(oauthAuthorizations.status, "approved"),
+              gt(oauthAuthorizations.expiresAt, now()),
+            ),
+          )
+          .returning();
+        if (!used?.userId || !used.workspaceId) {
+          throw new InvalidGrantError("Invalid or expired authorization code");
+        }
+        if (redirectUri !== undefined && redirectUri !== used.redirectUri) {
+          throw new InvalidGrantError("redirect_uri doesn't match the authorization request");
+        }
+        const [created] = await tx
+          .insert(oauthGrants)
+          .values({
+            clientId: client.client_id,
+            userId: used.userId,
+            workspaceId: used.workspaceId,
+            scopes: used.scopes,
+            refreshTokenHash: hashToken(refreshToken),
+          })
+          .returning();
+        return { grant: created!, tokens: await issueTokens(tx, created!, refreshToken) };
+      });
+      logger.info({ userId: grant.userId, clientId: client.client_id }, "MCP client connected");
       await audit.record({
-        actorId: used.userId,
-        workspaceId: used.workspaceId,
+        actorId: grant.userId,
+        workspaceId: grant.workspaceId,
         action: "app.connected",
         target: `oauth_client:${client.client_id}`,
-        metadata: { name: client.client_name ?? null, scopes: used.scopes },
+        metadata: { name: client.client_name ?? null, scopes: grant.scopes },
       });
-      return issueTokens(grant!, refreshToken);
+      return tokens;
     },
 
     /** Rotates the refresh token. Presenting a replaced one means it was copied: the grant ends. */
@@ -243,42 +272,46 @@ export function createOAuthService({
       checkResource(resource);
       const presented = hashToken(refreshToken);
       const next = random(32);
-      const [grant] = await db
-        .update(oauthGrants)
-        .set({
-          refreshTokenHash: hashToken(next),
-          previousRefreshTokenHash: presented,
-          lastUsedAt: now(),
-        })
-        .where(
-          and(
-            eq(oauthGrants.refreshTokenHash, presented),
-            eq(oauthGrants.clientId, client.client_id),
-            isNull(oauthGrants.revokedAt),
-          ),
-        )
-        .returning();
-      if (!grant) {
-        const [reused] = await db
-          .select()
-          .from(oauthGrants)
+      // The rotation and the new access token commit together: if issuing fails,
+      // the presented refresh token still works, so a retry isn't taken for reuse.
+      const tokens = await inTokenTransaction(async (tx) => {
+        const [grant] = await tx
+          .update(oauthGrants)
+          .set({
+            refreshTokenHash: hashToken(next),
+            previousRefreshTokenHash: presented,
+            lastUsedAt: now(),
+          })
           .where(
             and(
-              eq(oauthGrants.previousRefreshTokenHash, presented),
+              eq(oauthGrants.refreshTokenHash, presented),
               eq(oauthGrants.clientId, client.client_id),
               isNull(oauthGrants.revokedAt),
             ),
-          );
-        if (reused) {
-          logger.warn({ grantId: reused.id }, "Old MCP refresh token reused; revoking the grant");
-          await revokeGrant(reused, "refresh_token_reused");
+          )
+          .returning();
+        if (!grant) return null;
+        if (scopes?.some((scope) => !grant.scopes.includes(scope))) {
+          throw new InvalidGrantError("A refresh can't add scopes");
         }
-        throw new InvalidGrantError("Invalid refresh token");
+        return issueTokens(tx, grant, next);
+      });
+      if (tokens) return tokens;
+      const [reused] = await db
+        .select()
+        .from(oauthGrants)
+        .where(
+          and(
+            eq(oauthGrants.previousRefreshTokenHash, presented),
+            eq(oauthGrants.clientId, client.client_id),
+            isNull(oauthGrants.revokedAt),
+          ),
+        );
+      if (reused) {
+        logger.warn({ grantId: reused.id }, "Old MCP refresh token reused; revoking the grant");
+        await revokeGrant(reused, "refresh_token_reused");
       }
-      if (scopes?.some((scope) => !grant.scopes.includes(scope))) {
-        throw new InvalidGrantError("A refresh can't add scopes");
-      }
-      return issueTokens(grant, next);
+      throw new InvalidGrantError("Invalid refresh token");
     },
 
     async verifyAccessToken(token): Promise<AuthInfo> {

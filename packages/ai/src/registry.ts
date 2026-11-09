@@ -177,6 +177,5 @@ export function readModelsConfig(path?: string): unknown {
  * `path` (AI_MODELS_FILE) so operators can change models without a rebuild.
  */
 export function loadModelRegistry(path?: string): ModelRegistry {
-  const config: unknown = path ? JSON.parse(readFileSync(path, "utf8")) : bundledConfig;
-  return createModelRegistry(config);
+  return createModelRegistry(readModelsConfig(path));
 }

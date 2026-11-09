@@ -170,7 +170,9 @@ export function createS3ObjectStore(
     },
 
     async ping() {
-      await client.send(new HeadBucketCommand({ Bucket }));
+      // A one-key listing under the app's prefix: the instance role may only
+      // list there, and HeadBucket would need listing the whole bucket.
+      await client.send(new ListObjectsV2Command({ Bucket, Prefix: "workspaces/", MaxKeys: 1 }));
     },
 
     async ensureBucket(corsOrigins) {

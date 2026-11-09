@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { pageCursorSchema } from "./paging";
 import { emailSchema } from "./users";
 import { workspaceRoleSchema, workspaceSchema } from "./workspaces";
 
@@ -56,13 +57,13 @@ export const auditEventSchema = z.object({
 });
 export const auditLogQuerySchema = z.object({
   /** Events older than this, for the next page. */
-  before: z.iso.datetime().optional(),
+  before: pageCursorSchema.optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
 export const auditLogResponseSchema = z.object({
   events: z.array(auditEventSchema),
   /** Pass as `before` to get older events; null when there are none. */
-  nextBefore: z.iso.datetime().nullable(),
+  nextBefore: pageCursorSchema.nullable(),
 });
 
 export type AssignableRole = z.infer<typeof assignableRoleSchema>;

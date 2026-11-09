@@ -9,16 +9,20 @@ import type {
 } from "@tessel/contracts";
 import type { LiveModelRegistry } from "@tessel/ai";
 import {
+  type Database,
+  encodeCursor,
+  escapeLike,
   loadModelConfig,
+  newestFirst,
+  olderThan,
   refreshTokens,
   saveModelConfig,
   userIdentities,
-  users,
-  type Database,
   type UserRow,
+  users,
 } from "@tessel/db";
 import type { Logger } from "@tessel/logger";
-import { and, countDistinct, desc, eq, gt, ilike, isNull, lt, or, sql } from "drizzle-orm";
+import { and, countDistinct, eq, gt, ilike, isNull, or, sql } from "drizzle-orm";
 import type { AuditRecorder } from "../../lib/audit";
 import { errors } from "../../lib/errors";
 import { readAuditLog } from "../members/members.service";
@@ -62,7 +66,7 @@ export function createAdminService({
   models: LiveModelRegistry;
   now?: () => Date;
 }) {
-  async function target(actor: AdminActor, userId: string) {
+  async function target(userId: string) {
     const user = await usersRepository.findById(db, userId);
     if (!user) throw errors.notFound("User not found");
     return user;
@@ -91,23 +95,25 @@ export function createAdminService({
       cursor?: string | undefined;
       limit: number;
     }): Promise<AdminUserListResponse> {
-      const pattern = query.query ? `%${query.query.replace(/[%_\\]/g, "\\$&")}%` : undefined;
+      const pattern = query.query ? `%${escapeLike(query.query)}%` : undefined;
       const rows = await db
         .select()
         .from(users)
         .where(
           and(
             pattern ? or(ilike(users.email, pattern), ilike(users.name, pattern)) : undefined,
-            query.cursor ? lt(users.createdAt, new Date(query.cursor)) : undefined,
+            query.cursor ? olderThan(users.createdAt, users.id, query.cursor) : undefined,
           ),
         )
-        .orderBy(desc(users.createdAt))
+        .orderBy(...newestFirst(users.createdAt, users.id))
         .limit(query.limit + 1);
       const page = rows.slice(0, query.limit);
       return {
         users: page.map(toAdminUser),
         nextCursor:
-          rows.length > query.limit ? (page.at(-1)?.createdAt.toISOString() ?? null) : null,
+          rows.length > query.limit && page.length
+            ? encodeCursor(page.at(-1)!.createdAt, page.at(-1)!.id)
+            : null,
       };
     },
 
@@ -166,7 +172,7 @@ export function createAdminService({
       if (userId === actor.userId) {
         throw errors.conflict("cannot_change_self", "Ask another admin to change your own account");
       }
-      const user = await target(actor, userId);
+      const user = await target(userId);
       if (change.role !== undefined && change.role !== user.role) {
         await db.update(users).set({ role: change.role }).where(eq(users.id, userId));
         await audit.record({
@@ -196,7 +202,7 @@ export function createAdminService({
     },
 
     async signOutUser(actor: AdminActor, userId: string): Promise<void> {
-      await target(actor, userId);
+      await target(userId);
       await signOutEverywhere(userId);
       await audit.record({
         actorId: actor.userId,

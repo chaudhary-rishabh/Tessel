@@ -180,6 +180,8 @@ export function createAi(options: AiOptions): Ai {
               apiKey: credentials.apiKey,
               ...(credentials.baseURL ? { anthropicApiUrl: credentials.baseURL } : {}),
               maxRetries: 1,
+              // The same time limit as the other routes, not the SDK's ten minutes.
+              clientOptions: { timeout: timeoutMs },
               streamUsage: true,
               maxTokens: chatOptions.maxOutputTokens ?? ANTHROPIC_DEFAULT_MAX_TOKENS,
               ...(chatOptions.temperature !== undefined

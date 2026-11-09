@@ -22,7 +22,7 @@ const CONFIRM: Record<
   suspend: {
     title: "Suspend this account?",
     description:
-      "They're signed out everywhere and can't sign in. Their access tokens and connected apps stop working. Their workspaces and documents stay.",
+      "They're logged out everywhere and can't log in. Their access tokens and connected apps stop working. Their workspaces and documents stay.",
     label: "Suspend",
     danger: true,
   },
@@ -45,9 +45,9 @@ const CONFIRM: Record<
     danger: true,
   },
   "sign-out": {
-    title: "Sign them out everywhere?",
-    description: "Every browser and device has to sign in again.",
-    label: "Sign out everywhere",
+    title: "Log them out everywhere?",
+    description: "Every browser and device has to log in again.",
+    label: "Log out everywhere",
     danger: true,
   },
 };
@@ -122,7 +122,7 @@ export default function UserPage() {
             </Button>
           )}
           <Button variant="secondary" onClick={() => setConfirming("sign-out")}>
-            Sign out everywhere
+            Log out everywhere
           </Button>
           {data.role === "admin" ? (
             <Button variant="ghost" onClick={() => setConfirming("remove-admin")}>

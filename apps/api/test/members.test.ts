@@ -356,6 +356,8 @@ describe("audit log", () => {
       .set("Authorization", bearer(owner));
     expect(first.body.events).toHaveLength(2);
     expect(first.body.nextBefore).not.toBeNull();
+    // The response matches the contract the web app parses it with.
+    expect(auditLogResponseSchema.safeParse(first.body).success).toBe(true);
     const second = await request(app)
       .get(`/workspaces/${workspaceId}/audit-log`)
       .query({ limit: 2, before: first.body.nextBefore })
@@ -365,5 +367,39 @@ describe("audit log", () => {
       "workspace.created",
     ]);
     expect(second.body.nextBefore).toBeNull();
+  });
+});
+
+describe("leaving a workspace", () => {
+  it("revokes the person's access tokens there, so rejoining doesn't bring them back", async () => {
+    const owner = await signUp(app);
+    const workspaceId = await teamWorkspace(owner, "Tokens");
+    const member = await join(owner, workspaceId);
+    const created = await request(app)
+      .post(`/workspaces/${workspaceId}/access-tokens`)
+      .set("Authorization", bearer(member))
+      .send({ name: "Laptop" });
+    expect(created.status).toBe(201);
+    const token = created.body.token as string;
+    const useToken = () =>
+      request(app)
+        .get(`/workspaces/${workspaceId}/documents`)
+        .set("Authorization", `Bearer ${token}`);
+    expect((await useToken()).status).toBe(200);
+
+    const removed = await request(app)
+      .delete(`/workspaces/${workspaceId}/members/${member.auth.user.id}`)
+      .set("Authorization", bearer(owner));
+    expect(removed.status).toBe(204);
+    expect((await useToken()).status).toBe(401);
+
+    // Invited back: the old token still doesn't work.
+    const email = member.email;
+    await invite(owner, workspaceId, email);
+    await request(app)
+      .post(`/invitations/${invitationToken(email)}/accept`)
+      .set("Authorization", bearer(member));
+    expect((await members(owner, workspaceId)).map((m) => m.userId)).toContain(member.auth.user.id);
+    expect((await useToken()).status).toBe(401);
   });
 });

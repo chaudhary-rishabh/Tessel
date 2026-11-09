@@ -16,7 +16,8 @@ export function createMemoryQueue(connection: Redis) {
         attempts: 2,
         backoff: { type: "exponential", delay: 10_000 },
         removeOnComplete: true,
-        removeOnFail: 100,
+        // A kept failed job would hold its ID and swallow later work for the chat.
+        removeOnFail: true,
       });
     },
     close: () => queue.close(),

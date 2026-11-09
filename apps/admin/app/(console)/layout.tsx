@@ -111,6 +111,25 @@ export default function ConsoleLayout({ children }: { children: ReactNode }) {
     </nav>
   );
 
+  const account = (
+    <div className="border-line border-t pt-4 text-sm">
+      <p className="truncate px-2 font-medium">{user?.name}</p>
+      <p className="text-muted truncate px-2 text-xs">{user?.email}</p>
+      <div className="mt-3 flex flex-col gap-1">
+        <a href={env.webUrl} className="text-muted hover:text-ink rounded-lg px-2 py-1.5">
+          Back to Tessel
+        </a>
+        <button
+          type="button"
+          onClick={logOut}
+          className="text-muted hover:text-ink rounded-lg px-2 py-1.5 text-left"
+        >
+          Log out
+        </button>
+      </div>
+    </div>
+  );
+
   return (
     <div className="flex min-h-dvh flex-col md:flex-row">
       <header className="border-line bg-surface flex items-center justify-between border-b px-4 py-3 md:hidden">
@@ -122,12 +141,22 @@ export default function ConsoleLayout({ children }: { children: ReactNode }) {
           variant="ghost"
           size="icon"
           aria-label={menuOpen ? "Close navigation" : "Open navigation"}
+          aria-expanded={menuOpen}
+          aria-controls="admin-mobile-menu"
           onClick={() => setMenuOpen((open) => !open)}
         >
           {menuOpen ? <X className="size-5" /> : <Menu className="size-5" />}
         </Button>
       </header>
-      {menuOpen ? <div className="border-line bg-surface border-b p-3 md:hidden">{nav}</div> : null}
+      {menuOpen ? (
+        <div
+          id="admin-mobile-menu"
+          className="border-line bg-surface flex flex-col gap-4 border-b p-3 md:hidden"
+        >
+          {nav}
+          {account}
+        </div>
+      ) : null}
 
       <aside className="border-line bg-surface hidden w-60 shrink-0 flex-col border-r p-4 md:flex">
         <div className="font-display flex items-center gap-2.5 px-2 text-lg font-semibold">
@@ -136,22 +165,7 @@ export default function ConsoleLayout({ children }: { children: ReactNode }) {
         </div>
         <p className="text-muted mt-1 px-2 text-xs">Changes here apply to everyone.</p>
         <div className="mt-6">{nav}</div>
-        <div className="border-line mt-auto border-t pt-4 text-sm">
-          <p className="truncate px-2 font-medium">{user?.name}</p>
-          <p className="text-muted truncate px-2 text-xs">{user?.email}</p>
-          <div className="mt-3 flex flex-col gap-1">
-            <a href={env.webUrl} className="text-muted hover:text-ink rounded-lg px-2 py-1.5">
-              Back to Tessel
-            </a>
-            <button
-              type="button"
-              onClick={logOut}
-              className="text-muted hover:text-ink rounded-lg px-2 py-1.5 text-left"
-            >
-              Log out
-            </button>
-          </div>
-        </div>
+        <div className="mt-auto">{account}</div>
       </aside>
 
       <main className="min-w-0 flex-1 px-4 py-8 sm:px-8 md:py-10">{children}</main>

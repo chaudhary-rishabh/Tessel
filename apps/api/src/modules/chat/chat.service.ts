@@ -12,17 +12,18 @@ import type {
 } from "@tessel/contracts";
 import { sendMessageRequestSchema } from "@tessel/contracts";
 import {
-  withUserContext,
   type AgentRunRow,
   type Database,
+  encodeCursor,
   type MessageActivity,
   type MessageSource,
   type MessageStatus,
   type MessageToolCall,
+  withUserContext,
 } from "@tessel/db";
 import type { Logger } from "@tessel/logger";
 import { storageKeys, type ObjectStore } from "@tessel/storage";
-import type { UsageLimits } from "../billing/usage-limits";
+import { modelTier, type UsageLimits } from "../billing/usage-limits";
 import { errors } from "../../lib/errors";
 import type { MemorySettingsValue, MemoryStore } from "@tessel/memory";
 import { workspacesRepository } from "../workspaces/workspaces.repository";
@@ -85,14 +86,14 @@ export function createChatService({
   /** Plan limits; without them, only the daily spend caps apply. */
   limits?: UsageLimits | undefined;
 }) {
-  /** The tier of the model a request will use; unknown models are left to the preflight to refuse. */
-  const modelTier = (id: string | undefined): "free" | "pro" => {
-    try {
-      return ai.registry.resolve(id, "chat").tier;
-    } catch {
-      return "free";
-    }
-  };
+  const tierOf = (id: string | undefined) => modelTier(ai.registry, id);
+  /** Deletes stored files once their rows are gone; a failure only leaves an unreachable file. */
+  async function removeFiles(keys: string[]) {
+    const results = await Promise.allSettled(keys.map((key) => objects.deletePrefix(key)));
+    const failed = results.filter((result) => result.status === "rejected").length;
+    if (failed) logger.warn({ failed }, "Couldn't delete some attachment files");
+  }
+
   async function requireMembership(actor: Actor) {
     const workspace = await withUserContext(db, actor.userId, (tx) =>
       workspacesRepository.findForUser(tx, actor.workspaceId, actor.userId),
@@ -111,14 +112,17 @@ export function createChatService({
           workspaceId: actor.workspaceId,
           userId: actor.userId,
           limit: limit + 1,
-          ...(before ? { before: new Date(before) } : {}),
+          ...(before ? { before } : {}),
           ...(q ? { search: q } : {}),
         }),
       );
       const page = rows.slice(0, limit);
       return {
         threads: page.map(toThread),
-        nextCursor: rows.length > limit ? (page.at(-1)?.updatedAt.toISOString() ?? null) : null,
+        nextCursor:
+          rows.length > limit && page.length
+            ? encodeCursor(page.at(-1)!.updatedAt, page.at(-1)!.id)
+            : null,
       };
     },
 
@@ -153,11 +157,14 @@ export function createChatService({
     },
 
     async deleteThread(actor: Actor, threadId: string): Promise<void> {
-      await withUserContext(db, actor.userId, async (tx) => {
+      const keys = await withUserContext(db, actor.userId, async (tx) => {
         const thread = await chatRepository.findThread(tx, { ...actor, threadId });
         if (!thread) throw errors.notFound("Chat not found");
+        const attached = await chatRepository.attachmentKeys(tx, thread.id);
         await chatRepository.deleteThread(tx, thread.id);
+        return attached;
       });
+      await removeFiles(keys);
     },
 
     async uploadAttachment(
@@ -250,7 +257,7 @@ export function createChatService({
       if (limits) {
         await limits.check(
           { workspaceId: actor.workspaceId, userId: actor.userId, requestId: actor.requestId },
-          modelTier(request.model ?? existingThread?.modelId),
+          tierOf(request.model ?? existingThread?.modelId),
         );
       }
       const { model } = await ai.preflight(context, {
@@ -275,8 +282,10 @@ export function createChatService({
             });
         let userRow;
         let replyAt = now;
+        let removedFiles: string[] = [];
         if (editTarget) {
           // Everything after the edited message goes; the summary may cover it, so it restarts.
+          removedFiles = await chatRepository.attachmentKeys(tx, thread.id, editTarget.createdAt);
           await chatRepository.deleteMessagesAfter(tx, thread.id, editTarget.createdAt);
           if (thread.summaryThrough && thread.summaryThrough >= editTarget.createdAt) {
             await chatRepository.updateThread(tx, thread.id, {
@@ -326,8 +335,17 @@ export function createChatService({
         const hasDocuments =
           request.knowledge !== "off" &&
           (await chatRepository.hasReadyDocuments(tx, actor.workspaceId));
-        return { thread, userRow, assistantRow, history, historyRows, hasDocuments };
+        return {
+          thread,
+          userRow,
+          assistantRow,
+          history,
+          historyRows,
+          hasDocuments,
+          removedFiles,
+        };
       });
+      await removeFiles(saved.removedFiles);
 
       // Files are read after the transaction, so storage latency never holds a connection.
       const historyFiles: AttachmentFile[] = await Promise.all(
@@ -432,6 +450,17 @@ export function createChatService({
       threadId: string,
       callId: string,
     ): Promise<{ run: AgentRunRow; message: ChatMessage; thread: ThreadSummary }> {
+      // Resuming a run calls the model again, so the plan's limits apply here too.
+      if (limits) {
+        const thread = await withUserContext(db, actor.userId, (tx) =>
+          chatRepository.findThread(tx, { ...actor, threadId }),
+        );
+        if (!thread) throw errors.notFound("Chat not found");
+        await limits.check(
+          { workspaceId: actor.workspaceId, userId: actor.userId, requestId: actor.requestId },
+          tierOf(thread.modelId),
+        );
+      }
       return withUserContext(db, actor.userId, async (tx) => {
         const thread = await chatRepository.findThread(tx, { ...actor, threadId });
         if (!thread) throw errors.notFound("Chat not found");

@@ -56,7 +56,7 @@ export function createAuthController(service: AuthService, cookie: RefreshCookie
 
   const forgotPassword: RequestHandler = async (req, res) => {
     const { email } = forgotPasswordRequestSchema.parse(req.body);
-    await service.forgotPassword(email);
+    service.forgotPassword(email);
     res.status(202).json({ status: "sent" });
   };
 

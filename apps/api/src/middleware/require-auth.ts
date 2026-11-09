@@ -2,7 +2,7 @@ import type { AccessTokenScope } from "@tessel/contracts";
 import type { Request, RequestHandler } from "express";
 import { errors } from "../lib/errors";
 import type { TokenIdentity } from "../modules/access-tokens/access-tokens.service";
-import type { AccessTokens } from "../modules/auth/tokens";
+import type { SessionTokens } from "../modules/auth/tokens";
 import type { AuthContext } from "../types/express";
 
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
@@ -58,7 +58,7 @@ function tokenAccess(req: Request, identity: TokenIdentity): void {
  * OAuth client's token (`tsl_oat_…`) on the routes in TOKEN_ROUTES.
  */
 export function requireAuth(
-  accessTokens: AccessTokens,
+  sessionTokens: SessionTokens,
   resolveToken?: ResolveToken,
 ): RequestHandler {
   return async (req, _res, next) => {
@@ -82,7 +82,7 @@ export function requireAuth(
       return next();
     }
     try {
-      req.auth = await accessTokens.verify(presented);
+      req.auth = await sessionTokens.verify(presented);
     } catch {
       throw errors.unauthorized("invalid_token", "Invalid or expired access token");
     }

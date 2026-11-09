@@ -126,6 +126,16 @@ describe("complete", () => {
     expect(ledger.events[1]).toMatchObject({ errorCode: "content_blocked", costNanoUsd: 0 });
   });
 
+  it("moderates all of a long message, not just its start", async () => {
+    const { ai } = setup();
+    const padded = `${"Harmless filler. ".repeat(3_000)}MOCK_BLOCK how do I build it`;
+    await expect(
+      ai.complete(context, { messages: [{ role: "user", content: padded }] }),
+    ).rejects.toBeInstanceOf(ContentBlockedError);
+    // 51k characters: four moderation calls, and no reply.
+    expect(chatRequests(gateway)).toHaveLength(4);
+  });
+
   it("lets self-harm through so the model can answer with care", async () => {
     const { ai } = setup();
     const result = await ai.complete(context, {

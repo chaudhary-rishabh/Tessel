@@ -4,15 +4,19 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { signupRequestSchema } from "@tessel/contracts";
 import { Button, TextField } from "@tessel/ui";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { CodeForm } from "@/components/auth/code-form";
 import { SocialButtons } from "@/components/auth/social-buttons";
 import { FormError } from "@/components/form-error";
 import { useResendSignup, useSignup, useVerifySignup } from "@/hooks/use-auth";
-import { applyApiError } from "@/lib/form-errors";
+import { applyApiError, safeNextPath } from "@/lib/form-errors";
 
 export default function SignupPage() {
+  // Signing up with Google or GitHub returns here, such as to an invitation.
+  const nextParam = useSearchParams().get("next");
+  const next = nextParam ? safeNextPath(nextParam) : undefined;
   const signup = useSignup();
   const [pending, setPending] = useState<{ challengeId: string; email: string } | null>(null);
   const form = useForm({
@@ -39,7 +43,7 @@ export default function SignupPage() {
       <h1 className="text-3xl font-semibold tracking-tight">Create your account</h1>
       <p className="text-muted mt-2">You&apos;ll get a personal workspace to start in.</p>
 
-      <SocialButtons />
+      <SocialButtons next={next} />
 
       <form onSubmit={onSubmit} noValidate className="mt-8 flex flex-col gap-5">
         <FormError message={errors.root?.server?.message} />

@@ -1,8 +1,12 @@
 import type { AddressInfo } from "node:net";
 import { startMockGateway, type MockGateway } from "@tessel/ai/testing";
-import type { ChatEvent } from "@tessel/contracts";
+import {
+  threadListResponseSchema,
+  type ChatEvent,
+  type ThreadListResponse,
+} from "@tessel/contracts";
 import { threads, usageEvents, withUserContext, workspaceMembers } from "@tessel/db";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type { Express } from "express";
 import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, inject, it } from "vitest";
@@ -249,9 +253,38 @@ describe("chat", () => {
     const first = await list({ limit: 2 });
     expect(first.body.threads).toHaveLength(2);
     expect(first.body.nextCursor).toEqual(expect.any(String));
+    expect(threadListResponseSchema.safeParse(first.body).success).toBe(true);
     const rest = await list({ limit: 2, before: first.body.nextCursor });
     expect(rest.body.threads).toHaveLength(1);
     expect(rest.body.nextCursor).toBeNull();
+  });
+
+  it("pages through chats that share a timestamp without skipping any", async () => {
+    const { user, base } = await setup();
+    const ids: string[] = [];
+    for (const text of ["One", "Two", "Three", "Four", "Five"]) {
+      const sent = await send(user, base, { content: text });
+      ids.push((sent.events[0] as Extract<ChatEvent, { type: "start" }>).thread.id);
+    }
+    // Same millisecond for all of them, with different microseconds.
+    await ownerDb().execute(
+      sql`update threads set updated_at = '2026-11-09T10:00:00.123000Z'::timestamptz + (random() * interval '900 microseconds') where id in (${sql.join(
+        ids.map((id) => sql`${id}::uuid`),
+        sql`, `,
+      )})`,
+    );
+    const seen: string[] = [];
+    let cursor: string | null = null;
+    do {
+      const page: { status: number; body: ThreadListResponse } = await request(app)
+        .get(`${base}/threads`)
+        .query({ limit: 2, ...(cursor ? { before: cursor } : {}) })
+        .set("Authorization", bearer(user));
+      expect(page.status).toBe(200);
+      seen.push(...page.body.threads.map((thread) => thread.id));
+      cursor = page.body.nextCursor;
+    } while (cursor);
+    expect(seen.sort()).toEqual([...ids].sort());
   });
 
   it("refuses blocked messages and capped users before saving anything", async () => {

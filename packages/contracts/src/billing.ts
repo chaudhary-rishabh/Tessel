@@ -22,7 +22,9 @@ export interface Plan {
   features: string[];
 }
 
-const USD = 1_000_000_000;
+/** Costs are kept in billionths of a US dollar. */
+export const NANO_USD_PER_USD = 1_000_000_000;
+const USD = NANO_USD_PER_USD;
 
 /** Tessel's plans. Limits are measured in model cost, shown to people as a share of their limit. */
 export const PLANS: Record<PlanId, Plan> = {
@@ -98,7 +100,7 @@ export const usageWindowSchema = z.object({
 export const billingSummarySchema = z.object({
   workspaceId: z.uuid(),
   plan: planIdSchema,
-  status: z.enum(["active", "past_due", "canceled", "incomplete"]),
+  status: z.enum(["active", "past_due", "cancelled", "incomplete"]),
   provider: z.enum(["stripe", "razorpay"]).nullable(),
   seats: z.number(),
   members: z.number(),

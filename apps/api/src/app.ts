@@ -32,7 +32,7 @@ import { createAuthRouter } from "./modules/auth/auth.routes";
 import { createAuthService } from "./modules/auth/auth.service";
 import { createRefreshCookie } from "./modules/auth/cookies";
 import { createPasswordHasher, type PasswordHasher } from "./modules/auth/password";
-import { createAccessTokens } from "./modules/auth/tokens";
+import { createSessionTokens } from "./modules/auth/tokens";
 import type { DependencyCheckFn } from "./modules/health/checks";
 import { createChatController } from "./modules/chat/chat.controller";
 import { createChatRouter } from "./modules/chat/chat.routes";
@@ -222,7 +222,7 @@ export function createApp({
   );
 
   // Services
-  const accessTokens = createAccessTokens({
+  const sessionTokens = createSessionTokens({
     secret: config.auth.accessTokenSecret,
     ttlSeconds: config.auth.accessTokenTtlSeconds,
   });
@@ -235,7 +235,7 @@ export function createApp({
     db,
     logger,
     passwords: passwordHasher,
-    accessTokens,
+    sessionTokens,
     refreshTokenTtlMs,
     refreshRotationGraceMs: config.auth.refreshRotationGraceMs,
     mailer,
@@ -277,7 +277,7 @@ export function createApp({
     audit,
     logger,
     billing: billingService,
-    purge: async ({ workspaceId, documentIds, memberIds }) => {
+    purge: async ({ workspaceId, documentIds }) => {
       // Search and graph entries can't be reached once the workspace is gone, so a
       // failure there is logged; the files are the user's data and must go.
       const bestEffort = (what: string, work: () => Promise<unknown>) =>
@@ -295,11 +295,7 @@ export function createApp({
           await bestEffort("graph data", () => graph.deleteDocument(workspaceId, documentId));
         }
       }
-      for (const memberId of memberIds) {
-        await bestEffort("chat search entries", () =>
-          memory.episodes.removeAll(workspaceId, memberId),
-        );
-      }
+      await bestEffort("chat search entries", () => memory.episodes.removeWorkspace(workspaceId));
       await storage.objects.deletePrefix(`workspaces/${workspaceId}/`);
     },
   });
@@ -357,7 +353,7 @@ export function createApp({
     }),
     logger,
   });
-  const authenticate = requireAuth(accessTokens, accessTokensService.resolve);
+  const authenticate = requireAuth(sessionTokens, accessTokensService.resolve);
 
   // Feature modules
   app.use(
@@ -477,7 +473,11 @@ export function createApp({
   );
   app.use(
     "/workspaces/:workspaceId/connectors",
-    createConnectorsRouter({ service: connectorsService, authenticate }),
+    createConnectorsRouter({
+      service: connectorsService,
+      authenticate,
+      cookieSecure: config.auth.cookieSecure,
+    }),
   );
   app.use(
     "/workspaces/:workspaceId/graph",
@@ -500,7 +500,13 @@ export function createApp({
     "/users/me/connected-apps",
     createConnectedAppsRouter({ service: oauthService, authenticate }),
   );
-  app.use("/connectors", createConnectorCallbackRouter({ service: connectorsService }));
+  app.use(
+    "/connectors",
+    createConnectorCallbackRouter({
+      service: connectorsService,
+      cookieSecure: config.auth.cookieSecure,
+    }),
+  );
   // Development only: read the emails and texts the outboxes kept (codes, reset links).
   if (!config.isProduction) {
     const emailOutbox = "messages" in mailer ? (mailer as OutboxMailer) : undefined;

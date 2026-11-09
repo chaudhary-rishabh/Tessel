@@ -10,9 +10,10 @@ describe("API core", () => {
     expect(res.headers["x-request-id"]).toMatch(/^[0-9a-f-]{36}$/);
   });
 
-  it("reuses a safe incoming request ID and replaces an unsafe one", async () => {
+  it("always generates its own request ID, whatever the caller sends", async () => {
+    // Usage and billing records are keyed by it, so a caller can't choose it.
     const safe = await request(app).get("/health").set("x-request-id", "lb-1234.abc");
-    expect(safe.headers["x-request-id"]).toBe("lb-1234.abc");
+    expect(safe.headers["x-request-id"]).toMatch(/^[0-9a-f-]{36}$/);
 
     const unsafe = await request(app)
       .get("/health")

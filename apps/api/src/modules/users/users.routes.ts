@@ -1,6 +1,10 @@
 import { Router, type RequestHandler } from "express";
 import type { RateLimitRule } from "../../middleware/rate-limit";
-import { createRateLimiter, type RateLimitStoreFactory } from "../../middleware/rate-limit";
+import {
+  createRateLimiter,
+  userKey,
+  type RateLimitStoreFactory,
+} from "../../middleware/rate-limit";
 import type { createUsersController } from "./users.controller";
 
 export function createUsersRouter({
@@ -16,10 +20,10 @@ export function createUsersRouter({
 }): Router {
   const router = Router();
   const passwordLimiter = createRateLimiter({
-    name: "password",
+    name: "account-security",
     ...passwordRateLimit,
     storeFactory,
-    keySuffix: (req) => req.auth?.userId,
+    key: userKey,
   });
 
   router.use(authenticate);

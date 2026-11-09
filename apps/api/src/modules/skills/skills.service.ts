@@ -149,6 +149,8 @@ export function createSkillsService({ db, ai }: { db: Database; ai: Ai }) {
     async create(actor: Actor, input: unknown): Promise<Skill> {
       const request = createSkillRequestSchema.parse(input);
       const name = nameFor(request.title);
+      // Membership first: moderation is a paid call, so only members can trigger it.
+      await withUserContext(db, actor.userId, (tx) => membership(tx, actor));
       await moderate(actor, `${request.title}\n${request.description}\n${request.instructions}`);
       return withUserContext(db, actor.userId, async (tx) => {
         const workspace = await membership(tx, actor);
@@ -174,8 +176,7 @@ export function createSkillsService({ db, ai }: { db: Database; ai: Ai }) {
       const text = [request.title, request.description, request.instructions]
         .filter(Boolean)
         .join("\n");
-      if (text) await moderate(actor, text);
-      return withUserContext(db, actor.userId, async (tx) => {
+      const editable = async (tx: Transaction) => {
         const workspace = await membership(tx, actor);
         const [current] = await tx
           .select()
@@ -185,6 +186,13 @@ export function createSkillsService({ db, ai }: { db: Database; ai: Ai }) {
         if (!canEdit(workspace.role, current.userId, actor.userId)) {
           throw errors.forbidden("Only the author, owners, and admins can change this skill");
         }
+        return workspace;
+      };
+      // Permission first: moderation is a paid call, so only editors can trigger it.
+      await withUserContext(db, actor.userId, editable);
+      if (text) await moderate(actor, text);
+      return withUserContext(db, actor.userId, async (tx) => {
+        const workspace = await editable(tx);
         try {
           const [row] = await tx
             .update(skills)
