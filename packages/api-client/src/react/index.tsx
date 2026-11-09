@@ -64,6 +64,7 @@ export const queryKeys = {
   sessions: ["auth", "sessions"] as const,
   signInOptions: ["auth", "options"] as const,
   connectedApps: ["users", "me", "connected-apps"] as const,
+  billing: (workspaceId: string) => ["workspaces", workspaceId, "billing"] as const,
   members: (workspaceId: string) => ["workspaces", workspaceId, "members"] as const,
   invitations: (workspaceId: string) => ["workspaces", workspaceId, "invitations"] as const,
   auditLog: (workspaceId: string) => ["workspaces", workspaceId, "audit-log"] as const,
@@ -670,6 +671,15 @@ export function useAuditLog(workspaceId: string | undefined) {
     queryFn: ({ pageParam }) => api.members.auditLog(workspaceId!, pageParam),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (page) => page.nextBefore ?? undefined,
+    enabled: Boolean(workspaceId),
+  });
+}
+
+export function useBilling(workspaceId: string | undefined) {
+  const api = useApi();
+  return useQuery({
+    queryKey: queryKeys.billing(workspaceId ?? "none"),
+    queryFn: () => api.billing.summary(workspaceId!),
     enabled: Boolean(workspaceId),
   });
 }

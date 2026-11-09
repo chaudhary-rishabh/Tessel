@@ -12,8 +12,15 @@ const MESSAGES: Record<string, string> = {
   reply_blocked: "This reply was removed because it broke the usage policy.",
   approval_not_pending: "This action was already decided or cancelled.",
   network_error: "Can't reach Tessel. Check your connection and try again.",
+  usage_limit_reached:
+    "You've reached your usage limit. See Plan and usage in Settings for when it resets.",
+  model_requires_plan: "This model needs a paid plan. Pick another model, or upgrade in Settings.",
 };
 
+/** Codes whose server message carries details (like when a limit resets) worth showing as-is. */
+const SERVER_DETAIL = new Set(["usage_limit_reached", "model_requires_plan"]);
+
 export function chatErrorMessage(code: string | null | undefined, fallback?: string): string {
+  if (code && fallback && SERVER_DETAIL.has(code)) return fallback;
   return (code && MESSAGES[code]) ?? fallback ?? "Something went wrong with this reply.";
 }

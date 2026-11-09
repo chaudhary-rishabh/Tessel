@@ -59,6 +59,7 @@ export function testConfig(overrides: ConfigOverrides = {}): AppConfig {
     service: "api",
     isProduction: false,
     adminRequireTwoFactor: false,
+    enforcePlanLimits: true,
     corsOrigins: [WEB_ORIGIN],
     trustProxy: 0,
     ...rest,

@@ -1,0 +1,212 @@
+import { PLANS, type Plan, type PlanId, type UsageWindow } from "@tessel/contracts";
+import {
+  billingAccounts,
+  extraUsageRequests,
+  usageEvents,
+  usageWindows,
+  withUserContext,
+  type BillingAccountRow,
+  type Database,
+} from "@tessel/db";
+import { and, eq, gte, sql } from "drizzle-orm";
+import { AppError, errors } from "../../lib/errors";
+
+const HOUR_MS = 3_600_000;
+const WINDOWS = {
+  session: { durationMs: 5 * HOUR_MS, limit: (plan: Plan) => plan.limits.sessionNanoUsd },
+  week: { durationMs: 7 * 24 * HOUR_MS, limit: (plan: Plan) => plan.limits.weekNanoUsd },
+} as const;
+type WindowKind = keyof typeof WINDOWS;
+
+export interface UsageActor {
+  workspaceId: string;
+  userId: string;
+  /** Requests past a limit with extra usage on are recorded by this ID. */
+  requestId?: string | undefined;
+}
+
+/** The plan in force: a canceled subscription falls back to free. */
+export function effectivePlan(account: BillingAccountRow | undefined): Plan {
+  if (!account || account.status === "canceled") return PLANS.free;
+  return PLANS[account.plan as PlanId];
+}
+
+/** Where the current billing period started, for the extra usage cap. */
+export function periodStart(account: BillingAccountRow | undefined, now: Date): Date {
+  if (account?.currentPeriodStart && account.currentPeriodStart <= now) {
+    return account.currentPeriodStart;
+  }
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+}
+
+const resetLabel = (date: Date) =>
+  date.toLocaleString("en-US", {
+    weekday: "short",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "UTC",
+    timeZoneName: "short",
+  });
+
+/**
+ * Plan limits for chat: a five-hour session and a weekly limit per person per
+ * workspace, measured in model cost, plus which models the plan may use.
+ * Past a limit, extra usage (when the workspace turned it on) lets requests
+ * continue up to a monthly cap; otherwise they're refused until the window resets.
+ */
+export function createUsageLimits({
+  db,
+  now = () => new Date(),
+}: {
+  db: Database;
+  now?: () => Date;
+}) {
+  async function account(workspaceId: string) {
+    const [row] = await db
+      .select()
+      .from(billingAccounts)
+      .where(eq(billingAccounts.workspaceId, workspaceId));
+    return row;
+  }
+
+  /** Each window's state for a person, without starting any. */
+  async function windows(actor: UsageActor, plan: Plan) {
+    return withUserContext(db, actor.userId, async (tx) => {
+      const rows = await tx
+        .select()
+        .from(usageWindows)
+        .where(
+          and(
+            eq(usageWindows.workspaceId, actor.workspaceId),
+            eq(usageWindows.userId, actor.userId),
+          ),
+        );
+      const at = now();
+      const result = {} as Record<
+        WindowKind,
+        { used: number; limit: number; resetsAt: Date | null }
+      >;
+      for (const kind of Object.keys(WINDOWS) as WindowKind[]) {
+        const limit = WINDOWS[kind].limit(plan);
+        const row = rows.find((item) => item.kind === kind);
+        if (!row || row.resetsAt <= at) {
+          result[kind] = { used: 0, limit, resetsAt: null };
+          continue;
+        }
+        // Each person reads their own ledger rows under row-level security.
+        const [sum] = await tx
+          .select({ cost: sql<string>`coalesce(sum(${usageEvents.costNanoUsd}), 0)` })
+          .from(usageEvents)
+          .where(
+            and(
+              eq(usageEvents.workspaceId, actor.workspaceId),
+              eq(usageEvents.userId, actor.userId),
+              gte(usageEvents.createdAt, row.startedAt),
+            ),
+          );
+        result[kind] = { used: Number(sum?.cost ?? 0), limit, resetsAt: row.resetsAt };
+      }
+      return result;
+    });
+  }
+
+  /** Starts any window that isn't running, from now. */
+  async function startWindows(actor: UsageActor) {
+    const at = now();
+    for (const [kind, { durationMs }] of Object.entries(WINDOWS) as [
+      WindowKind,
+      { durationMs: number },
+    ][]) {
+      const resetsAt = new Date(at.getTime() + durationMs);
+      await db
+        .insert(usageWindows)
+        .values({
+          workspaceId: actor.workspaceId,
+          userId: actor.userId,
+          kind,
+          startedAt: at,
+          resetsAt,
+        })
+        .onConflictDoUpdate({
+          target: [usageWindows.workspaceId, usageWindows.userId, usageWindows.kind],
+          set: { startedAt: at, resetsAt },
+          setWhere: sql`${usageWindows.resetsAt} <= ${at.toISOString()}::timestamptz`,
+        });
+    }
+  }
+
+  async function extraSpent(workspaceId: string, since: Date): Promise<number> {
+    const result = await db.execute<{ cost: string }>(
+      sql`SELECT app.workspace_extra_cost(${workspaceId}, ${since.toISOString()}::timestamptz) AS cost`,
+    );
+    return Number(result.rows[0]?.cost ?? 0);
+  }
+
+  return {
+    account,
+    effectivePlan,
+    extraSpent,
+
+    /** The person's usage in a workspace, as shares of each limit. */
+    async status(actor: UsageActor): Promise<{ session: UsageWindow; week: UsageWindow }> {
+      const plan = effectivePlan(await account(actor.workspaceId));
+      const state = await windows(actor, plan);
+      const view = (kind: WindowKind): UsageWindow => ({
+        used: state[kind].limit > 0 ? state[kind].used / state[kind].limit : 0,
+        resetsAt: state[kind].resetsAt?.toISOString() ?? null,
+      });
+      return { session: view("session"), week: view("week") };
+    },
+
+    /**
+     * Allows a chat request or refuses it. Returns "extra" when it goes ahead
+     * as extra usage.
+     */
+    async check(actor: UsageActor, modelTier: "free" | "pro"): Promise<"included" | "extra"> {
+      const current = await account(actor.workspaceId);
+      const plan = effectivePlan(current);
+      if (modelTier === "pro" && plan.modelTier === "free") {
+        throw errors.forbidden(
+          "This model needs a paid plan. Pick another model, or upgrade in Settings.",
+          "model_requires_plan",
+        );
+      }
+      const state = await windows(actor, plan);
+      const over = (Object.keys(WINDOWS) as WindowKind[]).filter(
+        (kind) => state[kind].used >= state[kind].limit,
+      );
+      if (over.length === 0) {
+        await startWindows(actor);
+        return "included";
+      }
+      if (plan.extraUsage && current?.extraUsageEnabled) {
+        const spent = await extraSpent(actor.workspaceId, periodStart(current, now()));
+        if (spent < current.extraUsageCapNanoUsd) {
+          if (actor.requestId) {
+            await db
+              .insert(extraUsageRequests)
+              .values({
+                requestId: actor.requestId,
+                workspaceId: actor.workspaceId,
+                userId: actor.userId,
+              })
+              .onConflictDoNothing();
+          }
+          return "extra";
+        }
+      }
+      const resetsAt = over
+        .map((kind) => state[kind].resetsAt!)
+        .sort((a, b) => b.getTime() - a.getTime())[0]!;
+      const which = over.includes("week") ? "weekly" : "five-hour";
+      throw new AppError(
+        429,
+        "usage_limit_reached",
+        `You've reached your ${which} usage limit. It resets ${resetLabel(resetsAt)}.${plan.extraUsage ? " Turn on extra usage in Settings to keep going." : " Upgrade for higher limits."}`,
+        { resetsAt: resetsAt.toISOString(), window: over.includes("week") ? "week" : "session" },
+      );
+    },
+  };
+}
+
+export type UsageLimits = ReturnType<typeof createUsageLimits>;

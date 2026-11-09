@@ -1,4 +1,10 @@
 import {
+  billingSummarySchema,
+  checkoutResponseSchema,
+  portalResponseSchema,
+  type BillingSummary,
+  type CheckoutRequest,
+  type UpdateExtraUsageRequest,
   adminModelsResponseSchema,
   adminOverviewSchema,
   adminUsageResponseSchema,
@@ -252,6 +258,35 @@ export function createApi(client: ApiClient) {
               params: before ? { before } : {},
             })
           ).data,
+        ),
+    },
+    /** A workspace's plan, usage limits, extra usage, and payments. */
+    billing: {
+      summary: async (workspaceId: string): Promise<BillingSummary> =>
+        parse(billingSummarySchema, (await http.get(`/workspaces/${workspaceId}/billing`)).data),
+      updateExtraUsage: async (
+        workspaceId: string,
+        input: UpdateExtraUsageRequest,
+      ): Promise<BillingSummary> =>
+        parse(
+          billingSummarySchema,
+          (await http.put(`/workspaces/${workspaceId}/billing/extra-usage`, input)).data,
+        ),
+      /** A payment page to go to, or null when the existing subscription was switched. */
+      checkout: async (workspaceId: string, input: CheckoutRequest): Promise<string | null> =>
+        parse(
+          checkoutResponseSchema,
+          (await http.post(`/workspaces/${workspaceId}/billing/checkout`, input)).data,
+        ).url,
+      portal: async (workspaceId: string): Promise<string> =>
+        parse(
+          portalResponseSchema,
+          (await http.post(`/workspaces/${workspaceId}/billing/portal`)).data,
+        ).url,
+      setCancel: async (workspaceId: string, cancel: boolean): Promise<BillingSummary> =>
+        parse(
+          billingSummarySchema,
+          (await http.post(`/workspaces/${workspaceId}/billing/cancel`, { cancel })).data,
         ),
     },
     /** Platform admins only; the API checks the role on every call. */

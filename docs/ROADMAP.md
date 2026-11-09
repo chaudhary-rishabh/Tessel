@@ -22,7 +22,7 @@ Phase 1 is built in 20 steps. Each step ends tested, merged, and (from step 4) d
 | 16   | Memory and graph         | Neo4j graph RAG                                                                | A relationship question is answered from the graph   | Done   |
 | 17   | Accounts, admin, billing | Email verification, password reset, OAuth, 2FA, mobile OTP, MCP server OAuth   | Each login method passes end-to-end tests            | Done   |
 | 18   | Accounts, admin, billing | Admin app: users, model registry, usage, audit log                             | Only admins can open it, checked on the backend      | Done   |
-| 19   | Accounts, admin, billing | Billing: plans, payments, usage limits, extra usage, team seats                | Upgrade, limit, and reset flows pass                 |        |
+| 19   | Accounts, admin, billing | Billing: plans, payments, usage limits, extra usage, team seats                | Upgrade, limit, and reset flows pass                 | Done   |
 | 20   | Accounts, admin, billing | Full end-to-end test run, fixes, final deploy                                  | All tests pass and it's live                         |        |
 
 ## Later phases

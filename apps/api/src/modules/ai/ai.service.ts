@@ -3,9 +3,18 @@ import { nanoToUsd } from "@tessel/ai";
 import type { CompletionRequest, CompletionResponse, ModelListResponse } from "@tessel/contracts";
 import { withUserContext, type Database } from "@tessel/db";
 import { errors } from "../../lib/errors";
+import type { UsageLimits } from "../billing/usage-limits";
 import { workspacesRepository } from "../workspaces/workspaces.repository";
 
-export function createAiService({ db, ai }: { db: Database; ai: Ai }) {
+export function createAiService({
+  db,
+  ai,
+  limits,
+}: {
+  db: Database;
+  ai: Ai;
+  limits?: UsageLimits | undefined;
+}) {
   return {
     listModels(): ModelListResponse {
       return {
@@ -32,6 +41,15 @@ export function createAiService({ db, ai }: { db: Database; ai: Ai }) {
         workspacesRepository.findForUser(tx, workspaceId, userId),
       );
       if (!workspace) throw errors.notFound("Workspace not found");
+      if (limits) {
+        let tier: "free" | "pro" = "free";
+        try {
+          tier = ai.registry.resolve(request.model, "chat").tier;
+        } catch {
+          // An unknown model is refused by the call itself.
+        }
+        await limits.check({ workspaceId, userId, requestId }, tier);
+      }
 
       const result = await ai.complete(
         { userId, workspaceId, feature: "completion", ...(requestId ? { requestId } : {}) },

@@ -22,6 +22,7 @@ import {
 } from "@tessel/db";
 import type { Logger } from "@tessel/logger";
 import { storageKeys, type ObjectStore } from "@tessel/storage";
+import type { UsageLimits } from "../billing/usage-limits";
 import { errors } from "../../lib/errors";
 import type { MemorySettingsValue, MemoryStore } from "@tessel/memory";
 import { workspacesRepository } from "../workspaces/workspaces.repository";
@@ -74,13 +75,24 @@ export function createChatService({
   logger,
   objects,
   memory,
+  limits,
 }: {
   db: Database;
   ai: Ai;
   logger: Logger;
   objects: ObjectStore;
   memory: MemoryStore;
+  /** Plan limits; without them, only the daily spend caps apply. */
+  limits?: UsageLimits | undefined;
 }) {
+  /** The tier of the model a request will use; unknown models are left to the preflight to refuse. */
+  const modelTier = (id: string | undefined): "free" | "pro" => {
+    try {
+      return ai.registry.resolve(id, "chat").tier;
+    } catch {
+      return "free";
+    }
+  };
   async function requireMembership(actor: Actor) {
     const workspace = await withUserContext(db, actor.userId, (tx) =>
       workspacesRepository.findForUser(tx, actor.workspaceId, actor.userId),
@@ -214,6 +226,12 @@ export function createChatService({
         return { existingThread: thread, files: pending };
       });
 
+      if (limits) {
+        await limits.check(
+          { workspaceId: actor.workspaceId, userId: actor.userId, requestId: actor.requestId },
+          modelTier(request.model ?? existingThread?.modelId),
+        );
+      }
       const { model } = await ai.preflight(context, {
         model: request.model ?? existingThread?.modelId,
         text: request.content,

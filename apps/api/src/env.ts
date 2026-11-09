@@ -58,8 +58,27 @@ export const envSchema = z
     SOCIAL_LOGIN_MOCK_URL: optional,
     /** Admins need two-step sign-in for the admin app. Defaults to on in production. */
     ADMIN_REQUIRE_TWO_FACTOR: z.stringbool().optional(),
+    /** Plan usage limits and model tiers for chat. Leave on; off only for load tests. */
+    ENFORCE_PLAN_LIMITS: z.stringbool().default(true),
     /** Tessel's MCP server as outside clients reach it; the API signs those clients in. */
     MCP_PUBLIC_URL: z.url().optional(),
+    /** Stripe, for card payments. Off without a secret key. */
+    STRIPE_SECRET_KEY: optional,
+    STRIPE_WEBHOOK_SECRET: optional,
+    STRIPE_PRICE_PRO: optional,
+    STRIPE_PRICE_MAX: optional,
+    STRIPE_PRICE_TEAM: optional,
+    /** Razorpay, for payments in India. Off without a key. */
+    RAZORPAY_KEY_ID: optional,
+    RAZORPAY_KEY_SECRET: optional,
+    RAZORPAY_WEBHOOK_SECRET: optional,
+    RAZORPAY_PLAN_PRO: optional,
+    RAZORPAY_PLAN_MAX: optional,
+    RAZORPAY_PLAN_TEAM: optional,
+    /** Rupees per US dollar, for charging extra usage through Razorpay. */
+    RAZORPAY_USD_TO_INR: z.coerce.number().positive().default(85),
+    /** Development and tests: a mock Stripe and Razorpay (src/testing/mock-payments.ts). */
+    PAYMENTS_MOCK_URL: optional,
     /** sns texts with Amazon SNS; outbox keeps texts in memory; off hides phone sign-in. */
     SMS_TRANSPORT: z.enum(["sns", "outbox", "off"]).optional(),
     SMS_SENDER_ID: optional,
@@ -92,6 +111,27 @@ export const envSchema = z
         code: "custom",
         path: ["SOCIAL_LOGIN_MOCK_URL"],
         message: "The mock sign-in provider is for development only",
+      });
+    }
+    if (env.NODE_ENV === "production" && env.PAYMENTS_MOCK_URL) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["PAYMENTS_MOCK_URL"],
+        message: "The mock payment provider is for development only",
+      });
+    }
+    if (env.STRIPE_SECRET_KEY && !env.STRIPE_WEBHOOK_SECRET) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["STRIPE_WEBHOOK_SECRET"],
+        message: "Set it with STRIPE_SECRET_KEY",
+      });
+    }
+    if (env.RAZORPAY_KEY_ID && (!env.RAZORPAY_KEY_SECRET || !env.RAZORPAY_WEBHOOK_SECRET)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["RAZORPAY_KEY_SECRET"],
+        message: "Set RAZORPAY_KEY_SECRET and RAZORPAY_WEBHOOK_SECRET with RAZORPAY_KEY_ID",
       });
     }
     if (env.NODE_ENV === "production" && env.SMS_TRANSPORT === "outbox") {
