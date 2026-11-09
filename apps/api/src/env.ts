@@ -56,6 +56,8 @@ export const envSchema = z
     GITHUB_CLIENT_SECRET: optional,
     /** Development and tests: a mock Google and GitHub (see src/testing/mock-oauth.ts). */
     SOCIAL_LOGIN_MOCK_URL: optional,
+    /** Admins need two-step sign-in for the admin app. Defaults to on in production. */
+    ADMIN_REQUIRE_TWO_FACTOR: z.stringbool().optional(),
     /** Tessel's MCP server as outside clients reach it; the API signs those clients in. */
     MCP_PUBLIC_URL: z.url().optional(),
     /** sns texts with Amazon SNS; outbox keeps texts in memory; off hides phone sign-in. */

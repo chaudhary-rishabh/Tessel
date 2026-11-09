@@ -58,6 +58,7 @@ export function testConfig(overrides: ConfigOverrides = {}): AppConfig {
   return {
     service: "api",
     isProduction: false,
+    adminRequireTwoFactor: false,
     corsOrigins: [WEB_ORIGIN],
     trustProxy: 0,
     ...rest,
@@ -90,14 +91,22 @@ export interface TestAiOptions {
   limits?: SpendLimits;
   moderation?: AiOptions["moderation"];
   cache?: AiOptions["cache"];
+  /** A live registry, for tests that edit models through the admin API. */
+  registry?: AiOptions["registry"];
 }
 
 /** AI wired like production (Postgres ledger, row-level security), but with a mock gateway. */
-export function createTestAi({ gatewayUrl, limits, moderation, cache }: TestAiOptions = {}): Ai {
+export function createTestAi({
+  gatewayUrl,
+  limits,
+  moderation,
+  cache,
+  registry: liveRegistry,
+}: TestAiOptions = {}): Ai {
   const ledger = createUsageLedger(connect().db);
   return createAi({
     ...(gatewayUrl ? { gateway: { apiKey: "test-gateway-key", baseURL: gatewayUrl } } : {}),
-    registry,
+    registry: liveRegistry ?? registry,
     ledger,
     spend: createSpendGuard({
       store: memorySpendStore(),

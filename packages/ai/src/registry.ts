@@ -108,6 +108,70 @@ export function createModelRegistry(input: unknown): ModelRegistry {
   };
 }
 
+/** A registry whose models can be replaced while running, as the admin app edits them. */
+export interface LiveModelRegistry extends ModelRegistry {
+  /** The config in use, for showing and editing. */
+  config(): ModelsConfig;
+  /** Validates and switches to a new config; throws (and keeps the old one) when it's invalid. */
+  replace(input: unknown): ModelsConfig;
+}
+
+export function createLiveModelRegistry(initial: unknown): LiveModelRegistry {
+  let config = modelsConfigSchema.parse(initial);
+  let current = createModelRegistry(config);
+  return {
+    list: (filter) => current.list(filter),
+    get: (id) => current.get(id),
+    forRole: (role) => current.forRole(role),
+    resolve: (id, role) => current.resolve(id, role),
+    config: () => config,
+    replace(input) {
+      const next = modelsConfigSchema.parse(input);
+      current = createModelRegistry(next);
+      config = next;
+      return next;
+    },
+  };
+}
+
+/**
+ * Keeps a live registry in step with a saved config (the admin app's edits):
+ * loads it now, then checks again every `intervalMs`. A missing config keeps
+ * the file's; an invalid one is logged and ignored. Returns a stop function.
+ */
+export async function syncLiveRegistry({
+  registry,
+  load,
+  intervalMs = 60_000,
+  onError,
+}: {
+  registry: LiveModelRegistry;
+  load: () => Promise<{ config: unknown; updatedAt: Date } | null>;
+  intervalMs?: number;
+  onError?: (error: unknown) => void;
+}): Promise<() => void> {
+  let seen: number | undefined;
+  const check = async () => {
+    try {
+      const saved = await load();
+      if (!saved || saved.updatedAt.getTime() === seen) return;
+      registry.replace(saved.config);
+      seen = saved.updatedAt.getTime();
+    } catch (error) {
+      onError?.(error);
+    }
+  };
+  await check();
+  const timer = setInterval(() => void check(), intervalMs);
+  timer.unref();
+  return () => clearInterval(timer);
+}
+
+/** The config bundled with this package (`models.json`), or the JSON file at `path`. */
+export function readModelsConfig(path?: string): unknown {
+  return path ? JSON.parse(readFileSync(path, "utf8")) : bundledConfig;
+}
+
 /**
  * The registry from `packages/ai/models.json`, or from the JSON file at
  * `path` (AI_MODELS_FILE) so operators can change models without a rebuild.

@@ -10,3 +10,4 @@ export * from "./access-tokens";
 export * from "./oauth";
 export * from "./memories";
 export * from "./members";
+export * from "./settings";

@@ -342,3 +342,15 @@ The existing row-level security lets owners and admins add members, but an invit
 ## D-084 One audit log, written by the API
 
 Security-relevant actions are recorded in `audit_events` (actor, workspace, action, target, metadata, IP) by the services that perform them. A failed write is logged and never blocks the action, since refusing a password change because the audit log is down would be worse. The table has no row-level security, like the auth tables: workspace owners and admins read their own workspace's events through the API, and platform admins read everything in the admin app. Actor and workspace references are set to null on deletion so history survives, and daily maintenance drops events after a year.
+
+## D-085 The admin app is a separate app, and the API decides
+
+The admin app is its own Next.js app and image on its own domain, so its pages, bundle, and attack surface are kept apart from the product, and it can be put behind extra network rules later. Hiding pages proves nothing, so every admin API call loads the user from the database and checks the role, suspension, and (in production) two-step sign-in; JWT claims alone aren't trusted for this, so a demoted admin is locked out at once. Admins can't change their own role or suspend themselves. Nobody can become an admin through the app: the first one is granted with an operator command on the host.
+
+## D-086 The model registry lives in the database
+
+`models.json` is the starting point. When an admin saves the registry, the whole config is validated with the same schema and stored as one row; the API swaps it in at once, and every API and worker process checks for a newer saved version every minute. An invalid saved config is ignored with an error in the log, and the file's config keeps working. The embedding model can't change from the admin app, because every document would need re-indexing with matching vector sizes.
+
+## D-087 Suspension instead of deletion
+
+Admins suspend accounts rather than delete them, so workspaces, documents, and the audit trail stay intact and the decision can be reversed. A suspended account is signed out everywhere and refused at every sign-in method, at token refresh, and at token lookup. Access tokens already issued are short (15 minutes), which is the accepted gap, rather than adding a database lookup to every request.

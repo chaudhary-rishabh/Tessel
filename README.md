@@ -92,7 +92,7 @@ pnpm install
 cp .env.example .env
 pnpm infra:up        # Postgres, Redis x2, Qdrant, Neo4j, S3 and SQS emulators
 pnpm db:migrate      # apply migrations and set up the app database role
-pnpm dev             # web :3000, api :4000, mcp-server :4100, worker
+pnpm dev             # web :3000, admin :3001, api :4000, mcp-server :4100, worker
 ```
 
 AI features need an [AI Gateway](https://vercel.com/ai-gateway) key in `AI_GATEWAY_API_KEY`. To work offline, run the mock gateway and point the API at it:

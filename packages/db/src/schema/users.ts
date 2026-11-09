@@ -35,6 +35,8 @@ export const users = pgTable("users", {
   phone: text("phone").unique(),
   phoneVerifiedAt: timestamp("phone_verified_at", { withTimezone: true }),
   role: userRole("role").notNull().default("user"),
+  /** Set by an admin: the account can't sign in, and its tokens stop working. */
+  suspendedAt: timestamp("suspended_at", { withTimezone: true }),
   lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true })

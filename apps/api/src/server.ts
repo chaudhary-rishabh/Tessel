@@ -1,6 +1,9 @@
 import {
   aiOptionsFromEnv,
   createAi,
+  createLiveModelRegistry,
+  readModelsConfig,
+  syncLiveRegistry,
   createQdrantIndex,
   redisKeyValueCache,
   withSearchCache,
@@ -9,7 +12,7 @@ import {
   spendLimitsFromEnv,
 } from "@tessel/ai";
 import { loadEnvFiles, parseEnv } from "@tessel/config/env";
-import { createDatabase, createUsageLedger, pingDatabase } from "@tessel/db";
+import { createDatabase, createUsageLedger, loadModelConfig, pingDatabase } from "@tessel/db";
 import { createSecretBox } from "@tessel/mcp";
 import { graphStoreFromEnv } from "@tessel/graph";
 import { createQdrantEpisodeIndex } from "@tessel/memory";
@@ -55,7 +58,14 @@ const spend = createSpendGuard({
 });
 // Embeddings and search results are cached in the cache Redis (failing open).
 const cache = redisKeyValueCache(redisCache, { prefix: "tessel:" });
-const ai = createAi(aiOptionsFromEnv(env, { spend, ledger, logger, cache }));
+// Models come from the admin app's saved registry when there is one, else models.json.
+const registry = createLiveModelRegistry(readModelsConfig(env.AI_MODELS_FILE));
+await syncLiveRegistry({
+  registry,
+  load: () => loadModelConfig(database.db),
+  onError: (error) => logger.error({ err: error }, "Couldn't load the saved model registry"),
+});
+const ai = createAi(aiOptionsFromEnv(env, { spend, ledger, logger, cache, registry }));
 if (!ai.isConfigured) {
   logger.warn("AI is off: set AI_GATEWAY_API_KEY (or a fallback provider key) to turn it on");
 }
@@ -110,6 +120,7 @@ function smsFromEnv() {
 }
 
 const app = createApp({
+  models: registry,
   config,
   logger,
   db: database.db,

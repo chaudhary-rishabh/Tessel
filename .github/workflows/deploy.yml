@@ -64,6 +64,7 @@ jobs:
           BUILD_CACHE: gha
           PUBLIC_API_URL: https://${{ vars.API_DOMAIN }}
           PUBLIC_MCP_URL: https://${{ vars.MCP_DOMAIN }}/mcp
+          PUBLIC_WEB_URL: https://${{ vars.WEB_DOMAIN }}
           PLATFORM: ${{ vars.IMAGE_PLATFORM || 'linux/amd64' }}
 
       - name: Deploy to EC2
@@ -74,12 +75,13 @@ jobs:
           WEB_DOMAIN: ${{ vars.WEB_DOMAIN }}
           API_DOMAIN: ${{ vars.API_DOMAIN }}
           MCP_DOMAIN: ${{ vars.MCP_DOMAIN }}
+          ADMIN_DOMAIN: ${{ vars.ADMIN_DOMAIN }}
           ACME_EMAIL: ${{ vars.ACME_EMAIL }}
           BACKUP_BUCKET: ${{ vars.BACKUP_BUCKET }}
 
       - name: Check the live site
         run: |
-          for url in "https://${{ vars.API_DOMAIN }}/health" "https://${{ vars.WEB_DOMAIN }}/"; do
+          for url in "https://${{ vars.API_DOMAIN }}/health" "https://${{ vars.WEB_DOMAIN }}/" "https://${{ vars.ADMIN_DOMAIN }}/login"; do
             for attempt in 1 2 3 4 5 6; do
               if curl --fail --silent --show-error --max-time 10 "$url" >/dev/null; then
                 echo "OK $url"; continue 2

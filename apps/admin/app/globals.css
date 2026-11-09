@@ -1,0 +1,67 @@
+@import "tailwindcss";
+@import "@fontsource-variable/bricolage-grotesque";
+@import "@fontsource-variable/atkinson-hyperlegible-next";
+
+/* Shared UI components live in a workspace package; scan them for classes. */
+@source "../../../packages/ui/src";
+
+@custom-variant dark (@media (prefers-color-scheme: dark));
+
+@theme {
+  --font-sans: "Atkinson Hyperlegible Next Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Bricolage Grotesque Variable", ui-sans-serif, system-ui, sans-serif;
+
+  /* Mineral palette: cool paper, green-black ink, verdigris accent. */
+  --color-paper: #f6f7f5;
+  --color-surface: #ffffff;
+  --color-ink: #18201d;
+  --color-muted: #5a6661;
+  --color-line: #dce1dd;
+  --color-accent: #1f6f64;
+  --color-accent-strong: #185a51;
+  --color-accent-ink: #ffffff;
+  --color-danger: #b4352b;
+
+  /* Brand tiles: the Tessel mark and the tessellation. Same in light and dark. */
+  --color-tile-verdigris: #1f6f64;
+  --color-tile-deep: #185a51;
+  --color-tile-ochre: #d9a441;
+  --color-tile-iris: #7c8dc8;
+  --color-tile-moss: #8fa67a;
+  --color-tile-ink: #18201d;
+  --color-tile-paper: #f6f7f5;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-paper: #1b2220;
+    --color-surface: #232b28;
+    --color-ink: #e8ece9;
+    --color-muted: #9aa6a1;
+    --color-line: #33403b;
+    --color-accent: #4fb3a3;
+    --color-accent-strong: #6cc4b5;
+    --color-accent-ink: #10201c;
+    --color-danger: #e0736a;
+  }
+}
+
+html {
+  color-scheme: light dark;
+}
+
+body {
+  @apply bg-paper text-ink font-sans antialiased;
+}
+
+h1,
+h2,
+h3 {
+  @apply font-display;
+  text-wrap: balance;
+}
+
+/* Tables of figures line their digits up. */
+.figures {
+  font-variant-numeric: tabular-nums;
+}

@@ -1,4 +1,17 @@
 import {
+  adminModelsResponseSchema,
+  adminOverviewSchema,
+  adminUsageResponseSchema,
+  adminUserDetailSchema,
+  adminUserListResponseSchema,
+  type AdminAuditQuery,
+  type AdminModels,
+  type AdminModelsResponse,
+  type AdminOverview,
+  type AdminUsageResponse,
+  type AdminUserDetail,
+  type AdminUserListResponse,
+  type UpdateAdminUserRequest,
   acceptInvitationResponseSchema,
   auditLogResponseSchema,
   invitationListResponseSchema,
@@ -240,6 +253,39 @@ export function createApi(client: ApiClient) {
             })
           ).data,
         ),
+    },
+    /** Platform admins only; the API checks the role on every call. */
+    admin: {
+      overview: async (): Promise<AdminOverview> =>
+        parse(adminOverviewSchema, (await http.get("/admin/overview")).data),
+      users: async (
+        query: { query?: string; cursor?: string; limit?: number } = {},
+      ): Promise<AdminUserListResponse> =>
+        parse(
+          adminUserListResponseSchema,
+          (await http.get("/admin/users", { params: query })).data,
+        ),
+      user: async (userId: string): Promise<AdminUserDetail> =>
+        parse(adminUserDetailSchema, (await http.get(`/admin/users/${userId}`)).data),
+      updateUser: async (
+        userId: string,
+        change: UpdateAdminUserRequest,
+      ): Promise<AdminUserDetail> =>
+        parse(adminUserDetailSchema, (await http.patch(`/admin/users/${userId}`, change)).data),
+      signOutUser: async (userId: string): Promise<void> => {
+        await http.post(`/admin/users/${userId}/sign-out`);
+      },
+      models: async (): Promise<AdminModelsResponse> =>
+        parse(adminModelsResponseSchema, (await http.get("/admin/models")).data),
+      saveModels: async (models: AdminModels): Promise<AdminModelsResponse> =>
+        parse(adminModelsResponseSchema, (await http.put("/admin/models", models)).data),
+      usage: async (days: number): Promise<AdminUsageResponse> =>
+        parse(
+          adminUsageResponseSchema,
+          (await http.get("/admin/usage", { params: { days } })).data,
+        ),
+      auditLog: async (query: AdminAuditQuery = {}): Promise<AuditLogResponse> =>
+        parse(auditLogResponseSchema, (await http.get("/admin/audit-log", { params: query })).data),
     },
     invitations: {
       preview: async (token: string): Promise<InvitationPreview> =>
