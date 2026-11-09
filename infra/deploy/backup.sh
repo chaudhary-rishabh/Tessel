@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# Backs up the on-host Postgres (data profile) to S3. deploy.sh installs a
-# systemd timer that runs this nightly when BACKUP_BUCKET is set.
+# Backs up the on-host Postgres and the Qdrant search index (data profile) to
+# S3. deploy.sh installs a systemd timer that runs this nightly when
+# BACKUP_BUCKET is set.
 #
 #   sudo /opt/tessel/backup.sh
 #
 # Keep backups for as long as you need with an S3 lifecycle rule on the
-# postgres/ prefix (see infra/aws/README.md). Not needed with RDS, which has
-# its own automated backups.
+# postgres/ and qdrant/ prefixes (see infra/aws/README.md). Not needed with
+# RDS, which has its own automated backups. The search index can also be
+# rebuilt from the files in S3 by re-indexing, so its backup only saves time.
 set -euo pipefail
 
 cd "$(dirname "$0")"
@@ -17,11 +19,40 @@ set +a
 : "${BACKUP_BUCKET:?set BACKUP_BUCKET in deploy.env}"
 : "${AWS_REGION:?set AWS_REGION in deploy.env}"
 TAG=$(cat .deployed-tag)
+STAMP=$(date -u +%Y-%m-%dT%H%M%SZ)
 
-key="postgres/tessel-$(date -u +%Y-%m-%dT%H%M%SZ).dump"
-echo "Backing up Postgres to s3://$BACKUP_BUCKET/$key"
-# Custom format is compressed and lets pg_restore restore selectively.
-IMAGE_TAG=$TAG docker compose --file docker-compose.prod.yml --env-file deploy.env \
-  exec -T postgres pg_dump --username tessel --dbname tessel --format custom |
-  aws s3 cp - "s3://$BACKUP_BUCKET/$key" --region "$AWS_REGION" --sse AES256 --only-show-errors
+compose() { IMAGE_TAG=$TAG docker compose --file docker-compose.prod.yml --env-file deploy.env "$@"; }
+running() { compose ps --status running --services | grep -qx "$1"; }
+upload() { aws s3 cp - "s3://$BACKUP_BUCKET/$1" --region "$AWS_REGION" --sse AES256 --only-show-errors; }
+
+if running postgres; then
+  key="postgres/tessel-$STAMP.dump"
+  echo "Backing up Postgres to s3://$BACKUP_BUCKET/$key"
+  # Custom format is compressed and lets pg_restore restore selectively.
+  compose exec -T postgres pg_dump --username tessel --dbname tessel --format custom | upload "$key"
+fi
+
+if running qdrant && running api; then
+  key="qdrant/tessel-$STAMP.snapshot"
+  echo "Backing up the search index to s3://$BACKUP_BUCKET/$key"
+  # A full-storage snapshot, streamed out through the API container (which can
+  # reach Qdrant and has its address and key), then deleted from the volume.
+  compose exec -T api node --input-type=module -e '
+    import { Readable } from "node:stream";
+    const base = process.env.QDRANT_URL.replace(/\/$/, "");
+    const headers = process.env.QDRANT_API_KEY ? { "api-key": process.env.QDRANT_API_KEY } : {};
+    const call = async (method, path) => {
+      const res = await fetch(base + path, { method, headers });
+      if (!res.ok) throw new Error(`${method} ${path}: ${res.status} ${await res.text()}`);
+      return res;
+    };
+    const { result } = await (await call("POST", "/snapshots?wait=true")).json();
+    const download = await call("GET", `/snapshots/${result.name}`);
+    await new Promise((resolve, reject) =>
+      Readable.fromWeb(download.body).on("error", reject).pipe(process.stdout).on("finish", resolve),
+    );
+    await call("DELETE", `/snapshots/${result.name}`);
+  ' | upload "$key"
+fi
+
 echo "Backup complete"

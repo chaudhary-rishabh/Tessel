@@ -272,7 +272,37 @@ export function createApp({
     audit,
   });
   const usersService = createUsersService({ db });
-  const workspacesService = createWorkspacesService({ db, audit });
+  const workspacesService = createWorkspacesService({
+    db,
+    audit,
+    logger,
+    billing: billingService,
+    purge: async ({ workspaceId, documentIds, memberIds }) => {
+      // Search and graph entries can't be reached once the workspace is gone, so a
+      // failure there is logged; the files are the user's data and must go.
+      const bestEffort = (what: string, work: () => Promise<unknown>) =>
+        work().catch((error: unknown) =>
+          logger.warn(
+            { err: error, workspaceId },
+            `Couldn't remove ${what} of a deleted workspace`,
+          ),
+        );
+      for (const documentId of documentIds) {
+        await bestEffort("search index entries", () =>
+          vectorIndex.deleteDocument(workspaceId, documentId),
+        );
+        if (graph) {
+          await bestEffort("graph data", () => graph.deleteDocument(workspaceId, documentId));
+        }
+      }
+      for (const memberId of memberIds) {
+        await bestEffort("chat search entries", () =>
+          memory.episodes.removeAll(workspaceId, memberId),
+        );
+      }
+      await storage.objects.deletePrefix(`workspaces/${workspaceId}/`);
+    },
+  });
   const aiController = createAiController(createAiService({ db, ai, limits: usageLimits }));
   const usageController = createUsageController(
     createUsageService({ db, spend: ai.spend, registry: ai.registry }),

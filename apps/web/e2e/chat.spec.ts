@@ -80,6 +80,55 @@ test.describe("chat", () => {
     await expect(page).toHaveURL(/\/chat$/);
   });
 
+  test("edits an earlier message and retries the last reply", async ({ page }) => {
+    await signUp(page);
+    await sendMessage(page, "First idea");
+    await expect(messages(page).getByText("Echo: First idea")).toBeVisible();
+    await sendMessage(page, "Second idea");
+    await expect(messages(page).getByText("Echo: Second idea")).toBeVisible();
+
+    // Editing the first message replaces everything after it.
+    await messages(page).getByText("First idea", { exact: true }).hover();
+    await page.getByRole("button", { name: "Edit message" }).first().click();
+    await page.getByLabel("New text for this message").fill("A sharper first idea");
+    await page.getByRole("button", { name: "Send edit" }).click();
+    await expect(messages(page).getByText("Echo: A sharper first idea")).toBeVisible();
+    await expect(messages(page).getByText("Second idea")).toHaveCount(0);
+    await expect(messages(page).getByRole("listitem")).toHaveCount(2);
+
+    // Retrying writes the last reply again, still with two messages.
+    await page.getByRole("button", { name: "Retry reply" }).click();
+    await expect(page.getByRole("button", { name: "Send message" })).toBeVisible();
+    await expect(messages(page).getByText("Echo: A sharper first idea")).toBeVisible();
+    await page.reload();
+    await expect(messages(page).getByRole("listitem")).toHaveCount(2);
+    await expect(messages(page).getByText("A sharper first idea", { exact: true })).toBeVisible();
+  });
+
+  test("searches chats from the sidebar", async ({ page }) => {
+    await signUp(page);
+    await sendMessage(page, "Garden layout ideas");
+    await expect(messages(page).getByText("Echo: Garden layout ideas")).toBeVisible();
+    await page.goto("/chat");
+    await sendMessage(page, "Tax return checklist");
+    await expect(messages(page).getByText("Echo: Tax return checklist")).toBeVisible();
+
+    await openNavigation(page);
+    // Phones keep the desktop sidebar in the page, hidden; use the one on screen.
+    const search = page.getByLabel("Search chats").filter({ visible: true });
+    await search.fill("garden");
+    const results = page.getByRole("list", { name: "Matching chats" });
+    await expect(results.getByRole("link", { name: /Garden layout/ })).toBeVisible();
+    await expect(results.getByRole("link", { name: /Tax return/ })).toHaveCount(0);
+
+    await search.fill("no such chat");
+    await expect(page.getByText(/No chats match/)).toBeVisible();
+    await page.getByRole("button", { name: "Clear search" }).click();
+    await expect(
+      page.getByRole("list", { name: "Chats" }).filter({ visible: true }).getByRole("link"),
+    ).toHaveCount(2);
+  });
+
   test("remembers the chosen model for new chats", async ({ page }) => {
     await signUp(page);
     await page.getByRole("button", { name: /^Model:/ }).click();

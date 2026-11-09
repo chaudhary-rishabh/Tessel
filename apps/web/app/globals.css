@@ -5,7 +5,17 @@
 /* Shared UI components live in a workspace package; scan them for classes. */
 @source "../../../packages/ui/src";
 
-@custom-variant dark (@media (prefers-color-scheme: dark));
+/* Dark follows the device unless a theme is picked in Settings (data-theme on <html>). */
+@custom-variant dark {
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not([data-theme="light"]) *) {
+      @slot;
+    }
+  }
+  &:where([data-theme="dark"] *) {
+    @slot;
+  }
+}
 
 @theme {
   --font-sans: "Atkinson Hyperlegible Next Variable", ui-sans-serif, system-ui, sans-serif;
@@ -33,7 +43,7 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --color-paper: #1b2220;
     --color-surface: #232b28;
     --color-ink: #e8ece9;
@@ -44,6 +54,18 @@
     --color-accent-ink: #10201c;
     --color-danger: #e0736a;
   }
+}
+
+:root[data-theme="dark"] {
+  --color-paper: #1b2220;
+  --color-surface: #232b28;
+  --color-ink: #e8ece9;
+  --color-muted: #9aa6a1;
+  --color-line: #33403b;
+  --color-accent: #4fb3a3;
+  --color-accent-strong: #6cc4b5;
+  --color-accent-ink: #10201c;
+  --color-danger: #e0736a;
 }
 
 @keyframes pulse-dot {
@@ -73,6 +95,14 @@
 
 :root {
   color-scheme: light dark;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
 }
 
 body {

@@ -33,10 +33,36 @@ if [[ ",$COMPOSE_PROFILES," == *",edge,"* ]]; then
 fi
 
 compose() {
-  IMAGE_TAG=$1 docker compose --file docker-compose.prod.yml --env-file deploy.env "${@:2}"
+  local files=(--file docker-compose.prod.yml)
+  [[ -f docker-compose.logs.yml ]] && files+=(--file docker-compose.logs.yml)
+  IMAGE_TAG=$1 docker compose "${files[@]}" --env-file deploy.env "${@:2}"
 }
 
 log() { echo "[deploy $(date -u +%H:%M:%S)] $*"; }
+
+# With LOG_GROUP set, every container logs to CloudWatch instead of local files.
+# The override replaces each service's logging block, so Compose recreates the
+# containers whose logging changed.
+rm -f docker-compose.logs.yml
+if [[ -n "${LOG_GROUP:-}" ]]; then
+  log "Sending container logs to CloudWatch log group $LOG_GROUP"
+  {
+    echo "services:"
+    for service in $(IMAGE_TAG=unused docker compose --file docker-compose.prod.yml --env-file deploy.env --profile tools config --services); do
+      cat <<YAML
+  $service:
+    logging: !override
+      driver: awslogs
+      options:
+        awslogs-region: "$AWS_REGION"
+        awslogs-group: "$LOG_GROUP"
+        tag: "{{.Name}}"
+        mode: non-blocking
+        max-buffer-size: 4m
+YAML
+    done
+  } >docker-compose.logs.yml
+fi
 
 log "Loading secrets from SSM ${SSM_PATH}"
 umask 077
@@ -75,18 +101,18 @@ if [[ -n "$DATA_SERVICES" ]]; then
   compose "$TAG" up --detach --wait --wait-timeout 300 $DATA_SERVICES
 fi
 
-if [[ "$DATA_SERVICES" == *postgres* && -n "${BACKUP_BUCKET:-}" ]]; then
-  log "Scheduling nightly Postgres backups to s3://$BACKUP_BUCKET"
+if [[ -n "$DATA_SERVICES" && -n "${BACKUP_BUCKET:-}" ]]; then
+  log "Scheduling nightly backups (Postgres and the search index) to s3://$BACKUP_BUCKET"
   cat >/etc/systemd/system/tessel-backup.service <<UNIT
 [Unit]
-Description=Back up Tessel's Postgres to S3
+Description=Back up Tessel's Postgres and Qdrant to S3
 [Service]
 Type=oneshot
 ExecStart=$(pwd)/backup.sh
 UNIT
   cat >/etc/systemd/system/tessel-backup.timer <<UNIT
 [Unit]
-Description=Nightly Tessel Postgres backup
+Description=Nightly Tessel backup
 [Timer]
 OnCalendar=*-*-* 21:00:00 UTC
 RandomizedDelaySec=30m

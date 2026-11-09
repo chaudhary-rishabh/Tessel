@@ -243,6 +243,11 @@ export async function startMockPayments(options: MockPaymentsOptions): Promise<M
       if (rest[0] === "v1" && rest[1] === "subscriptions" && rest[2]) {
         const sub = subscriptions.get(rest[2]);
         if (!sub) return json(404, { error: { message: "No such subscription" } });
+        if (req.method === "DELETE") {
+          sub.status = "canceled";
+          await sendStripe("customer.subscription.deleted", stripeSubscription(sub));
+          return json(200, stripeSubscription(sub));
+        }
         if (req.method === "POST") {
           if (fields.cancel_at_period_end !== undefined)
             sub.cancelAtPeriodEnd = fields.cancel_at_period_end === "true";
@@ -329,7 +334,12 @@ export async function startMockPayments(options: MockPaymentsOptions): Promise<M
           await sendRazorpay("subscription.updated", sub);
         }
         if (req.method === "POST" && rest[3] === "cancel") {
-          sub.cancelAtPeriodEnd = true;
+          if (Number(body.cancel_at_cycle_end) === 0) {
+            sub.status = "cancelled";
+            await sendRazorpay("subscription.cancelled", sub);
+          } else {
+            sub.cancelAtPeriodEnd = true;
+          }
         }
         if (req.method === "POST" && rest[3] === "addons") {
           const item = body.item as { amount: number; currency: string };

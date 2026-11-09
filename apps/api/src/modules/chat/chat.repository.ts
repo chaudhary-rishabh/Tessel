@@ -12,7 +12,7 @@ import {
   type ThreadRow,
   type Transaction,
 } from "@tessel/db";
-import { and, asc, desc, eq, inArray, isNull, lt } from "drizzle-orm";
+import { and, asc, desc, eq, exists, gt, ilike, inArray, isNull, lt, or, sql } from "drizzle-orm";
 
 export type AttachmentMeta = AttachmentRow;
 
@@ -70,10 +70,21 @@ const attachmentMeta = {
  * Chat data access. Everything runs inside withUserContext; the explicit
  * owner filters are the first line of defence and row-level security the second.
  */
+/** Title or any message contains the text, ignoring case; % and _ are matched literally. */
+function matchesSearch(text: string) {
+  const pattern = `%${text.replace(/[\\%_]/g, (character) => `\\${character}`)}%`;
+  return or(
+    ilike(threads.title, pattern),
+    exists(
+      sql`(select 1 from ${messages} where ${messages.threadId} = ${threads.id} and ${messages.content} ilike ${pattern})`,
+    ),
+  );
+}
+
 export const chatRepository = {
   listThreads(
     tx: Transaction,
-    filter: { workspaceId: string; userId: string; before?: Date; limit: number },
+    filter: { workspaceId: string; userId: string; before?: Date; search?: string; limit: number },
   ): Promise<ThreadRow[]> {
     return tx
       .select()
@@ -83,6 +94,7 @@ export const chatRepository = {
           eq(threads.workspaceId, filter.workspaceId),
           eq(threads.userId, filter.userId),
           filter.before ? lt(threads.updatedAt, filter.before) : undefined,
+          filter.search ? matchesSearch(filter.search) : undefined,
         ),
       )
       .orderBy(desc(threads.updatedAt))
@@ -118,7 +130,9 @@ export const chatRepository = {
   async updateThread(
     tx: Transaction,
     threadId: string,
-    values: Partial<Pick<ThreadRow, "title" | "modelId" | "updatedAt">>,
+    values: Partial<
+      Pick<ThreadRow, "title" | "modelId" | "updatedAt" | "summary" | "summaryThrough">
+    >,
   ): Promise<ThreadRow | undefined> {
     const [row] = await tx.update(threads).set(values).where(eq(threads.id, threadId)).returning();
     return row;
@@ -286,6 +300,26 @@ export const chatRepository = {
         })
         .where(eq(messages.id, run.messageId));
     }
+  },
+
+  /** Removes every message in a thread written after `after`. */
+  async deleteMessagesAfter(tx: Transaction, threadId: string, after: Date): Promise<void> {
+    await tx
+      .delete(messages)
+      .where(and(eq(messages.threadId, threadId), gt(messages.createdAt, after)));
+  },
+
+  async setMessageContent(
+    tx: Transaction,
+    messageId: string,
+    content: string,
+  ): Promise<MessageRow | undefined> {
+    const [row] = await tx
+      .update(messages)
+      .set({ content })
+      .where(eq(messages.id, messageId))
+      .returning();
+    return row;
   },
 
   async findMessage(tx: Transaction, messageId: string): Promise<MessageRow | undefined> {

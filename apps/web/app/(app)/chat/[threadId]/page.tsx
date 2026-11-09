@@ -1,7 +1,7 @@
 "use client";
 
 import { useThread } from "@tessel/api-client/react";
-import type { Attachment } from "@tessel/contracts";
+import type { Attachment, ChatMessage } from "@tessel/contracts";
 import { Button, Spinner } from "@tessel/ui";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -71,6 +71,23 @@ export default function ThreadPage() {
     });
   };
 
+  const onEdit = async (message: ChatMessage, content: string) => {
+    pin();
+    setDecisionError(undefined);
+    const result = await send({
+      threadId,
+      content,
+      attachments: message.attachments,
+      editMessageId: message.id,
+      knowledge,
+      mode,
+      ...(modelId ? { model: modelId } : {}),
+    });
+    if (!result.ok && result.error) {
+      setDecisionError(chatErrorMessage(result.error.code, result.error.message));
+    }
+  };
+
   return (
     <div className="flex h-full flex-col">
       <h1 className="sr-only">{thread.data.thread.title ?? "New chat"}</h1>
@@ -80,6 +97,7 @@ export default function ThreadPage() {
             workspaceId={workspaceId}
             messages={messages}
             live={live}
+            onEdit={onEdit}
             onDecide={async (message, callId, approved) => {
               setDecisionError(undefined);
               pin();

@@ -370,3 +370,23 @@ Stripe takes cards worldwide, and Razorpay takes UPI and Indian cards in rupees,
 ## D-091 Team seats follow membership
 
 A team workspace pays for at least two seats and one per member. When someone joins or leaves, the subscription's quantity is updated straight away, with the provider's own proration. Personal workspaces can only take Free, Pro, or Max, and shared workspaces only Free or Team, so a plan always matches who uses it.
+
+## D-092 Editing rewrites the chat from that message
+
+Editing a sent message, or retrying the last reply, sends the message again with `editMessageId`: the server updates that message, deletes everything after it, and writes a new reply, all in the same transaction that saves the new reply. The message keeps its attachments. If the running summary already covered the edited turn it is cleared, so it never describes a conversation that no longer exists. Keeping earlier versions to flip between is left for later; replacing keeps the history the model sees identical to what the person sees.
+
+## D-093 Chat search scans titles and the person's own messages
+
+The sidebar searches chat titles and message text with a case-insensitive `ILIKE`, limited by row-level security to the person's own chats in the workspace, and escapes `%` and `_` so they match literally. That is fast enough at today's sizes without a search index; a trigram index is the next step. Older chats load onto the end of the same cached list, so renames, deletes, and new replies keep updating one list.
+
+## D-094 Theme is a per-browser choice
+
+Light, dark, or the device's setting is stored in the browser, not the account, since the right choice often differs between a phone and a laptop. A tiny inline script sets `data-theme` before the first paint, so a chosen theme never flashes the other one, and the colour tokens switch on that attribute or, without it, on `prefers-color-scheme`.
+
+## D-095 Deleting a workspace ends billing first
+
+Only the owner can delete a team workspace, and only after typing its name. The subscription is cancelled at once (no proration games) before anything is removed; if the provider refuses, nothing is deleted, so a deleted workspace is never charged again. Files in S3 are removed next and must succeed. Search index, chat search, and graph entries are removed on a best-effort basis, since nothing can reach them once the workspace row is gone. Deleting the row cascades through Postgres. Late webhooks for the deleted workspace are acknowledged and ignored. Personal workspaces can't be deleted.
+
+## D-096 Operations on one host: CloudWatch logs and nightly backups
+
+With `LOG_GROUP` set, the deploy writes a Compose override that sends every container's logs to CloudWatch (non-blocking, so a slow CloudWatch never stalls the apps), and Docker keeps a local copy for `docker compose logs`. The nightly backup takes a Postgres dump and a full Qdrant snapshot, streamed straight to S3 through the API container, which already has Qdrant's address and key. SES's account-level suppression list handles bounces and complaints, so the app doesn't need its own bounce handling.

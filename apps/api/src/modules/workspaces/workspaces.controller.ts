@@ -1,5 +1,6 @@
 import {
   createWorkspaceRequestSchema,
+  deleteWorkspaceRequestSchema,
   updateWorkspaceRequestSchema,
   workspaceParamsSchema,
 } from "@tessel/contracts";
@@ -28,5 +29,12 @@ export function createWorkspacesController(service: WorkspacesService) {
     res.json(await service.rename(getAuth(req).userId, workspaceId, name));
   };
 
-  return { list, create, get, rename };
+  const remove: RequestHandler = async (req, res) => {
+    const { workspaceId } = workspaceParamsSchema.parse(req.params);
+    const { name } = deleteWorkspaceRequestSchema.parse(req.body);
+    await service.remove(getAuth(req).userId, workspaceId, name, req.ip);
+    res.status(204).end();
+  };
+
+  return { list, create, get, rename, remove };
 }

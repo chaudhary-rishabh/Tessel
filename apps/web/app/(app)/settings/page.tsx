@@ -10,7 +10,9 @@ import { useForm } from "react-hook-form";
 import { FormError, FormSuccess } from "@/components/form-error";
 import { AccessTokensSection } from "@/components/settings/access-tokens-section";
 import { ActivitySection } from "@/components/settings/activity-section";
+import { AppearanceSection } from "@/components/settings/appearance-section";
 import { ConnectedAppsSection } from "@/components/settings/connected-apps-section";
+import { DeleteWorkspace } from "@/components/settings/delete-workspace";
 import { MemorySection } from "@/components/settings/memory-section";
 import { BillingReturnNotice, PlanSection } from "@/components/settings/plan-section";
 import { SessionsSection } from "@/components/settings/sessions-section";
@@ -78,6 +80,18 @@ function ProfileSection() {
   );
 }
 
+function AppearanceSettings() {
+  return (
+    <Section
+      id="appearance"
+      title="Appearance"
+      description="Light, dark, or whatever your device uses. Saved in this browser."
+    >
+      <AppearanceSection />
+    </Section>
+  );
+}
+
 function WorkspaceSection() {
   const { current } = useCurrentWorkspace();
   const rename = useRenameWorkspace();
@@ -133,6 +147,9 @@ function WorkspaceSection() {
           </div>
         ) : null}
       </form>
+      {current.role === "owner" && !current.isPersonal ? (
+        <DeleteWorkspace key={current.id} workspace={current} />
+      ) : null}
     </Section>
   );
 }
@@ -321,6 +338,7 @@ export default function SettingsPage() {
       <h1 className="text-3xl font-semibold tracking-tight">Settings</h1>
       <div className="mt-6">
         <ProfileSection />
+        <AppearanceSettings />
         <WorkspaceSection />
         <MemorySettings />
         <PlanSettings />

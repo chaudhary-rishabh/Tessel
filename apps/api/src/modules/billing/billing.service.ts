@@ -119,6 +119,11 @@ export function createBillingService({
     return limits.account(update.workspaceId);
   }
 
+  const isForeignKeyViolation = (error: unknown) => {
+    const cause = (error as { cause?: { code?: string }; code?: string } | null) ?? {};
+    return cause.code === "23503" || cause.cause?.code === "23503";
+  };
+
   async function applySubscription(name: "stripe" | "razorpay", update: SubscriptionUpdate) {
     const existing = await findAccount(update);
     const workspaceId = existing?.workspaceId ?? update.workspaceId;
@@ -151,10 +156,19 @@ export function createBillingService({
         ? { cancelAtPeriodEnd: update.cancelAtPeriodEnd }
         : {}),
     };
-    await db
-      .insert(billingAccounts)
-      .values({ workspaceId, ...values })
-      .onConflictDoUpdate({ target: billingAccounts.workspaceId, set: values });
+    try {
+      await db
+        .insert(billingAccounts)
+        .values({ workspaceId, ...values })
+        .onConflictDoUpdate({ target: billingAccounts.workspaceId, set: values });
+    } catch (error) {
+      // A late event for a workspace that has since been deleted: nothing to update.
+      if (isForeignKeyViolation(error)) {
+        logger.info({ workspaceId }, "Webhook for a deleted workspace");
+        return;
+      }
+      throw error;
+    }
     if (existing?.plan !== update.plan || existing?.status !== update.status) {
       await audit.record({
         workspaceId,
@@ -323,6 +337,16 @@ export function createBillingService({
     },
 
     /** Cancels at the end of the period, or keeps the plan after all. */
+    /**
+     * Ends a workspace's subscription at once, before the workspace is deleted.
+     * Throws when the provider refuses, so a deleted workspace is never billed again.
+     */
+    async endForDeletion(workspaceId: string): Promise<void> {
+      const account = await limits.account(workspaceId);
+      if (!hasSubscription(account)) return;
+      await viaProvider(() => provider(account!.provider).cancelNow(account!));
+    },
+
     async setCancel(actor: BillingActor, cancel: boolean): Promise<BillingSummary> {
       const { workspace } = await membership(actor);
       requireManager(workspace.role);

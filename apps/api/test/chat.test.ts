@@ -146,6 +146,114 @@ describe("chat", () => {
     expect(thread.body.messages).toHaveLength(4);
   });
 
+  it("edits an earlier message and rewrites the chat from there", async () => {
+    const { user, base } = await setup();
+    const first = await send(user, base, { content: "First question" });
+    const start = first.events[0] as Extract<ChatEvent, { type: "start" }>;
+    const threadId = start.thread.id;
+    await send(user, base, { threadId, content: "Second question" });
+    gateway.reset();
+
+    const edited = await send(user, base, {
+      threadId,
+      content: "A better first question",
+      editMessageId: start.userMessage.id,
+    });
+    expect(edited.res.status).toBe(200);
+    const restart = edited.events[0] as Extract<ChatEvent, { type: "start" }>;
+    expect(restart.userMessage).toMatchObject({
+      id: start.userMessage.id,
+      content: "A better first question",
+    });
+    // Only the edited message goes to the model: the later turns are gone.
+    const roles = (replyRequest()!.body.messages as { role: string }[]).map((m) => m.role);
+    expect(roles).toEqual(["system", "user"]);
+
+    const thread = await request(app)
+      .get(`${base}/threads/${threadId}`)
+      .set("Authorization", bearer(user));
+    expect(
+      thread.body.messages.map((m: { role: string; content: string }) => [m.role, m.content]),
+    ).toEqual([
+      ["user", "A better first question"],
+      ["assistant", "Echo: A better first question"],
+    ]);
+  });
+
+  it("regenerates the last reply with the same message and keeps its attachments", async () => {
+    const { user, base } = await setup();
+    const upload = await request(app)
+      .post(`${base}/attachments`)
+      .set("Authorization", bearer(user))
+      .attach("file", Buffer.from("Notes: ship it"), "notes.txt");
+    const first = await send(user, base, {
+      content: "Summarise this",
+      attachmentIds: [upload.body.id],
+    });
+    const start = first.events[0] as Extract<ChatEvent, { type: "start" }>;
+    gateway.reset();
+
+    const again = await send(user, base, {
+      threadId: start.thread.id,
+      content: "Summarise this",
+      editMessageId: start.userMessage.id,
+    });
+    const restart = again.events[0] as Extract<ChatEvent, { type: "start" }>;
+    expect(restart.userMessage.attachments.map((a) => a.filename)).toEqual(["notes.txt"]);
+    expect(restart.assistantMessageId).not.toBe(start.assistantMessageId);
+    expect(JSON.stringify(replyRequest()!.body.messages)).toContain("Notes: ship it");
+
+    const thread = await request(app)
+      .get(`${base}/threads/${start.thread.id}`)
+      .set("Authorization", bearer(user));
+    expect(thread.body.messages).toHaveLength(2);
+  });
+
+  it("only edits the user's own messages in the same chat", async () => {
+    const { user, base } = await setup();
+    const first = await send(user, base, { content: "Hello" });
+    const start = first.events[0] as Extract<ChatEvent, { type: "start" }>;
+    const other = await send(user, base, { content: "Another chat" });
+    const otherStart = other.events[0] as Extract<ChatEvent, { type: "start" }>;
+
+    const wrongThread = await send(user, base, {
+      threadId: otherStart.thread.id,
+      content: "Edited",
+      editMessageId: start.userMessage.id,
+    });
+    expect(wrongThread.res.status).toBe(404);
+    const reply = await send(user, base, {
+      threadId: start.thread.id,
+      content: "Edited",
+      editMessageId: start.assistantMessageId,
+    });
+    expect(reply.res.status).toBe(404);
+  });
+
+  it("searches chats by title and message text, and pages through older ones", async () => {
+    const { user, base } = await setup();
+    for (const text of ["Budget for Q3", "Offsite 100% planned", "Hiring plan"]) {
+      await send(user, base, { content: text });
+    }
+    const list = (query: Record<string, string | number>) =>
+      request(app).get(`${base}/threads`).query(query).set("Authorization", bearer(user));
+
+    // Titles come from the first words; message text matches too, ignoring case.
+    const byText = await list({ q: "BUDGET" });
+    expect(byText.body.threads).toHaveLength(1);
+    expect((await list({ q: "Echo: hiring" })).body.threads).toHaveLength(1);
+    // % and _ are literal, not wildcards.
+    expect((await list({ q: "100%" })).body.threads).toHaveLength(1);
+    expect((await list({ q: "_" })).body.threads).toHaveLength(0);
+
+    const first = await list({ limit: 2 });
+    expect(first.body.threads).toHaveLength(2);
+    expect(first.body.nextCursor).toEqual(expect.any(String));
+    const rest = await list({ limit: 2, before: first.body.nextCursor });
+    expect(rest.body.threads).toHaveLength(1);
+    expect(rest.body.nextCursor).toBeNull();
+  });
+
   it("refuses blocked messages and capped users before saving anything", async () => {
     const { user, base } = await setup();
     const blocked = await send(user, base, { content: "MOCK_BLOCK" });

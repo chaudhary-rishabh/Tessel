@@ -2,7 +2,9 @@
 
 import type { ChatMessage } from "@tessel/contracts";
 import { useModels } from "@tessel/api-client/react";
-import { CircleAlert } from "lucide-react";
+import { Button } from "@tessel/ui";
+import { CircleAlert, Pencil, RotateCcw } from "lucide-react";
+import { useId, useState } from "react";
 import { chatErrorMessage } from "@/lib/chat-errors";
 import type { LiveReply } from "@/lib/chat-store";
 import { AttachmentChip } from "./attachment-chip";
@@ -11,9 +13,86 @@ import { CopyButton, Markdown } from "./markdown";
 import { ActivityPanel } from "./activity";
 import { ApprovalCard, ToolCallList } from "./tool-calls";
 
-function UserMessage({ workspaceId, message }: { workspaceId: string; message: ChatMessage }) {
+const ACTION =
+  "text-muted hover:text-ink hover:bg-ink/6 focus-visible:outline-accent inline-flex size-8 items-center justify-center rounded-md focus-visible:outline-2";
+
+function EditForm({
+  initial,
+  onSave,
+  onCancel,
+}: {
+  initial: string;
+  onSave: (content: string) => void;
+  onCancel: () => void;
+}) {
+  const [text, setText] = useState(initial);
+  const fieldId = useId();
+  const trimmed = text.trim();
   return (
-    <div className="flex flex-col items-end gap-2">
+    <form
+      className="border-line bg-surface flex w-full max-w-[85%] flex-col gap-2 rounded-2xl border p-3"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (trimmed) onSave(trimmed);
+      }}
+    >
+      <label htmlFor={fieldId} className="sr-only">
+        New text for this message
+      </label>
+      <textarea
+        id={fieldId}
+        autoFocus
+        rows={Math.min(8, Math.max(2, text.split("\n").length))}
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") onCancel();
+          if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+            event.preventDefault();
+            if (trimmed) onSave(trimmed);
+          }
+        }}
+        className="w-full resize-none bg-transparent text-base outline-none"
+      />
+      <p className="text-muted text-xs">Replies after this message will be replaced.</p>
+      <div className="flex justify-end gap-2">
+        <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button type="submit" size="sm" disabled={!trimmed}>
+          Send edit
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+function UserMessage({
+  workspaceId,
+  message,
+  onEdit,
+}: {
+  workspaceId: string;
+  message: ChatMessage;
+  onEdit?: ((content: string) => void) | undefined;
+}) {
+  const [editing, setEditing] = useState(false);
+  if (editing && onEdit) {
+    return (
+      <div className="flex flex-col items-end">
+        <EditForm
+          initial={message.content}
+          onCancel={() => setEditing(false)}
+          onSave={(content) => {
+            setEditing(false);
+            onEdit(content);
+          }}
+        />
+      </div>
+    );
+  }
+  return (
+    <div className="group flex flex-col items-end gap-2">
       {message.attachments.length > 0 ? (
         <div className="flex flex-wrap justify-end gap-2">
           {message.attachments.map((attachment) => (
@@ -24,6 +103,19 @@ function UserMessage({ workspaceId, message }: { workspaceId: string; message: C
       <div className="bg-paper border-line max-w-[85%] rounded-2xl rounded-br-md border px-4 py-2.5 [overflow-wrap:anywhere] whitespace-pre-wrap">
         {message.content}
       </div>
+      {onEdit ? (
+        <div className="text-muted flex gap-1 opacity-100 transition-opacity group-hover:opacity-100 focus-within:opacity-100 md:opacity-0">
+          <CopyButton text={message.content} label="Copy message" />
+          <button
+            type="button"
+            className={ACTION}
+            aria-label="Edit message"
+            onClick={() => setEditing(true)}
+          >
+            <Pencil className="size-4" aria-hidden="true" />
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -59,6 +151,7 @@ function AssistantMessage({
   searching,
   modelLabel,
   onDecide,
+  onRetry,
 }: {
   message: Pick<
     ChatMessage,
@@ -68,6 +161,8 @@ function AssistantMessage({
   searching?: boolean;
   modelLabel?: string | undefined;
   onDecide?: ((callId: string, approved: boolean) => Promise<void> | void) | undefined;
+  /** Writes this reply again; offered on the last reply. */
+  onRetry?: (() => void) | undefined;
 }) {
   const hasText = message.content.length > 0;
   const pending =
@@ -104,9 +199,14 @@ function AssistantMessage({
           {chatErrorMessage(message.errorCode)}
         </p>
       ) : null}
-      {!streaming && hasText ? (
+      {!streaming && (hasText || onRetry) ? (
         <div className="text-muted flex items-center gap-2 text-xs">
-          <CopyButton text={message.content} label="Copy reply" />
+          {hasText ? <CopyButton text={message.content} label="Copy reply" /> : null}
+          {onRetry ? (
+            <button type="button" className={ACTION} aria-label="Retry reply" onClick={onRetry}>
+              <RotateCcw className="size-4" aria-hidden="true" />
+            </button>
+          ) : null}
           {message.status === "stopped" ? <span>Stopped</span> : null}
           {modelLabel ? (
             <span className="opacity-0 transition-opacity group-hover:opacity-100">
@@ -124,12 +224,15 @@ export function MessageList({
   messages,
   live,
   onDecide,
+  onEdit,
 }: {
   workspaceId: string;
   messages: ChatMessage[];
   live?: LiveReply | undefined;
   /** Approves or declines the action a reply is waiting on. */
   onDecide?: DecideHandler | undefined;
+  /** Rewrites the chat from a user message; the same text regenerates the reply. */
+  onEdit?: ((message: ChatMessage, content: string) => void) | undefined;
 }) {
   const models = useModels();
   const labelFor = (id: string | null) =>
@@ -137,17 +240,30 @@ export function MessageList({
   // Until the server confirms, the user's message is shown from the live reply.
   const pendingUser =
     live && live.status === "sending" ? (live.userMessage ?? undefined) : undefined;
+  // Edits and retries wait while a reply streams or an action waits for a decision.
+  const canRewrite = Boolean(onEdit) && !live && messages.at(-1)?.status !== "waiting";
+  const lastUser = messages.findLast((message) => message.role === "user");
+  const last = messages.at(-1);
 
   return (
     <ol className="flex flex-col gap-8" aria-label="Messages">
       {messages.map((message) => (
         <li key={message.id}>
           {message.role === "user" ? (
-            <UserMessage workspaceId={workspaceId} message={message} />
+            <UserMessage
+              workspaceId={workspaceId}
+              message={message}
+              onEdit={canRewrite ? (content) => onEdit?.(message, content) : undefined}
+            />
           ) : (
             <AssistantMessage
               message={message}
               modelLabel={labelFor(message.modelId)}
+              onRetry={
+                canRewrite && lastUser && message.id === last?.id
+                  ? () => onEdit?.(lastUser, lastUser.content)
+                  : undefined
+              }
               // Only one decision at a time, and not while another reply streams.
               onDecide={
                 onDecide && !live
