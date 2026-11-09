@@ -4,7 +4,7 @@ One-time setup for automatic deploys. After this, every push to `main` that pass
 
 ```mermaid
 flowchart LR
-  gh["GitHub Actions"] -- "OIDC role, no stored keys" --> ecr["ECR: 5 image repos"]
+  gh["GitHub Actions"] -- "OIDC role, no stored keys" --> ecr["ECR: 6 image repos"]
   gh -- "SSM send-command" --> ec2["EC2: Docker Compose"]
   ec2 -- "pull images" --> ecr
   ec2 -- "read secrets" --> ssm["SSM Parameter Store"]
@@ -16,7 +16,7 @@ Commands use `ap-south-1` (Mumbai) and placeholder IDs. Replace `ACCOUNT_ID`, `R
 ## 1. Image repositories
 
 ```bash
-for repo in api worker mcp-server web migrate; do
+for repo in api worker mcp-server web admin migrate; do
   aws ecr create-repository --region ap-south-1 --repository-name "tessel-$repo" \
     --image-scanning-configuration scanOnPush=true
 done
@@ -143,7 +143,7 @@ Phone sign-in stays hidden until `SMS_TRANSPORT=sns` is set.
        --http-tokens required --http-put-response-hop-limit 2
      ```
 3. Attach an Elastic IP so the address survives restarts.
-4. Point DNS `A` records at the Elastic IP: `app.`, `api.`, and `mcp.` on your domain. Caddy requests HTTPS certificates for them on first start.
+4. Point DNS `A` records at the Elastic IP: `app.`, `api.`, `mcp.`, and `admin.` on your domain. Caddy requests HTTPS certificates for them on first start.
 
 ## 5. Secrets
 
@@ -155,7 +155,7 @@ put JWT_ACCESS_SECRET "$(openssl rand -base64 48)"
 put ENCRYPTION_KEY "$(openssl rand -base64 32)"
 put API_PUBLIC_URL "https://api.example.com"
 put MCP_PUBLIC_URL "https://mcp.example.com"
-put WEB_ORIGIN "https://app.example.com"
+put WEB_ORIGIN "https://app.example.com,https://admin.example.com"
 put MAIL_FROM "Tessel <no-reply@example.com>"
 put S3_BUCKET "BUCKET_NAME"
 put SQS_UPLOADS_QUEUE_URL "https://sqs.ap-south-1.amazonaws.com/ACCOUNT_ID/tessel-uploads"
@@ -190,6 +190,7 @@ In the repository, open **Settings → Secrets and variables → Actions → Var
 | `WEB_DOMAIN`          | `app.example.com`                                            |
 | `API_DOMAIN`          | `api.example.com`                                            |
 | `MCP_DOMAIN`          | `mcp.example.com`                                            |
+| `ADMIN_DOMAIN`        | `admin.example.com`                                          |
 | `ACME_EMAIL`          | `you@example.com` (Let's Encrypt expiry notices)             |
 | `COMPOSE_PROFILES`    | `edge,data` (drop `data` when using RDS and ElastiCache)     |
 | `IMAGE_PLATFORM`      | optional: `linux/arm64` for Graviton instances such as `t4g` |
@@ -201,11 +202,23 @@ None of these are secret. Deploys stay off until `AWS_DEPLOY_ROLE_ARN` is set.
 
 Run the **Deploy** workflow from the Actions tab (or push to `main`). It:
 
-1. builds and pushes the five images, tagged with the commit,
+1. builds and pushes the six images, tagged with the commit,
 2. writes `docker-compose.prod.yml`, `Caddyfile`, `deploy.sh`, and `deploy.env` to `/opt/tessel` over SSM,
 3. runs `deploy.sh`: loads secrets, pulls images, starts databases, runs migrations, starts the apps, and waits for every health check,
 4. rolls back to the previous image tag if the new version fails its health checks,
 5. checks the live site over HTTPS.
+
+## 9. First admin
+
+Admins open the admin app (`https://admin.example.com`): users, models, usage, and the audit log. Nobody is an admin until you make one. Sign up in the web app, turn on two-step sign-in in Settings (admins need it in production), then run on the host:
+
+```bash
+cd /opt/tessel
+sudo IMAGE_TAG=$(cat .deployed-tag) docker compose --file docker-compose.prod.yml --env-file deploy.env \
+  --profile tools run --rm migrate node dist/grant-admin.mjs you@example.com
+```
+
+After that, admins make other admins from the admin app. Add `--revoke` to the command to take admin away.
 
 ## Operating the host
 

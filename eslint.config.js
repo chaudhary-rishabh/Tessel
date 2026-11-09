@@ -34,7 +34,12 @@ export default tseslint.config(
     },
   },
   {
-    files: ["apps/web/**/*.{ts,tsx}", "packages/ui/**/*.{ts,tsx}", "packages/api-client/**/*.tsx"],
+    files: [
+      "apps/web/**/*.{ts,tsx}",
+      "apps/admin/**/*.{ts,tsx}",
+      "packages/ui/**/*.{ts,tsx}",
+      "packages/api-client/**/*.tsx",
+    ],
     languageOptions: {
       globals: { ...globals.browser },
     },
@@ -46,12 +51,12 @@ export default tseslint.config(
     },
   },
   {
-    files: ["apps/web/**/*.{ts,tsx}"],
+    files: ["apps/web/**/*.{ts,tsx}", "apps/admin/**/*.{ts,tsx}"],
     plugins: {
       "@next/next": nextPlugin,
     },
     settings: {
-      next: { rootDir: "apps/web" },
+      next: { rootDir: ["apps/web", "apps/admin"] },
     },
     rules: {
       ...nextPlugin.configs.recommended.rules,

@@ -1,7 +1,7 @@
 # Production stack for one EC2 host, run by deploy.sh.
 #
 # Profiles:
-#   (none)  web, api, worker, mcp-server: always on
+#   (none)  web, admin, api, worker, mcp-server: always on
 #   edge    Caddy on ports 80/443 with automatic HTTPS
 #   data    Postgres, Redis x2, Qdrant, Neo4j on the same host
 #           (leave this off when using RDS, ElastiCache, or managed services)
@@ -95,6 +95,21 @@ services:
       retries: 6
       start_period: 15s
 
+  admin:
+    image: ${ECR_REGISTRY}/tessel-admin:${IMAGE_TAG}
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3001/login"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 15s
+
   caddy:
     image: caddy:2.10-alpine
     restart: unless-stopped
@@ -107,6 +122,7 @@ services:
       WEB_DOMAIN: ${WEB_DOMAIN:-}
       API_DOMAIN: ${API_DOMAIN:-}
       MCP_DOMAIN: ${MCP_DOMAIN:-}
+      ADMIN_DOMAIN: ${ADMIN_DOMAIN:-}
       ACME_EMAIL: ${ACME_EMAIL:-}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
@@ -114,6 +130,7 @@ services:
       - caddy-config:/config
     depends_on:
       web: { condition: service_healthy }
+      admin: { condition: service_healthy }
       api: { condition: service_healthy }
       mcp-server: { condition: service_healthy }
 

@@ -3,6 +3,7 @@ import { defineConfig, devices } from "@playwright/test";
 const isCI = Boolean(process.env.CI);
 const WEB_URL = "http://localhost:3000";
 const API_URL = "http://localhost:4000";
+const ADMIN_URL = "http://localhost:3001";
 const MOCK_GATEWAY_URL = "http://127.0.0.1:4300/v1";
 // A GitHub-like mock MCP server that takes a token; another on 4401 signs in with OAuth.
 const MOCK_GITHUB_MCP_URL = "http://127.0.0.1:4400/mcp";
@@ -105,6 +106,14 @@ export default defineConfig({
     {
       command: isCI ? "pnpm start" : "pnpm dev",
       url: WEB_URL,
+      reuseExistingServer: !isCI,
+      timeout: 120_000,
+    },
+    {
+      // The admin app, for the admin end-to-end tests.
+      command: isCI ? "pnpm start" : "pnpm dev",
+      cwd: "../admin",
+      url: `${ADMIN_URL}/login`,
       reuseExistingServer: !isCI,
       timeout: 120_000,
     },

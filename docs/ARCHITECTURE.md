@@ -27,13 +27,13 @@ flowchart TB
 
 ## Apps
 
-| App               | Purpose                                                               |
-| ----------------- | --------------------------------------------------------------------- |
-| `apps/web`        | Next.js user app: chat, uploads, approvals, settings                  |
-| `apps/api`        | Express 5 API, split into feature modules                             |
-| `apps/worker`     | Background jobs (BullMQ) and S3 upload events (SQS)                   |
-| `apps/mcp-server` | Exposes workspace search and actions to outside MCP clients           |
-| `apps/admin`      | Admin app for users, models, usage, and audit logs (added in step 18) |
+| App               | Purpose                                                     |
+| ----------------- | ----------------------------------------------------------- |
+| `apps/web`        | Next.js user app: chat, uploads, approvals, settings        |
+| `apps/api`        | Express 5 API, split into feature modules                   |
+| `apps/worker`     | Background jobs (BullMQ) and S3 upload events (SQS)         |
+| `apps/mcp-server` | Exposes workspace search and actions to outside MCP clients |
+| `apps/admin`      | Admin app for users, models, usage, and the audit log       |
 
 ## Packages
 
@@ -112,6 +112,15 @@ Endpoints: `POST /auth/signup`, `/auth/signup/verify`, `/auth/signup/resend`, `/
 - The owner changes roles and hands ownership over (becoming an admin). Admins remove members; the owner removes anyone; anyone but the owner can leave. Removing someone also ends their tokens and connected apps there, because token checks require membership.
 - Endpoints under `/workspaces/:workspaceId`: `GET /members`, `PATCH|DELETE /members/:userId`, `POST /transfer`, `GET|POST /invitations`, `DELETE /invitations/:invitationId`, `GET /audit-log`. Links: `GET /invitations/:token`, `POST /invitations/:token/accept`.
 - `audit_events` records who did what, from which IP: sign-ups, sign-ins (with method), password, two-step, and sign-in method changes, sessions signed out, members and invitations, workspace changes, access tokens, connected apps, connectors, and deleted documents. Workspace owners and admins read their workspace's events in Settings → Activity; platform admins read all of them. Writing an event never fails the action. Events are kept for a year.
+
+## Admin app
+
+- `apps/admin` is a separate Next.js app on its own domain (`admin.example.com`, port 3001 locally). It signs in with the same API session as the web app, so `WEB_ORIGIN` lists both origins.
+- Every `/admin` API route reloads the user and requires `role = admin` and no suspension, so removing an admin takes effect at once; personal access tokens never work there. With `ADMIN_REQUIRE_TWO_FACTOR` (on in production) admins also need two-step sign-in.
+- Pages: overview figures, users (search, detail, suspend, make admin, sign out everywhere), the model registry, usage by day, model, workspace, and person, and the audit log with filters. Cross-workspace figures come from `app.admin_*` security-definer functions, since usage and workspaces are behind row-level security.
+- The first admin is made on the host with `grant-admin` (see `infra/aws/README.md`, section 9); after that, admins make admins.
+- Suspending an account signs it out everywhere, refuses every sign-in method and token refresh, and stops its personal access tokens and OAuth tokens (`app.resolve_access_token` checks it). An access token already issued lasts until it expires, at most 15 minutes.
+- Endpoints: `GET /admin/overview`, `GET /admin/users`, `GET|PATCH /admin/users/:userId`, `POST /admin/users/:userId/sign-out`, `GET|PUT /admin/models`, `GET /admin/usage`, `GET /admin/audit-log`.
 
 ## Tenant isolation
 

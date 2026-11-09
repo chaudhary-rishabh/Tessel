@@ -24,7 +24,7 @@ set +a
 SSM_PATH=${SSM_PATH:-/tessel/prod}
 export COMPOSE_PROFILES=${COMPOSE_PROFILES:-edge,data}
 if [[ ",$COMPOSE_PROFILES," == *",edge,"* ]]; then
-  for name in WEB_DOMAIN API_DOMAIN MCP_DOMAIN ACME_EMAIL; do
+  for name in WEB_DOMAIN API_DOMAIN MCP_DOMAIN ADMIN_DOMAIN ACME_EMAIL; do
     if [[ -z "${!name:-}" ]]; then
       echo "$name must be set in deploy.env when the edge profile is on" >&2
       exit 1
@@ -110,7 +110,7 @@ if compose "$TAG" up --detach --wait --wait-timeout 300 --remove-orphans; then
 else
   log "New version failed its health checks"
   compose "$TAG" ps
-  compose "$TAG" logs --tail 50 api worker mcp-server web || true
+  compose "$TAG" logs --tail 50 api worker mcp-server web admin || true
   if [[ -n "$PREVIOUS" && "$PREVIOUS" != "$TAG" ]]; then
     log "Rolling back to $PREVIOUS"
     compose "$PREVIOUS" up --detach --wait --wait-timeout 300 --remove-orphans

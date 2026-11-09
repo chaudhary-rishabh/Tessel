@@ -1,6 +1,9 @@
 import {
   aiOptionsFromEnv,
   createAi,
+  createLiveModelRegistry,
+  readModelsConfig,
+  syncLiveRegistry,
   createQdrantIndex,
   redisKeyValueCache,
   withSearchCache,
@@ -9,7 +12,7 @@ import {
   spendLimitsFromEnv,
 } from "@tessel/ai";
 import { loadEnvFiles, parseEnv } from "@tessel/config/env";
-import { createDatabase, createUsageLedger, runMaintenance } from "@tessel/db";
+import { createDatabase, createUsageLedger, loadModelConfig, runMaintenance } from "@tessel/db";
 import { graphStoreFromEnv } from "@tessel/graph";
 import { createLogger } from "@tessel/logger";
 import { createMemoryStore, createQdrantEpisodeIndex, processThreadMemory } from "@tessel/memory";
@@ -55,7 +58,14 @@ const spend = createSpendGuard({
 });
 // Shares the API's cache: re-indexing bumps the workspace's search version there.
 const cache = redisKeyValueCache(redisCache, { prefix: "tessel:" });
-const ai = createAi(aiOptionsFromEnv(env, { spend, ledger, logger, cache }));
+// Models come from the admin app's saved registry when there is one, else models.json.
+const registry = createLiveModelRegistry(readModelsConfig(env.AI_MODELS_FILE));
+await syncLiveRegistry({
+  registry,
+  load: () => loadModelConfig(database.db),
+  onError: (error) => logger.error({ err: error }, "Couldn't load the saved model registry"),
+});
+const ai = createAi(aiOptionsFromEnv(env, { spend, ledger, logger, cache, registry }));
 const objects = createS3ObjectStore(env);
 const uploads = createSqsUploadQueue(env);
 const index = withSearchCache(

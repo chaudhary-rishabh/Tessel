@@ -28,3 +28,10 @@
 		flush_interval -1
 	}
 }
+
+{$ADMIN_DOMAIN} {
+	import common
+	# Search engines stay out of the admin app.
+	header X-Robots-Tag "noindex, nofollow"
+	reverse_proxy admin:3001
+}

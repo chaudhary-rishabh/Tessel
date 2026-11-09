@@ -31,6 +31,8 @@ export interface RateLimitConfig {
 export interface AppConfig {
   service: string;
   isProduction: boolean;
+  /** Admins must have two-step sign-in on to use the admin API. On in production. */
+  adminRequireTwoFactor: boolean;
   corsOrigins: string[];
   trustProxy: number;
   auth: AuthConfig;
@@ -61,6 +63,7 @@ export function configFromEnv(env: Env): AppConfig {
   return {
     service: "api",
     isProduction,
+    adminRequireTwoFactor: env.ADMIN_REQUIRE_TWO_FACTOR ?? isProduction,
     corsOrigins: env.WEB_ORIGIN,
     trustProxy: env.TRUST_PROXY,
     auth: {

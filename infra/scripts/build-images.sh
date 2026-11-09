@@ -9,6 +9,7 @@
 # Environment:
 #   PUBLIC_API_URL  API URL baked into the web app (default http://localhost:4000)
 #   PUBLIC_MCP_URL  MCP server URL shown in the web app (default http://localhost:4100/mcp)
+#   PUBLIC_WEB_URL  the web app's URL, linked from the admin app (default http://localhost:3000)
 #   PLATFORM        target platform (default linux/amd64; use linux/arm64 for Graviton)
 #   BUILD_CACHE     set to "gha" to use the GitHub Actions build cache
 set -euo pipefail
@@ -18,6 +19,7 @@ TAG=${2:?usage: build-images.sh <registry> <tag> [load|push]}
 MODE=${3:-load}
 PUBLIC_API_URL=${PUBLIC_API_URL:-http://localhost:4000}
 PUBLIC_MCP_URL=${PUBLIC_MCP_URL:-http://localhost:4100/mcp}
+PUBLIC_WEB_URL=${PUBLIC_WEB_URL:-http://localhost:3000}
 PLATFORM=${PLATFORM:-linux/amd64}
 
 if [[ "$MODE" != "load" && "$MODE" != "push" ]]; then
@@ -55,7 +57,13 @@ node_service worker @tessel/worker dist/worker.mjs
 node_service mcp-server @tessel/mcp-server dist/server.mjs
 node_service migrate @tessel/db dist/migrate.mjs
 build web infra/docker/web.Dockerfile \
+  --build-arg APP=web \
   --build-arg "NEXT_PUBLIC_API_URL=$PUBLIC_API_URL" \
   --build-arg "NEXT_PUBLIC_MCP_URL=$PUBLIC_MCP_URL"
+build admin infra/docker/web.Dockerfile \
+  --build-arg APP=admin \
+  --build-arg PORT=3001 \
+  --build-arg "NEXT_PUBLIC_API_URL=$PUBLIC_API_URL" \
+  --build-arg "NEXT_PUBLIC_WEB_URL=$PUBLIC_WEB_URL"
 
 echo "==> Built all images with tag $TAG"

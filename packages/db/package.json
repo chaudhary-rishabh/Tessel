@@ -13,7 +13,8 @@
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/scripts/migrate.ts",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "grant-admin": "tsx src/scripts/grant-admin.ts"
   },
   "dependencies": {
     "@opentelemetry/api": "^1.10.0",

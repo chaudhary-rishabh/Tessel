@@ -97,6 +97,8 @@ export const normalizeRecoveryCode = (code: string) => code.toLowerCase().replac
 export const hashRecoveryCode = (code: string) =>
   createHash("sha256").update(normalizeRecoveryCode(code)).digest("hex");
 
+const ACCOUNT_SUSPENDED = () =>
+  errors.forbidden("This account is suspended. Contact your administrator.", "account_suspended");
 const INVALID_CREDENTIALS = () =>
   errors.unauthorized("invalid_credentials", "Email or password is incorrect");
 const INVALID_REFRESH = () =>
@@ -153,6 +155,7 @@ export function createAuthService({
     meta: SessionMeta,
     method: SignInMethod = "password",
   ): Promise<LoginOutcome> {
+    if (user.suspendedAt) throw ACCOUNT_SUSPENDED();
     if (user.totpEnabledAt) {
       return {
         kind: "two_factor",
@@ -294,6 +297,7 @@ export function createAuthService({
       }
       const user = await usersRepository.findById(db, userId);
       if (!user?.totpSecret || !user.totpEnabledAt) throw INVALID_TWO_FACTOR();
+      if (user.suspendedAt) throw ACCOUNT_SUSPENDED();
 
       if (input.code) {
         const step = verifyTotp(box.open<string>(user.totpSecret), input.code, {
@@ -469,7 +473,7 @@ export function createAuthService({
         if (current.expiresAt <= at) return { kind: "invalid" };
 
         const user = await usersRepository.findById(tx, current.userId);
-        if (!user) return { kind: "invalid" };
+        if (!user || user.suspendedAt) return { kind: "invalid" };
 
         const next = generateRefreshToken();
         const created = await refreshTokenRepository.insert(tx, {

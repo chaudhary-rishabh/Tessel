@@ -84,6 +84,7 @@ grep -q "Smoke's workspace" <<<"$workspaces" || fail "personal workspace missing
 
 echo "==> Other services"
 compose exec -T web wget -qO- http://127.0.0.1:3000/ | grep -q "Tessel" || fail "web app did not render"
+compose exec -T admin wget -qO- http://127.0.0.1:3001/login | grep -q "Tessel Admin" || fail "admin app did not render"
 compose exec -T mcp-server wget -qO- http://127.0.0.1:4100/health | grep -q '"ok"' || fail "mcp-server unhealthy"
 echo "==> Sign-in for outside MCP clients (OAuth metadata on the API and the MCP server)"
 http http://127.0.0.1:4000/.well-known/oauth-authorization-server | grep -q '"token_endpoint"' ||

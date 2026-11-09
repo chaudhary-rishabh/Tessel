@@ -19,8 +19,8 @@ export const errors = {
     new AppError(400, code, message, details),
   unauthorized: (code = "unauthorized", message = "Authentication required") =>
     new AppError(401, code, message),
-  forbidden: (message = "You don't have permission to do this") =>
-    new AppError(403, "forbidden", message),
+  forbidden: (message = "You don't have permission to do this", code = "forbidden") =>
+    new AppError(403, code, message),
   notFound: (message = "Not found") => new AppError(404, "not_found", message),
   conflict: (code: string, message: string) => new AppError(409, code, message),
 };

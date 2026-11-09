@@ -1,4 +1,11 @@
-import { createRagPipeline, type Ai, type VectorIndex } from "@tessel/ai";
+import {
+  createLiveModelRegistry,
+  createRagPipeline,
+  readModelsConfig,
+  type Ai,
+  type LiveModelRegistry,
+  type VectorIndex,
+} from "@tessel/ai";
 import type { Database } from "@tessel/db";
 import type { Logger } from "@tessel/logger";
 import type { ObjectStore, UploadEventQueue } from "@tessel/storage";
@@ -63,6 +70,8 @@ import { createOAuthService } from "./modules/oauth/oauth.service";
 import { createAuditRecorder } from "./lib/audit";
 import { createInvitationLinksRouter, createMembersRouter } from "./modules/members/members.routes";
 import { createMembersService } from "./modules/members/members.service";
+import { createAdminRouter } from "./modules/admin/admin.routes";
+import { createAdminService } from "./modules/admin/admin.service";
 import { createSkillsRouter } from "./modules/skills/skills.routes";
 import { createSkillsService } from "./modules/skills/skills.service";
 import { createDocumentsService } from "./modules/documents/documents.service";
@@ -83,6 +92,8 @@ export interface AppDependencies {
   db: Database;
   /** Every model call goes through this: spend caps, moderation, usage ledger. */
   ai: Ai;
+  /** The registry `ai` uses, when it can be edited live (the admin app's model settings). */
+  models?: LiveModelRegistry;
   /** S3 for files, SQS for upload events. */
   storage: { objects: ObjectStore; uploads: UploadEventQueue; uploadEvents: "s3" | "api" };
   /** Qdrant: document chunks for search. */
@@ -129,6 +140,7 @@ export function createApp({
   memory,
   graph,
   mailer,
+  models = createLiveModelRegistry(readModelsConfig()),
   signIn = { apiPublicUrl: "http://localhost:4000" },
   rateLimitStoreFactory,
   passwordHasher = createPasswordHasher(),
@@ -359,6 +371,15 @@ export function createApp({
     }),
   );
   app.use("/invitations", createInvitationLinksRouter({ service: membersService, authenticate }));
+  app.use(
+    "/admin",
+    createAdminRouter({
+      service: createAdminService({ db, logger, audit, models }),
+      authenticate,
+      db,
+      requireTwoFactor: config.adminRequireTwoFactor,
+    }),
+  );
   app.use(
     "/workspaces/:workspaceId/completions",
     createCompletionsRouter({
