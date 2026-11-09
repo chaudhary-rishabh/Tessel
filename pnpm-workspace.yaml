@@ -10,3 +10,8 @@ onlyBuiltDependencies:
 # Optional native speedup for msgpackr (used by BullMQ); the JS fallback is fine.
 ignoredBuiltDependencies:
   - msgpackr-extract
+
+# The Qdrant client pins undici 7.29.1, which has known security advisories
+# (GHSA-55wc-3pg8-jfw6 and others); 7.30.1 is the first patched release.
+overrides:
+  undici: ^7.30.2

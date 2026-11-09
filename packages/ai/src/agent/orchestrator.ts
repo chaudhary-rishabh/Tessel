@@ -32,7 +32,6 @@ import { createToolRegistry } from "./tools";
  *   with its own tools, then a writer answers from their reports.
  */
 export type AgentMode = "auto" | "plan" | "reflect" | "team";
-export const AGENT_MODES = ["auto", "plan", "reflect", "team"] as const;
 
 export type ActivityStatus = "pending" | "running" | "done" | "failed" | "skipped";
 
