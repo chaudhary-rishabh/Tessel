@@ -356,6 +356,8 @@ describe("audit log", () => {
       .set("Authorization", bearer(owner));
     expect(first.body.events).toHaveLength(2);
     expect(first.body.nextBefore).not.toBeNull();
+    // The response matches the contract the web app parses it with.
+    expect(auditLogResponseSchema.safeParse(first.body).success).toBe(true);
     const second = await request(app)
       .get(`/workspaces/${workspaceId}/audit-log`)
       .query({ limit: 2, before: first.body.nextBefore })

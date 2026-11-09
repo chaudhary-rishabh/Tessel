@@ -38,7 +38,7 @@ export const adminUserListQuerySchema = z.object({
 });
 export const adminUserListResponseSchema = z.object({
   users: z.array(adminUserSchema),
-  nextCursor: z.iso.datetime().nullable(),
+  nextCursor: pageCursorSchema.nullable(),
 });
 export const adminUserDetailSchema = adminUserSchema.extend({
   hasPassword: z.boolean(),

@@ -63,7 +63,7 @@ export const auditLogQuerySchema = z.object({
 export const auditLogResponseSchema = z.object({
   events: z.array(auditEventSchema),
   /** Pass as `before` to get older events; null when there are none. */
-  nextBefore: z.iso.datetime().nullable(),
+  nextBefore: pageCursorSchema.nullable(),
 });
 
 export type AssignableRole = z.infer<typeof assignableRoleSchema>;

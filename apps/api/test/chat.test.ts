@@ -1,6 +1,6 @@
 import type { AddressInfo } from "node:net";
 import { startMockGateway, type MockGateway } from "@tessel/ai/testing";
-import type { ChatEvent } from "@tessel/contracts";
+import { threadListResponseSchema, type ChatEvent } from "@tessel/contracts";
 import { threads, usageEvents, withUserContext, workspaceMembers } from "@tessel/db";
 import { eq, sql } from "drizzle-orm";
 import type { Express } from "express";
@@ -249,6 +249,7 @@ describe("chat", () => {
     const first = await list({ limit: 2 });
     expect(first.body.threads).toHaveLength(2);
     expect(first.body.nextCursor).toEqual(expect.any(String));
+    expect(threadListResponseSchema.safeParse(first.body).success).toBe(true);
     const rest = await list({ limit: 2, before: first.body.nextCursor });
     expect(rest.body.threads).toHaveLength(1);
     expect(rest.body.nextCursor).toBeNull();

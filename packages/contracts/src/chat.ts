@@ -83,7 +83,7 @@ export const threadSummarySchema = z.object({
 export const threadListResponseSchema = z.object({
   threads: z.array(threadSummarySchema),
   /** Pass as `before` to load older threads; null when there are no more. */
-  nextCursor: z.string().nullable(),
+  nextCursor: pageCursorSchema.nullable(),
 });
 
 export const threadListQuerySchema = z.object({

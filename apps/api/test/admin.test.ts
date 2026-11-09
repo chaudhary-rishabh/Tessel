@@ -127,6 +127,8 @@ describe("admin users", () => {
     await signUp(app);
     const first = await request(app).get("/admin/users?limit=1").set("Authorization", bearer(me));
     expect(first.body.users).toHaveLength(1);
+    // The response matches the contract the admin app parses it with.
+    expect(adminUserListResponseSchema.safeParse(first.body).success).toBe(true);
     const second = await request(app)
       .get("/admin/users")
       .query({ limit: 1, cursor: first.body.nextCursor })
