@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { ToolError, type ToolDefinition } from "@tessel/ai";
 import {
   createConnectionRequestSchema,
@@ -35,6 +35,7 @@ import { noAudit, type AuditRecorder } from "../../lib/audit";
 import { errors } from "../../lib/errors";
 import { workspacesRepository } from "../workspaces/workspaces.repository";
 import type { CatalogEntry } from "./connectors.catalog";
+import { hashToken, sameHash } from "../auth/tokens";
 
 export interface Actor {
   userId: string;
@@ -52,8 +53,8 @@ export interface ConnectorsSettings {
   allowPrivate: boolean;
 }
 
-const STATE_TTL_MS = 10 * 60_000;
-const hash = (value: string) => createHash("sha256").update(value).digest("hex");
+/** How long an app sign-in can take, from start to callback. */
+export const CONNECTOR_STATE_TTL_MS = 10 * 60_000;
 
 function toConnection(row: ConnectorConnectionRow): ConnectorConnection {
   return {
@@ -215,8 +216,8 @@ export function createConnectorsService({
     });
     await save(row.userId, row.id, {
       credentials: box.seal(credentials),
-      oauthStateHash: hash(state),
-      oauthStateExpiresAt: new Date(Date.now() + STATE_TTL_MS),
+      oauthStateHash: hashToken(state),
+      oauthStateExpiresAt: new Date(Date.now() + CONNECTOR_STATE_TTL_MS),
       status: "pending",
     });
     return url.toString();
@@ -319,12 +320,22 @@ export function createConnectorsService({
      * Finishes an OAuth sign-in from the browser redirect and returns where to
      * send the browser next. The state is single-use and expires.
      */
-    async finishOAuth(query: { state?: string; code?: string; error?: string }): Promise<string> {
+    async finishOAuth(query: {
+      state?: string;
+      code?: string;
+      error?: string;
+      /** The cookie set when this browser started the sign-in. */
+      binding?: string;
+    }): Promise<string> {
       const done = (params: Record<string, string>) =>
         `${settings.webOrigin}/connectors?${new URLSearchParams(params).toString()}`;
       if (!query.state) return done({ error: "invalid" });
+      // Only the browser that started the sign-in may finish it.
+      if (!query.binding || !sameHash(query.binding, hashToken(query.state))) {
+        return done({ error: "invalid" });
+      }
       const result = await db.execute<{ connection_id: string; owner_id: string }>(
-        sql`SELECT * FROM app.connector_for_oauth_state(${hash(query.state)})`,
+        sql`SELECT * FROM app.connector_for_oauth_state(${hashToken(query.state)})`,
       );
       const match = result.rows[0];
       if (!match) return done({ error: "expired" });

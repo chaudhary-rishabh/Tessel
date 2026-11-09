@@ -9,7 +9,7 @@ export type SubscriptionUpdate = {
   subscriptionId: string;
   customerId?: string | undefined;
   plan?: PlanId | undefined;
-  status: "active" | "past_due" | "canceled" | "incomplete";
+  status: "active" | "past_due" | "cancelled" | "incomplete";
   seats?: number | undefined;
   periodStart?: Date | undefined;
   periodEnd?: Date | undefined;
@@ -130,12 +130,14 @@ export function createStripeProvider(config: StripeConfig): PaymentProvider {
     method: "GET" | "POST" | "DELETE",
     path: string,
     body?: Record<string, unknown>,
+    idempotencyKey?: string,
   ): Promise<T> {
     const response = await fetcher(`${base}/v1${path}`, {
       method,
       headers: {
         Authorization: `Bearer ${config.secretKey}`,
         ...(body ? { "Content-Type": "application/x-www-form-urlencoded" } : {}),
+        ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
       },
       ...(body ? { body: stripeForm(body) } : {}),
       signal: AbortSignal.timeout(TIMEOUT_MS),
@@ -153,13 +155,14 @@ export function createStripeProvider(config: StripeConfig): PaymentProvider {
     return price;
   };
 
+  // Stripe spells it "canceled"; Tessel uses "cancelled" everywhere.
   const status = (value: string): SubscriptionUpdate["status"] =>
     value === "active" || value === "trialing"
       ? "active"
       : value === "past_due" || value === "unpaid"
         ? "past_due"
         : value === "canceled" || value === "incomplete_expired"
-          ? "canceled"
+          ? "cancelled"
           : "incomplete";
 
   function toUpdate(subscription: StripeSubscription, deleted = false): SubscriptionUpdate {
@@ -169,10 +172,11 @@ export function createStripeProvider(config: StripeConfig): PaymentProvider {
       workspaceId: subscription.metadata?.workspaceId,
       subscriptionId: subscription.id,
       customerId: subscription.customer,
+      // The price is the truth: a plan change updates it but not the metadata.
       plan:
-        (subscription.metadata?.plan as PlanId | undefined) ??
-        planFromIds(config.prices, item?.price?.id),
-      status: deleted ? "canceled" : status(subscription.status),
+        planFromIds(config.prices, item?.price?.id) ??
+        (subscription.metadata?.plan as PlanId | undefined),
+      status: deleted ? "cancelled" : status(subscription.status),
       seats: item?.quantity,
       // Newer API versions keep the period on the item.
       periodStart: seconds(subscription.current_period_start ?? item?.current_period_start),
@@ -245,13 +249,19 @@ export function createStripeProvider(config: StripeConfig): PaymentProvider {
     async chargeExtra(account, { amountNanoUsd, description, invoiceId }) {
       const cents = Math.ceil(amountNanoUsd / 10_000_000);
       if (cents <= 0) return;
-      await call("POST", "/invoiceitems", {
-        customer: account.customerId,
-        amount: cents,
-        currency: "usd",
-        description,
-        ...(invoiceId ? { invoice: invoiceId } : { subscription: account.subscriptionId }),
-      });
+      // A retried webhook or a timeout must never add the same charge twice.
+      await call(
+        "POST",
+        "/invoiceitems",
+        {
+          customer: account.customerId,
+          amount: cents,
+          currency: "usd",
+          description,
+          ...(invoiceId ? { invoice: invoiceId } : { subscription: account.subscriptionId }),
+        },
+        `extra-usage:${account.subscriptionId}:${invoiceId ?? description}`,
+      );
     },
 
     parseWebhook(rawBody, headers) {
@@ -369,7 +379,7 @@ export function createRazorpayProvider(config: RazorpayConfig): PaymentProvider 
       : value === "pending" || value === "halted"
         ? "past_due"
         : value === "cancelled" || value === "completed" || value === "expired"
-          ? "canceled"
+          ? "cancelled"
           : "incomplete";
 
   function toUpdate(subscription: RazorpaySubscription): SubscriptionUpdate {
@@ -379,7 +389,8 @@ export function createRazorpayProvider(config: RazorpayConfig): PaymentProvider 
       workspaceId: notes.workspaceId,
       subscriptionId: subscription.id,
       customerId: subscription.customer_id ?? undefined,
-      plan: (notes.plan as PlanId | undefined) ?? planFromIds(config.plans, subscription.plan_id),
+      // The plan ID is the truth: a plan change updates it but not the notes.
+      plan: planFromIds(config.plans, subscription.plan_id) ?? (notes.plan as PlanId | undefined),
       status: status(subscription.status),
       seats: subscription.quantity,
       periodStart: seconds(subscription.current_start),

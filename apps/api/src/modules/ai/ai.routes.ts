@@ -1,6 +1,6 @@
 import { Router, type RequestHandler } from "express";
 import type { RateLimitRule, RateLimitStoreFactory } from "../../middleware/rate-limit";
-import { createRateLimiter } from "../../middleware/rate-limit";
+import { createRateLimiter, userKey } from "../../middleware/rate-limit";
 import type { createAiController } from "./ai.controller";
 
 type AiController = ReturnType<typeof createAiController>;
@@ -38,7 +38,7 @@ export function createCompletionsRouter({
       name: "ai",
       ...rateLimit,
       storeFactory,
-      keySuffix: (req) => req.auth?.userId,
+      key: userKey,
     }),
     controller.complete,
   );

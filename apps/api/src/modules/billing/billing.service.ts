@@ -82,7 +82,7 @@ export function createBillingService({
   }
 
   const hasSubscription = (account: BillingAccountRow | undefined) =>
-    Boolean(account?.subscriptionId && account.provider && account.status !== "canceled");
+    Boolean(account?.subscriptionId && account.provider && account.status !== "cancelled");
 
   async function extraBetween(workspaceId: string, since: Date, until: Date) {
     const result = await db.execute<{ cost: string }>(
@@ -129,6 +129,18 @@ export function createBillingService({
     const workspaceId = existing?.workspaceId ?? update.workspaceId;
     if (!workspaceId) {
       logger.warn({ subscriptionId: update.subscriptionId }, "Webhook for an unknown subscription");
+      return;
+    }
+    // Providers don't promise delivery order. A cancelled subscription never comes
+    // back, and a live one replaces any earlier subscription, so late events about
+    // either are ignored.
+    if (existing?.subscriptionId === update.subscriptionId) {
+      if (existing.status === "cancelled" && update.status !== "cancelled") {
+        logger.info({ workspaceId }, "Ignoring a late event for a cancelled subscription");
+        return;
+      }
+    } else if (existing?.subscriptionId && existing.status !== "cancelled") {
+      logger.info({ workspaceId }, "Ignoring an event for a replaced subscription");
       return;
     }
     // Razorpay has no invoice event: a new period means the last one closed.
@@ -228,9 +240,7 @@ export function createBillingService({
       input: UpdateExtraUsageRequest,
     ): Promise<BillingSummary> {
       const { workspace } = await membership(actor);
-      if (workspace.role !== "owner" && workspace.role !== "admin") {
-        throw errors.forbidden("Only owners and admins can change billing");
-      }
+      requireManager(workspace.role);
       const account = await limits.account(actor.workspaceId);
       if (input.enabled && !limits.effectivePlan(account).extraUsage) {
         throw errors.conflict(
@@ -336,7 +346,6 @@ export function createBillingService({
       return { url: await viaProvider(() => found.portal!(account, `${webOrigin}/settings#plan`)) };
     },
 
-    /** Cancels at the end of the period, or keeps the plan after all. */
     /**
      * Ends a workspace's subscription at once, before the workspace is deleted.
      * Throws when the provider refuses, so a deleted workspace is never billed again.
@@ -347,6 +356,7 @@ export function createBillingService({
       await viaProvider(() => provider(account!.provider).cancelNow(account!));
     },
 
+    /** Cancels at the end of the period, or keeps the plan after all. */
     async setCancel(actor: BillingActor, cancel: boolean): Promise<BillingSummary> {
       const { workspace } = await membership(actor);
       requireManager(workspace.role);
@@ -383,42 +393,58 @@ export function createBillingService({
         .onConflictDoNothing()
         .returning({ id: billingEvents.id });
       if (fresh.length === 0) return true;
-      for (const change of event.changes) {
-        if (change.kind === "subscription") {
-          await applySubscription(name, change);
-        } else {
-          const account = await findAccount(change);
-          if (account) await chargePeriod(account, change);
+      try {
+        for (const change of event.changes) {
+          if (change.kind === "subscription") {
+            await applySubscription(name, change);
+          } else {
+            const account = await findAccount(change);
+            if (account) await chargePeriod(account, change);
+          }
         }
+      } catch (error) {
+        // Forget the event so the provider's retry is applied instead of skipped.
+        await db.delete(billingEvents).where(eq(billingEvents.id, `${name}:${event.id}`));
+        throw error;
       }
       return true;
     },
 
-    /** Team plans pay for every member: called when people join or leave. */
+    /**
+     * Team plans pay for every member: called when people join or leave. Runs
+     * one at a time per workspace and counts inside the lock, so two changes at
+     * once can't leave the subscription with a stale seat count.
+     */
     async syncSeats(workspaceId: string): Promise<void> {
-      const account = await limits.account(workspaceId);
-      if (!account || account.plan !== "team" || !hasSubscription(account)) return;
-      // Members are behind row-level security and this runs without a user, so ask the database.
-      const result = await db.execute<{ total: string }>(
-        sql`SELECT app.workspace_member_count(${workspaceId})::text AS total`,
-      );
-      const members = result.rows[0];
-      const seats = Math.max(PLANS.team.minSeats, Number(members?.total ?? 1));
-      if (seats === account.seats) return;
-      try {
-        await provider(account.provider).updateSeats(account, seats);
-        await db
-          .update(billingAccounts)
-          .set({ seats })
+      await db.transaction(async (tx) => {
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`seats:${workspaceId}`}))`);
+        const [account] = await tx
+          .select()
+          .from(billingAccounts)
           .where(eq(billingAccounts.workspaceId, workspaceId));
+        if (!account || account.plan !== "team" || !hasSubscription(account)) return;
+        // Members are behind row-level security and this runs without a user, so ask the database.
+        const result = await tx.execute<{ total: string }>(
+          sql`SELECT app.workspace_member_count(${workspaceId})::text AS total`,
+        );
+        const seats = Math.max(PLANS.team.minSeats, Number(result.rows[0]?.total ?? 1));
+        if (seats === account.seats) return;
+        try {
+          await provider(account.provider).updateSeats(account, seats);
+          await tx
+            .update(billingAccounts)
+            .set({ seats })
+            .where(eq(billingAccounts.workspaceId, workspaceId));
+        } catch (error) {
+          logger.error({ err: error, workspaceId }, "Couldn't update the Team plan's seats");
+          return;
+        }
         await audit.record({
           workspaceId,
           action: "billing.seats_changed",
           metadata: { from: account.seats, to: seats },
         });
-      } catch (error) {
-        logger.error({ err: error, workspaceId }, "Couldn't update the Team plan's seats");
-      }
+      });
     },
   };
 }

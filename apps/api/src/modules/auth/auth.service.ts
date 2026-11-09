@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomInt, randomUUID, timingSafeEqual } from "node:crypto";
+import { randomBytes, randomInt, randomUUID } from "node:crypto";
 import type {
   AuthResponse,
   LoginRequest,
@@ -29,7 +29,7 @@ import { refreshTokenRepository } from "./auth.repository";
 import type { PasswordHasher } from "./password";
 import { emails, type Mailer } from "../../lib/mailer";
 import { noAudit, type AuditRecorder } from "../../lib/audit";
-import { generateRefreshToken, hashToken, type AccessTokens } from "./tokens";
+import { type SessionTokens, generateRefreshToken, hashCode, hashToken, sameHash } from "./tokens";
 import { verifyTotp } from "./totp";
 
 export interface SessionMeta {
@@ -47,7 +47,7 @@ export interface AuthServiceDependencies {
   db: Database;
   logger: Logger;
   passwords: PasswordHasher;
-  accessTokens: AccessTokens;
+  sessionTokens: SessionTokens;
   refreshTokenTtlMs: number;
   refreshRotationGraceMs: number;
   mailer: Mailer;
@@ -67,6 +67,8 @@ export type LoginOutcome =
   { kind: "session"; session: IssuedSession } | { kind: "two_factor"; challengeToken: string };
 
 const SIGNUP_CODE_TTL_MS = 15 * 60_000;
+/** However often a code is resent, a signup must finish within this time of starting. */
+const SIGNUP_MAX_LIFETIME_MS = 60 * 60_000;
 const MAX_CODE_ATTEMPTS = 5;
 const RESET_TTL_MS = 30 * 60_000;
 
@@ -86,16 +88,9 @@ const INVALID_TWO_FACTOR = () =>
     "That code didn't work. Try the newest one from your app.",
   );
 
-const codeHash = (challengeId: string, code: string) =>
-  createHash("sha256").update(`${challengeId}:${code}`).digest("hex");
-
-const sameHash = (a: string, b: string) =>
-  a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
-
 /** Recovery codes ignore case, spaces, and dashes when checked. */
 export const normalizeRecoveryCode = (code: string) => code.toLowerCase().replace(/[^a-z0-9]/g, "");
-export const hashRecoveryCode = (code: string) =>
-  createHash("sha256").update(normalizeRecoveryCode(code)).digest("hex");
+export const hashRecoveryCode = (code: string) => hashToken(normalizeRecoveryCode(code));
 
 const ACCOUNT_SUSPENDED = () =>
   errors.forbidden("This account is suspended. Contact your administrator.", "account_suspended");
@@ -114,7 +109,7 @@ export function createAuthService({
   db,
   logger,
   passwords,
-  accessTokens,
+  sessionTokens,
   refreshTokenTtlMs,
   refreshRotationGraceMs,
   mailer,
@@ -125,9 +120,9 @@ export function createAuthService({
 }: AuthServiceDependencies) {
   async function buildAuthResponse(user: UserRow): Promise<AuthResponse> {
     return {
-      accessToken: await accessTokens.sign({ userId: user.id, role: user.role }),
+      accessToken: await sessionTokens.sign({ userId: user.id, role: user.role }),
       tokenType: "Bearer",
-      expiresIn: accessTokens.ttlSeconds,
+      expiresIn: sessionTokens.ttlSeconds,
       user: toPublicUser(user),
     };
   }
@@ -150,6 +145,27 @@ export function createAuthService({
    * Signs a user in after their first factor (password, Google, GitHub, or a
    * texted code), or asks for their authenticator code first.
    */
+  async function sendPasswordReset(email: string): Promise<void> {
+    const user = await usersRepository.findByEmail(db, email);
+    if (!user) return;
+    const token = randomBytes(32).toString("base64url");
+    await db.transaction(async (tx) => {
+      // Only the newest link works.
+      await tx
+        .update(passwordResets)
+        .set({ usedAt: now() })
+        .where(and(eq(passwordResets.userId, user.id), isNull(passwordResets.usedAt)));
+      await tx.insert(passwordResets).values({
+        userId: user.id,
+        tokenHash: hashToken(token),
+        expiresAt: new Date(now().getTime() + RESET_TTL_MS),
+      });
+    });
+    await mailer.send(
+      emails.passwordReset(user.email, `${webOrigin}/reset-password?token=${token}`),
+    );
+  }
+
   async function beginSession(
     user: UserRow,
     meta: SessionMeta,
@@ -159,7 +175,7 @@ export function createAuthService({
     if (user.totpEnabledAt) {
       return {
         kind: "two_factor",
-        challengeToken: await accessTokens.signTwoFactorChallenge(user.id),
+        challengeToken: await sessionTokens.signTwoFactorChallenge(user.id),
       };
     }
     await usersRepository.touchLastLogin(db, user.id, now());
@@ -187,7 +203,7 @@ export function createAuthService({
         email: input.email,
         name: input.name,
         passwordHash,
-        codeHash: existing ? null : codeHash(challengeId, code),
+        codeHash: existing ? null : hashCode(challengeId, code),
         expiresAt: new Date(now().getTime() + SIGNUP_CODE_TTL_MS),
       });
       await mailer.send(
@@ -209,11 +225,18 @@ export function createAuthService({
         await mailer.send(emails.accountExists(challenge.email, webOrigin));
       } else {
         const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
+        const expiresAt = Math.min(
+          now().getTime() + SIGNUP_CODE_TTL_MS,
+          challenge.createdAt.getTime() + SIGNUP_MAX_LIFETIME_MS,
+        );
+        // A new code gets its own tries; the per-challenge resend limit and the
+        // lifetime cap above keep the total number of guesses small.
         await db
           .update(signupChallenges)
           .set({
-            codeHash: codeHash(challengeId, code),
-            expiresAt: new Date(now().getTime() + SIGNUP_CODE_TTL_MS),
+            codeHash: hashCode(challengeId, code),
+            attempts: 0,
+            expiresAt: new Date(expiresAt),
           })
           .where(eq(signupChallenges.id, challengeId));
         await mailer.send(emails.signupCode(challenge.email, code));
@@ -234,7 +257,7 @@ export function createAuthService({
         }
         if (
           !challenge.codeHash ||
-          !sameHash(challenge.codeHash, codeHash(challenge.id, input.code))
+          !sameHash(challenge.codeHash, hashCode(challenge.id, input.code))
         ) {
           await tx
             .update(signupChallenges)
@@ -288,7 +311,7 @@ export function createAuthService({
     ): Promise<IssuedSession> {
       let userId: string;
       try {
-        userId = await accessTokens.verifyTwoFactorChallenge(input.challengeToken);
+        userId = await sessionTokens.verifyTwoFactorChallenge(input.challengeToken);
       } catch {
         throw errors.unauthorized(
           "two_factor_expired",
@@ -342,25 +365,13 @@ export function createAuthService({
       return issueSession(user, meta);
     },
 
-    /** Emails a reset link if the account exists; answers the same either way. */
-    async forgotPassword(email: string): Promise<void> {
-      const user = await usersRepository.findByEmail(db, email);
-      if (!user) return;
-      const token = randomBytes(32).toString("base64url");
-      await db.transaction(async (tx) => {
-        // Only the newest link works.
-        await tx
-          .update(passwordResets)
-          .set({ usedAt: now() })
-          .where(and(eq(passwordResets.userId, user.id), isNull(passwordResets.usedAt)));
-        await tx.insert(passwordResets).values({
-          userId: user.id,
-          tokenHash: hashToken(token),
-          expiresAt: new Date(now().getTime() + RESET_TTL_MS),
-        });
-      });
-      await mailer.send(
-        emails.passwordReset(user.email, `${webOrigin}/reset-password?token=${token}`),
+    /**
+     * Emails a reset link if the address has an account. The work happens after
+     * the response, so known and unknown addresses take the same time to answer.
+     */
+    forgotPassword(email: string): void {
+      void sendPasswordReset(email).catch((error: unknown) =>
+        logger.error({ err: error }, "Couldn't send a password reset email"),
       );
     },
 

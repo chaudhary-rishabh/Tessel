@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { pageCursorSchema } from "./paging";
 
 export const MAX_ATTACHMENTS_PER_MESSAGE = 5;
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -87,7 +88,7 @@ export const threadListResponseSchema = z.object({
 
 export const threadListQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(30),
-  before: z.iso.datetime().optional(),
+  before: pageCursorSchema.optional(),
   /** Finds chats whose title or messages contain this text. */
   q: z.string().trim().min(1).max(200).optional(),
 });

@@ -3,7 +3,7 @@ import type { TwoFactorSetupResponse } from "@tessel/contracts";
 import { recoveryCodes, users, type Database } from "@tessel/db";
 import type { Logger } from "@tessel/logger";
 import type { SecretBox } from "@tessel/mcp";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull, lt, or } from "drizzle-orm";
 import QRCode from "qrcode";
 import { errors } from "../../lib/errors";
 import { emails, type Mailer } from "../../lib/mailer";
@@ -74,7 +74,15 @@ export function createTwoFactorService({
       lastStep: user.totpLastStep,
     });
     if (step === null) throw INVALID_CODE();
-    await db.update(users).set({ totpLastStep: step }).where(eq(users.id, user.id));
+    // Only one request can move the step forward, so a code works once.
+    const claimed = await db
+      .update(users)
+      .set({ totpLastStep: step })
+      .where(
+        and(eq(users.id, user.id), or(isNull(users.totpLastStep), lt(users.totpLastStep, step))),
+      )
+      .returning({ id: users.id });
+    if (claimed.length === 0) throw INVALID_CODE();
   }
 
   return {

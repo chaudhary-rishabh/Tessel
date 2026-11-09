@@ -6,21 +6,18 @@ import {
   bearer,
   createTestApp,
   findRefreshCookie,
+  resetLinkToken,
+  type SignedUpUser,
   signUp,
-  testOutbox,
   TEST_PASSWORD,
+  testOutbox,
   uniqueEmail,
   WEB_ORIGIN,
-  type SignedUpUser,
 } from "./helpers";
 
 const NEW_PASSWORD = "a much better passphrase";
 
-function resetToken(email: string): string {
-  const token = /reset-password\?token=([\w-]+)/.exec(testOutbox.latest(email)?.text ?? "")?.[1];
-  if (!token) throw new Error(`No reset link was emailed to ${email}`);
-  return token;
-}
+const resetToken = resetLinkToken;
 
 /** A code for a later 30-second window, so it isn't the one already used. */
 function codeAt(secret: string, stepsAhead: number): string {
@@ -34,8 +31,8 @@ describe("password reset", () => {
     const user = await signUp(app);
     const forgot = await request(app).post("/auth/password/forgot").send({ email: user.email });
     expect(forgot.status).toBe(202);
+    const token = await resetToken(user.email);
     expect(testOutbox.latest(user.email)?.text).toContain(`${WEB_ORIGIN}/reset-password?token=`);
-    const token = resetToken(user.email);
 
     const reset = await request(app)
       .post("/auth/password/reset")
@@ -70,6 +67,7 @@ describe("password reset", () => {
     const email = uniqueEmail("nobody");
     const res = await request(app).post("/auth/password/forgot").send({ email });
     expect(res.status).toBe(202);
+    await new Promise((resolve) => setTimeout(resolve, 200));
     expect(testOutbox.latest(email)).toBeUndefined();
   });
 
@@ -83,9 +81,9 @@ describe("password reset", () => {
   it("only honours the newest link", async () => {
     const user = await signUp(app);
     await request(app).post("/auth/password/forgot").send({ email: user.email });
-    const first = resetToken(user.email);
+    const first = await resetToken(user.email);
     await request(app).post("/auth/password/forgot").send({ email: user.email });
-    const second = resetToken(user.email);
+    const second = await resetToken(user.email, first);
     expect(
       (
         await request(app)

@@ -9,11 +9,12 @@ import {
   bearer,
   createTestApp,
   findRefreshCookie,
+  resetLinkToken,
   signUp,
+  TEST_PASSWORD,
   testOutbox,
   testSms,
   textedCode,
-  TEST_PASSWORD,
   uniqueEmail,
   WEB_ORIGIN,
 } from "./helpers";
@@ -286,7 +287,7 @@ describe("Google and GitHub sign-in", () => {
     const email = uniqueEmail("set-password");
     await signInWith("google", { email });
     await request(app).post("/auth/password/forgot").send({ email });
-    const token = /token=([\w-]+)/.exec(testOutbox.latest(email)!.text)![1]!;
+    const token = await resetLinkToken(email);
     await request(app).post("/auth/password/reset").send({ token, password: TEST_PASSWORD });
     const login = await request(app).post("/auth/login").send({ email, password: TEST_PASSWORD });
     expect(login.status).toBe(200);

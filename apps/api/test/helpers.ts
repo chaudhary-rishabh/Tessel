@@ -20,7 +20,7 @@ import { createOutboxSms } from "../src/lib/sms";
 import { memoryEpisodeIndex, type ThreadMemoryJob } from "@tessel/memory";
 import type { Express } from "express";
 import request from "supertest";
-import { afterAll, inject } from "vitest";
+import { afterAll, inject, vi } from "vitest";
 import { createApp, type AppDependencies } from "../src/app";
 import type { AppConfig, AuthConfig, RateLimitConfig } from "../src/config";
 import { createPasswordHasher } from "../src/modules/auth/password";
@@ -185,6 +185,21 @@ export function findRefreshCookie(setCookie: string[] | string | undefined): str
 
 /** The emails every test app sends (signup codes, reset links). */
 export const testOutbox = createOutboxMailer();
+
+/**
+ * Waits for a password reset email, which is sent after the response, and
+ * returns its token. Pass the last token to wait for a newer link.
+ */
+export async function resetLinkToken(to: string, previous?: string): Promise<string> {
+  return vi.waitFor(
+    () => {
+      const token = /reset-password\?token=([\w-]+)/.exec(testOutbox.latest(to)?.text ?? "")?.[1];
+      if (!token || token === previous) throw new Error(`No new reset link for ${to} yet`);
+      return token;
+    },
+    { timeout: 5_000, interval: 20 },
+  );
+}
 
 /** The texts every test app sends (phone sign-in codes). */
 export const testSms = createOutboxSms();

@@ -87,6 +87,14 @@ const doneOf = (events: ChatEvent[]) => {
   return done;
 };
 
+/** The sign-in binding cookie a browser would keep from starting an app sign-in. */
+function signInCookie(res: { headers: Record<string, unknown> }): string {
+  const cookies = (res.headers["set-cookie"] as string[] | undefined) ?? [];
+  return (
+    cookies.find((cookie) => cookie.startsWith("tessel_connector_oauth="))?.split(";")[0] ?? ""
+  );
+}
+
 describe("connectors", () => {
   it("shows the catalog without server details", async () => {
     const { user, base } = await setup();
@@ -257,10 +265,19 @@ describe("connectors", () => {
       "http://localhost:4000/connectors/oauth/callback",
     );
 
+    // The browser that started the sign-in holds a cookie tying it to the state.
+    const binding = signInCookie(res);
+    expect(binding).toMatch(/^tessel_connector_oauth=/);
+
     // The user approves on the app's page, which redirects back to the API.
     const approved = await fetch(authorizationUrl, { redirect: "manual" });
     const callback = new URL(approved.headers.get("location")!);
-    const back = await request(app).get(`/connectors/oauth/callback${callback.search}`);
+    // Another browser (say, someone sent this link) can't finish it.
+    const elsewhere = await request(app).get(`/connectors/oauth/callback${callback.search}`);
+    expect(elsewhere.headers.location).toBe("http://localhost:3000/connectors?error=invalid");
+    const back = await request(app)
+      .get(`/connectors/oauth/callback${callback.search}`)
+      .set("Cookie", binding);
     expect(back.status).toBe(302);
     expect(back.headers.location).toBe(
       `http://localhost:3000/connectors?connected=${res.body.connection.id}`,
@@ -271,7 +288,9 @@ describe("connectors", () => {
     expect(list.body.connections[0].tools).toHaveLength(3);
 
     // The state works once.
-    const replay = await request(app).get(`/connectors/oauth/callback${callback.search}`);
+    const replay = await request(app)
+      .get(`/connectors/oauth/callback${callback.search}`)
+      .set("Cookie", binding);
     expect(replay.headers.location).toBe("http://localhost:3000/connectors?error=expired");
   });
 
@@ -282,9 +301,9 @@ describe("connectors", () => {
       .set("Authorization", bearer(user))
       .send({ name: "Tracker", serverUrl: oauthServer.url, auth: "oauth" });
     const state = new URL(res.body.authorizationUrl as string).searchParams.get("state")!;
-    const back = await request(app).get(
-      `/connectors/oauth/callback?state=${encodeURIComponent(state)}&error=access_denied`,
-    );
+    const back = await request(app)
+      .get(`/connectors/oauth/callback?state=${encodeURIComponent(state)}&error=access_denied`)
+      .set("Cookie", signInCookie(res));
     expect(back.headers.location).toContain("error=denied");
     const list = await request(app).get(`${base}/connectors`).set("Authorization", bearer(user));
     expect(list.body.connections[0]).toMatchObject({

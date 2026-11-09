@@ -1,18 +1,21 @@
 import type { Attachment, ChatMessage, ThreadSummary } from "@tessel/contracts";
 import {
+  type AgentRunRow,
   agentRuns,
+  type AttachmentRow,
   attachments,
   documents,
-  messages,
-  threads,
-  type AgentRunRow,
-  type AttachmentRow,
+  escapeLike,
   type MessageRow,
+  messages,
   type MessageStatus,
+  newestFirst,
+  olderThan,
   type ThreadRow,
+  threads,
   type Transaction,
 } from "@tessel/db";
-import { and, asc, desc, eq, exists, gt, ilike, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { and, asc, eq, exists, gt, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 
 export type AttachmentMeta = AttachmentRow;
 
@@ -66,13 +69,9 @@ const attachmentMeta = {
   createdAt: attachments.createdAt,
 };
 
-/**
- * Chat data access. Everything runs inside withUserContext; the explicit
- * owner filters are the first line of defence and row-level security the second.
- */
 /** Title or any message contains the text, ignoring case; % and _ are matched literally. */
 function matchesSearch(text: string) {
-  const pattern = `%${text.replace(/[\\%_]/g, (character) => `\\${character}`)}%`;
+  const pattern = `%${escapeLike(text)}%`;
   return or(
     ilike(threads.title, pattern),
     exists(
@@ -81,10 +80,20 @@ function matchesSearch(text: string) {
   );
 }
 
+/**
+ * Chat data access. Everything runs inside withUserContext; the explicit
+ * owner filters are the first line of defence and row-level security the second.
+ */
 export const chatRepository = {
   listThreads(
     tx: Transaction,
-    filter: { workspaceId: string; userId: string; before?: Date; search?: string; limit: number },
+    filter: {
+      workspaceId: string;
+      userId: string;
+      before?: string;
+      search?: string;
+      limit: number;
+    },
   ): Promise<ThreadRow[]> {
     return tx
       .select()
@@ -93,11 +102,11 @@ export const chatRepository = {
         and(
           eq(threads.workspaceId, filter.workspaceId),
           eq(threads.userId, filter.userId),
-          filter.before ? lt(threads.updatedAt, filter.before) : undefined,
+          filter.before ? olderThan(threads.updatedAt, threads.id, filter.before) : undefined,
           filter.search ? matchesSearch(filter.search) : undefined,
         ),
       )
-      .orderBy(desc(threads.updatedAt))
+      .orderBy(...newestFirst(threads.updatedAt, threads.id))
       .limit(filter.limit);
   },
 
@@ -300,6 +309,18 @@ export const chatRepository = {
         })
         .where(eq(messages.id, run.messageId));
     }
+  },
+
+  /** Where the files attached to a thread's messages are stored, optionally only after a time. */
+  async attachmentKeys(tx: Transaction, threadId: string, after?: Date): Promise<string[]> {
+    const rows = await tx
+      .select({ key: attachments.storageKey })
+      .from(attachments)
+      .innerJoin(messages, eq(messages.id, attachments.messageId))
+      .where(
+        and(eq(messages.threadId, threadId), after ? gt(messages.createdAt, after) : undefined),
+      );
+    return rows.map((row) => row.key);
   },
 
   /** Removes every message in a thread written after `after`. */

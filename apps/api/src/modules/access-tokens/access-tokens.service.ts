@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import {
   createAccessTokenRequestSchema,
   type AccessToken,
@@ -16,6 +16,7 @@ import { and, count, desc, eq, isNull, lt, or, sql } from "drizzle-orm";
 import { noAudit, type AuditRecorder } from "../../lib/audit";
 import { errors } from "../../lib/errors";
 import { workspacesRepository } from "../workspaces/workspaces.repository";
+import { hashToken } from "../auth/tokens";
 
 export interface Actor {
   userId: string;
@@ -37,8 +38,6 @@ export const OAUTH_TOKEN_PREFIX = "tsl_oat_";
 const MAX_ACTIVE_TOKENS = 20;
 const DAY_MS = 86_400_000;
 const TOUCH_INTERVAL = sql`interval '1 minute'`;
-
-const hash = (token: string) => createHash("sha256").update(token).digest("hex");
 
 function toAccessToken(row: PersonalAccessTokenRow): AccessToken {
   return {
@@ -117,7 +116,7 @@ export function createAccessTokensService({
             userId: actor.userId,
             workspaceId: actor.workspaceId,
             name: request.name,
-            tokenHash: hash(token),
+            tokenHash: hashToken(token),
             prefix: token.slice(0, TOKEN_PREFIX.length + 4),
             scopes: [...new Set(request.scopes)],
             expiresAt: request.expiresInDays
@@ -164,7 +163,7 @@ export function createAccessTokensService({
         workspace_id: string;
         scopes: string[];
         role: UserRole;
-      }>(sql`SELECT * FROM app.resolve_access_token(${hash(token)})`);
+      }>(sql`SELECT * FROM app.resolve_access_token(${hashToken(token)})`);
       const row = result.rows[0];
       if (!row) return null;
       // At most once a minute, so busy clients don't write on every request.

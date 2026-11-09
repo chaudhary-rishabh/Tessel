@@ -13,10 +13,6 @@ import { errors } from "../../lib/errors";
 import { workspacePolicy } from "./workspaces.policy";
 import { toWorkspace, workspacesRepository } from "./workspaces.repository";
 
-/**
- * Workspaces a user doesn't belong to are reported as not found, never
- * forbidden, so their existence is not revealed.
- */
 /** What lives outside Postgres for a workspace, removed when it's deleted. */
 export interface WorkspaceContents {
   workspaceId: string;
@@ -24,6 +20,10 @@ export interface WorkspaceContents {
   memberIds: string[];
 }
 
+/**
+ * Workspaces a user doesn't belong to are reported as not found, never
+ * forbidden, so their existence is not revealed.
+ */
 export function createWorkspacesService({
   db,
   audit = noAudit,

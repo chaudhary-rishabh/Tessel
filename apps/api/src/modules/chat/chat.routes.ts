@@ -3,6 +3,7 @@ import { Router, type RequestHandler } from "express";
 import multer from "multer";
 import {
   createRateLimiter,
+  userKey,
   type RateLimitRule,
   type RateLimitStoreFactory,
 } from "../../middleware/rate-limit";
@@ -27,7 +28,7 @@ export function createChatRouter({
   storeFactory?: RateLimitStoreFactory | undefined;
 }): Router {
   const perUser = (name: string) =>
-    createRateLimiter({ name, ...rateLimit, storeFactory, keySuffix: (req) => req.auth?.userId });
+    createRateLimiter({ name, ...rateLimit, storeFactory, key: userKey });
 
   const router = Router({ mergeParams: true });
   router.use(authenticate);

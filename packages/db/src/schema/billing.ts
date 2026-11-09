@@ -17,7 +17,7 @@ export const billingPlan = pgEnum("billing_plan", ["free", "pro", "max", "team"]
 export const billingStatus = pgEnum("billing_status", [
   "active",
   "past_due",
-  "canceled",
+  "cancelled",
   "incomplete",
 ]);
 export const billingProvider = pgEnum("billing_provider", ["stripe", "razorpay"]);

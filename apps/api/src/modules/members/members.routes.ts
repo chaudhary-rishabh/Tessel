@@ -10,7 +10,11 @@ import {
 } from "@tessel/contracts";
 import { Router, type Request, type RequestHandler } from "express";
 import type { RateLimitRule } from "../../middleware/rate-limit";
-import { createRateLimiter, type RateLimitStoreFactory } from "../../middleware/rate-limit";
+import {
+  createRateLimiter,
+  userKey,
+  type RateLimitStoreFactory,
+} from "../../middleware/rate-limit";
 import { getAuth } from "../../middleware/require-auth";
 import type { MemberActor, MembersService } from "./members.service";
 
@@ -33,7 +37,7 @@ export function createMembersRouter({
     name: "invite",
     ...inviteRateLimit,
     storeFactory,
-    keySuffix: (req) => req.auth?.userId,
+    key: userKey,
   });
   const workspaceOf = (req: Request) => workspaceParamsSchema.parse(req.params).workspaceId;
 

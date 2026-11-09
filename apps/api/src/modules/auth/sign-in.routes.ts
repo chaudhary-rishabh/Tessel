@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import {
   identityParamsSchema,
   oauthExchangeRequestSchema,
@@ -11,7 +10,12 @@ import {
 import { Router, type CookieOptions, type RequestHandler, type Response } from "express";
 import type { RateLimitConfig } from "../../config";
 import { requireAllowedOrigin } from "../../middleware/origin-check";
-import { createRateLimiter, type RateLimitStoreFactory } from "../../middleware/rate-limit";
+import {
+  createRateLimiter,
+  phoneKey,
+  userKey,
+  type RateLimitStoreFactory,
+} from "../../middleware/rate-limit";
 import { getAuth } from "../../middleware/require-auth";
 import type { LoginOutcome } from "./auth.service";
 import type { RefreshCookie } from "./cookies";
@@ -31,15 +35,6 @@ interface SignInRouterOptions {
   storeFactory?: RateLimitStoreFactory | undefined;
   allowedOrigins: readonly string[];
 }
-
-/** Rate limit keys use a hash of the phone number, so Redis never stores it. */
-const phoneKey = (value: unknown) =>
-  typeof value === "string"
-    ? createHash("sha256")
-        .update(value.replace(/[^\d+]/g, ""))
-        .digest("hex")
-        .slice(0, 32)
-    : undefined;
 
 function sendOutcome(res: Response, cookie: RefreshCookie, outcome: LoginOutcome) {
   if (outcome.kind === "two_factor") {
@@ -76,14 +71,22 @@ export function createSignInRouter({
     sameSite: "lax",
     path: "/auth/oauth",
   };
-  const loginLimiter = createRateLimiter({ name: "login", ...rateLimits.login, storeFactory });
-  const phoneLimiter = createRateLimiter({
-    name: "phone",
+  // A Google or GitHub sign-in takes three requests (start, callback, exchange).
+  const socialLimiter = createRateLimiter({
+    name: "social",
+    windowMs: rateLimits.login.windowMs,
+    limit: rateLimits.login.limit * 3,
+    storeFactory,
+  });
+  const textIp = createRateLimiter({ name: "phone-ip", ...rateLimits.signup, storeFactory });
+  // Per number on its own, so nobody can flood a phone with texts from many IPs.
+  const textNumber = createRateLimiter({
+    name: "phone-number",
     ...rateLimits.signup,
     storeFactory,
-    // Per number too, so nobody can flood a phone with texts from many IPs.
-    keySuffix: (req) => phoneKey(req.body?.phone),
+    key: phoneKey,
   });
+  const codeCheck = createRateLimiter({ name: "phone-login", ...rateLimits.login, storeFactory });
 
   router.use(requireAllowedOrigin(allowedOrigins));
 
@@ -97,7 +100,7 @@ export function createSignInRouter({
   });
 
   // Google and GitHub: a browser navigation, so it answers with a redirect.
-  router.get("/oauth/:provider/start", loginLimiter, (req, res) => {
+  router.get("/oauth/:provider/start", socialLimiter, (req, res) => {
     const { provider } = identityParamsSchema.parse(req.params);
     const { next } = oauthStartQuerySchema.parse(req.query);
     const started = social.startLogin(provider, next);
@@ -113,7 +116,7 @@ export function createSignInRouter({
     res.json({ url: started.url });
   });
 
-  router.get("/oauth/:provider/callback", loginLimiter, async (req, res) => {
+  router.get("/oauth/:provider/callback", socialLimiter, async (req, res) => {
     const { provider } = identityParamsSchema.parse(req.params);
     const text = (value: unknown) =>
       typeof value === "string" ? value.slice(0, 2_000) : undefined;
@@ -127,17 +130,17 @@ export function createSignInRouter({
     res.redirect(303, destination);
   });
 
-  router.post("/oauth/exchange", loginLimiter, async (req, res) => {
+  router.post("/oauth/exchange", socialLimiter, async (req, res) => {
     const { ticket } = oauthExchangeRequestSchema.parse(req.body);
     sendOutcome(res, refreshCookie, await social.exchange(ticket, sessionMeta(req)));
   });
 
-  router.post("/phone/start", phoneLimiter, async (req, res) => {
+  router.post("/phone/start", textIp, textNumber, async (req, res) => {
     const { phone: number } = phoneCodeRequestSchema.parse(req.body);
     res.status(202).json(await phone.startLogin(number));
   });
 
-  router.post("/phone/verify", loginLimiter, async (req, res) => {
+  router.post("/phone/verify", codeCheck, async (req, res) => {
     const input = phoneVerifyRequestSchema.parse(req.body);
     sendOutcome(res, refreshCookie, await phone.verifyLogin(input, sessionMeta(req)));
   });
@@ -157,17 +160,26 @@ export function createSignInMethodsRouter({
   "social" | "phone" | "authenticate" | "rateLimits" | "storeFactory"
 >): Router {
   const router = Router();
-  const phoneLimiter = createRateLimiter({
-    name: "phone",
+  // A signed-in user adding a number: per number, and per user per day, so
+  // one account can't send texts to number after number.
+  const textNumber = createRateLimiter({
+    name: "phone-add-number",
     ...rateLimits.signup,
     storeFactory,
-    keySuffix: (req) => phoneKey(req.body?.phone),
+    key: phoneKey,
   });
-  const codeLimiter = createRateLimiter({
-    name: "password",
+  const textUser = createRateLimiter({
+    name: "phone-add-user",
+    windowMs: 24 * 60 * 60 * 1000,
+    limit: rateLimits.signup.limit,
+    storeFactory,
+    key: userKey,
+  });
+  const codeCheck = createRateLimiter({
+    name: "phone-add-code",
     ...rateLimits.password,
     storeFactory,
-    keySuffix: (req) => req.auth?.userId,
+    key: userKey,
   });
 
   router.use(authenticate);
@@ -179,11 +191,11 @@ export function createSignInMethodsRouter({
     await social.unlink(getAuth(req).userId, provider);
     res.status(204).end();
   });
-  router.post("/phone", phoneLimiter, async (req, res) => {
+  router.post("/phone", textUser, textNumber, async (req, res) => {
     const { phone: number } = phoneCodeRequestSchema.parse(req.body);
     res.status(202).json(await phone.startVerify(getAuth(req).userId, number));
   });
-  router.post("/phone/verify", codeLimiter, async (req, res) => {
+  router.post("/phone/verify", codeCheck, async (req, res) => {
     const input = phoneVerifyRequestSchema.parse(req.body);
     res.json(await phone.confirm(getAuth(req).userId, input));
   });

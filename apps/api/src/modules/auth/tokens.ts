@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { userRoleSchema } from "@tessel/contracts";
 import { jwtVerify, SignJWT } from "jose";
 import { z } from "zod";
@@ -10,7 +10,7 @@ const ALGORITHM = "HS256";
 
 const claimsSchema = z.object({ sub: z.uuid(), role: userRoleSchema });
 
-export interface AccessTokens {
+export interface SessionTokens {
   readonly ttlSeconds: number;
   sign(context: AuthContext): Promise<string>;
   verify(token: string): Promise<AuthContext>;
@@ -24,13 +24,13 @@ const TWO_FACTOR_AUDIENCE = "tessel-two-factor";
 const TWO_FACTOR_TTL = "5m";
 
 /** Short-lived, stateless access tokens (JWT, HS256). */
-export function createAccessTokens({
+export function createSessionTokens({
   secret,
   ttlSeconds,
 }: {
   secret: string;
   ttlSeconds: number;
-}): AccessTokens {
+}): SessionTokens {
   const key = new TextEncoder().encode(secret);
 
   return {
@@ -78,6 +78,16 @@ export function createAccessTokens({
 /** SHA-256 hex digest. Refresh tokens are stored only in this form. */
 export function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
+}
+
+/** The hash of a one-time code, bound to the challenge it was sent for. */
+export function hashCode(challengeId: string, code: string): string {
+  return hashToken(`${challengeId}:${code}`);
+}
+
+/** Compares two hex hashes in constant time. */
+export function sameHash(a: string, b: string): boolean {
+  return a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 }
 
 /** A new opaque refresh token (256 bits of randomness) and its hash. */

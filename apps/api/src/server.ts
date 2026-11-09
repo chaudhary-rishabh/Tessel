@@ -35,6 +35,14 @@ const SHUTDOWN_TIMEOUT_MS = 10_000;
 
 loadEnvFiles();
 const env = parseEnv(envSchema);
+// These default to localhost for development. Unset in production, sign-in and
+// connector redirects would quietly point at localhost, so refuse to start.
+if (env.NODE_ENV === "production") {
+  const missing = ["WEB_ORIGIN", "API_PUBLIC_URL"].filter((name) => !process.env[name]);
+  if (missing.length) {
+    throw new Error(`Set ${missing.join(" and ")} to the public addresses before starting`);
+  }
+}
 const config = configFromEnv(env);
 const logger = createLogger(config.service);
 
