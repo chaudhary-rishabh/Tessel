@@ -1,8 +1,9 @@
 import { cn } from "./cn";
 
 /**
- * The Tessel mark: four tiles that interlock into one square, the idea of the
- * product (separate pieces of knowledge and tools fitting together).
+ * The Tessel mark: a T built from the four brand tiles on a dark square. The
+ * bar is green, white, and ochre; the stem is iris and moss. Separate pieces
+ * fitting together into one shape is the idea of the product.
  */
 export function TesselMark({
   className,
@@ -13,11 +14,12 @@ export function TesselMark({
 }) {
   return (
     <svg viewBox="0 0 32 32" className={cn("size-7", className)} role="img" aria-label={title}>
-      <path d="M2 2h14v8l-6 6H2z" className="fill-tile-verdigris" />
-      <path d="M16 2h14v14h-8l-6-6z" className="fill-tile-ochre" />
-      <path d="M2 16h8l6 6v8H2z" className="fill-tile-iris" />
-      <path d="M22 16h8v14H16v-8z" className="fill-tile-moss" />
-      <path d="M10 16l6-6 6 6-6 6z" className="fill-tile-ink dark:fill-tile-paper" />
+      <rect width="32" height="32" rx="7.5" className="fill-tile-ink" />
+      <rect x="4.5" y="5" width="6.6" height="8" rx="1.4" className="fill-tile-verdigris" />
+      <rect x="12" y="5" width="8" height="8" rx="1.4" className="fill-tile-paper" />
+      <rect x="20.9" y="5" width="6.6" height="8" rx="1.4" className="fill-tile-ochre" />
+      <rect x="12" y="13.9" width="3.55" height="13.1" rx="1.4" className="fill-tile-iris" />
+      <rect x="16.45" y="13.9" width="3.55" height="13.1" rx="1.4" className="fill-tile-moss" />
     </svg>
   );
 }
