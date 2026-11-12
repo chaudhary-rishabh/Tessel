@@ -12,6 +12,7 @@
 #   PUBLIC_WEB_URL  the web app's URL, linked from the admin app (default http://localhost:3000)
 #   PLATFORM        target platform (default linux/amd64; use linux/arm64 for Graviton)
 #   BUILD_CACHE     set to "gha" to use the GitHub Actions build cache
+#   BUILD_WEB       set to "false" to skip the web app image (when it runs on Vercel)
 set -euo pipefail
 
 REGISTRY=${1:?usage: build-images.sh <registry> <tag> [load|push]}
@@ -56,14 +57,16 @@ node_service api @tessel/api dist/server.mjs
 node_service worker @tessel/worker dist/worker.mjs
 node_service mcp-server @tessel/mcp-server dist/server.mjs
 node_service migrate @tessel/db dist/migrate.mjs
-build web infra/docker/web.Dockerfile \
-  --build-arg APP=web \
-  --build-arg "NEXT_PUBLIC_API_URL=$PUBLIC_API_URL" \
-  --build-arg "NEXT_PUBLIC_MCP_URL=$PUBLIC_MCP_URL"
+if [[ "${BUILD_WEB:-true}" != "false" ]]; then
+  build web infra/docker/web.Dockerfile \
+    --build-arg APP=web \
+    --build-arg "NEXT_PUBLIC_API_URL=$PUBLIC_API_URL" \
+    --build-arg "NEXT_PUBLIC_MCP_URL=$PUBLIC_MCP_URL"
+fi
 build admin infra/docker/web.Dockerfile \
   --build-arg APP=admin \
   --build-arg PORT=3001 \
   --build-arg "NEXT_PUBLIC_API_URL=$PUBLIC_API_URL" \
   --build-arg "NEXT_PUBLIC_WEB_URL=$PUBLIC_WEB_URL"
 
-echo "==> Built all images with tag $TAG"
+echo "==> Built images with tag $TAG"

@@ -6,7 +6,8 @@
 #
 # Uses throwaway secrets from infra/deploy/ci/secrets.env. Runs the data
 # profile (databases in containers) with S3 and SQS emulators in place of
-# AWS (and a mock of SES for email), and skips the edge profile (Caddy).
+# AWS (and a mock of SES for email), and the web profile so the web app's image
+# is checked too. Skips the edge profile (Caddy).
 set -euo pipefail
 
 REGISTRY=${1:?usage: smoke-test.sh <registry> <tag>}
@@ -20,7 +21,7 @@ cp ci/secrets.env "$WORK/.env"
 cat >"$WORK/deploy.env" <<EOF
 ECR_REGISTRY=$REGISTRY
 AWS_REGION=unused
-COMPOSE_PROFILES=data
+COMPOSE_PROFILES=data,web
 EOF
 cd "$WORK"
 # Database containers get only their own secret, not every app variable.

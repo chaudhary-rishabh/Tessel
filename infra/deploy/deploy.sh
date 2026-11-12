@@ -32,6 +32,20 @@ if [[ ",$COMPOSE_PROFILES," == *",edge,"* ]]; then
   done
 fi
 
+# Caddy serves the web app's domain only when the web app runs on this host.
+# Otherwise (the web app on Vercel) it would keep asking Let's Encrypt for a
+# certificate for a domain that points somewhere else.
+mkdir -p caddy-sites
+rm -f caddy-sites/web.caddy
+if [[ ",$COMPOSE_PROFILES," == *",web,"* ]]; then
+  cat >caddy-sites/web.caddy <<'CADDY'
+{$WEB_DOMAIN} {
+	import common
+	reverse_proxy web:3000
+}
+CADDY
+fi
+
 compose() {
   local files=(--file docker-compose.prod.yml)
   [[ -f docker-compose.logs.yml ]] && files+=(--file docker-compose.logs.yml)
@@ -144,11 +158,17 @@ ready() {
 log "Starting the new version"
 if compose "$TAG" up --detach --wait --wait-timeout 300 --remove-orphans && ready; then
   echo "$TAG" >.deployed-tag
+  if [[ ",$COMPOSE_PROFILES," == *",edge,"* ]]; then
+    # Caddy reads its config at start; a running Caddy needs a reload to pick up
+    # a changed Caddyfile or web site file.
+    compose "$TAG" exec -T caddy caddy reload --config /etc/caddy/Caddyfile >/dev/null ||
+      log "Caddy didn't reload its config; it keeps the previous one"
+  fi
   log "Deployed $TAG"
 else
   log "New version failed its health or readiness checks"
   compose "$TAG" ps
-  compose "$TAG" logs --tail 50 api worker mcp-server web admin || true
+  compose "$TAG" logs --tail 50 || true
   if [[ -n "$PREVIOUS" && "$PREVIOUS" != "$TAG" ]]; then
     log "Rolling back to $PREVIOUS"
     compose "$PREVIOUS" up --detach --wait --wait-timeout 300 --remove-orphans

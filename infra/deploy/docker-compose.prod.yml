@@ -1,7 +1,8 @@
 # Production stack for one EC2 host, run by deploy.sh.
 #
 # Profiles:
-#   (none)  web, admin, api, worker, mcp-server: always on
+#   (none)  admin, api, worker, mcp-server: always on
+#   web     the web app on this host (leave off when it runs on Vercel)
 #   edge    Caddy on ports 80/443 with automatic HTTPS
 #   data    Postgres, Redis x2, Qdrant, Neo4j on the same host
 #           (leave this off when using RDS, ElastiCache, or managed services)
@@ -83,6 +84,7 @@ services:
   web:
     image: ${ECR_REGISTRY}/tessel-web:${IMAGE_TAG}
     restart: unless-stopped
+    profiles: [web]
     logging:
       driver: json-file
       options:
@@ -126,10 +128,11 @@ services:
       ACME_EMAIL: ${ACME_EMAIL:-}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./caddy-sites:/etc/caddy/sites:ro
       - caddy-data:/data
       - caddy-config:/config
     depends_on:
-      web: { condition: service_healthy }
+      web: { condition: service_healthy, required: false }
       admin: { condition: service_healthy }
       api: { condition: service_healthy }
       mcp-server: { condition: service_healthy }

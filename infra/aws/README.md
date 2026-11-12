@@ -1,6 +1,6 @@
 # AWS setup
 
-One-time setup for automatic deploys. After this, every push to `main` that passes CI builds the images, pushes them to ECR, and deploys them to one EC2 host.
+One-time setup for automatic deploys. After this, every push to `main` that passes CI builds the images, pushes them to ECR, and deploys them to one EC2 host. The web app runs on Vercel (see [Web app on Vercel](#web-app-on-vercel)); the API, MCP server, admin app, and worker run on EC2.
 
 ```mermaid
 flowchart LR
@@ -8,7 +8,8 @@ flowchart LR
   gh -- "SSM send-command" --> ec2["EC2: Docker Compose"]
   ec2 -- "pull images" --> ecr
   ec2 -- "read secrets" --> ssm["SSM Parameter Store"]
-  users["Users"] -- "HTTPS" --> caddy["Caddy on EC2"]
+  users["Users"] -- "HTTPS: api, mcp, admin" --> caddy["Caddy on EC2"]
+  users -- "HTTPS: the web app" --> vercel["Vercel"]
 ```
 
 Commands use `ap-south-1` (Mumbai) and placeholder IDs. Replace `ACCOUNT_ID`, `REGION`, `INSTANCE_ID`, `BUCKET_NAME`, and `BACKUP_BUCKET_NAME` everywhere, including in the policy files in `iam/`. Bucket names are global, so pick your own (for example `tessel-files-yourcompany`).
@@ -22,7 +23,7 @@ for repo in api worker mcp-server web admin migrate; do
 done
 ```
 
-Optional: add a lifecycle policy to each repository to keep only the last 30 images.
+The `tessel-web` repository is only used when the web app runs on EC2 (the `web` profile). Optional: add a lifecycle policy to each repository to keep only the last 30 images.
 
 ## 2. File storage and upload events
 
@@ -205,21 +206,21 @@ put AI_GATEWAY_API_KEY "<your Vercel AI Gateway key>"
 
 In the repository, open **Settings → Secrets and variables → Actions → Variables** and add:
 
-| Variable              | Example                                                      |
-| --------------------- | ------------------------------------------------------------ |
-| `AWS_REGION`          | `ap-south-1`                                                 |
-| `AWS_DEPLOY_ROLE_ARN` | `arn:aws:iam::123456789012:role/tessel-github-deploy`        |
-| `ECR_REGISTRY`        | `123456789012.dkr.ecr.ap-south-1.amazonaws.com`              |
-| `EC2_INSTANCE_ID`     | `i-0abc123def4567890`                                        |
-| `WEB_DOMAIN`          | `app.example.com`                                            |
-| `API_DOMAIN`          | `api.example.com`                                            |
-| `MCP_DOMAIN`          | `mcp.example.com`                                            |
-| `ADMIN_DOMAIN`        | `admin.example.com`                                          |
-| `ACME_EMAIL`          | `you@example.com` (Let's Encrypt expiry notices)             |
-| `COMPOSE_PROFILES`    | `edge,data` (drop `data` when using RDS and ElastiCache)     |
-| `IMAGE_PLATFORM`      | optional: `linux/arm64` for Graviton instances such as `t4g` |
-| `BACKUP_BUCKET`       | optional: `BACKUP_BUCKET_NAME` for nightly backups           |
-| `LOG_GROUP`           | optional: `/tessel/prod` to send logs to CloudWatch          |
+| Variable              | Example                                                                                                       |
+| --------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `AWS_REGION`          | `ap-south-1`                                                                                                  |
+| `AWS_DEPLOY_ROLE_ARN` | `arn:aws:iam::123456789012:role/tessel-github-deploy`                                                         |
+| `ECR_REGISTRY`        | `123456789012.dkr.ecr.ap-south-1.amazonaws.com`                                                               |
+| `EC2_INSTANCE_ID`     | `i-0abc123def4567890`                                                                                         |
+| `WEB_DOMAIN`          | `app.example.com` (the web app, served by Vercel)                                                             |
+| `API_DOMAIN`          | `api.example.com`                                                                                             |
+| `MCP_DOMAIN`          | `mcp.example.com`                                                                                             |
+| `ADMIN_DOMAIN`        | `admin.example.com`                                                                                           |
+| `ACME_EMAIL`          | `you@example.com` (Let's Encrypt expiry notices)                                                              |
+| `COMPOSE_PROFILES`    | `edge,data` (drop `data` with RDS and ElastiCache; add `web` to serve the web app from EC2 instead of Vercel) |
+| `IMAGE_PLATFORM`      | optional: `linux/arm64` for Graviton instances such as `t4g`                                                  |
+| `BACKUP_BUCKET`       | optional: `BACKUP_BUCKET_NAME` for nightly backups                                                            |
+| `LOG_GROUP`           | optional: `/tessel/prod` to send logs to CloudWatch                                                           |
 
 None of these are secret. Deploys stay off until `AWS_DEPLOY_ROLE_ARN` is set.
 
@@ -227,7 +228,7 @@ None of these are secret. Deploys stay off until `AWS_DEPLOY_ROLE_ARN` is set.
 
 Run the **Deploy** workflow from the Actions tab (or push to `main`). It:
 
-1. builds and pushes the six images, tagged with the commit,
+1. builds and pushes the images, tagged with the commit (the web app's image only with the `web` profile),
 2. writes `docker-compose.prod.yml`, `Caddyfile`, `deploy.sh`, `backup.sh`, `restore.sh`, and `deploy.env` to `/opt/tessel` over SSM,
 3. runs `deploy.sh`: loads secrets, pulls images, starts databases, runs migrations, starts the apps, and waits for every health check,
 4. rolls back to the previous image tag if the new version fails its health checks,
@@ -244,6 +245,24 @@ sudo IMAGE_TAG=$(cat .deployed-tag) docker compose --file docker-compose.prod.ym
 ```
 
 After that, admins make other admins from the admin app. Add `--revoke` to the command to take admin away.
+
+## Web app on Vercel
+
+The web app (`apps/web`) deploys to Vercel from this repository: every push to `main` is a production deploy, and pull requests get previews. Vercel skips the build when nothing the web app uses has changed. One-time setup:
+
+1. Import the repository in Vercel with **Root Directory** `apps/web`, framework Next.js, Node.js 24.
+2. Set these environment variables for Production and Preview. They are compiled into the app, so redeploy after changing them:
+
+   | Variable              | Value                         |
+   | --------------------- | ----------------------------- |
+   | `NEXT_PUBLIC_API_URL` | `https://api.example.com`     |
+   | `NEXT_PUBLIC_MCP_URL` | `https://mcp.example.com/mcp` |
+
+3. Add `example.com` to the project and point its DNS at Vercel (the A or CNAME records Vercel shows). Point `api.`, `mcp.`, and `admin.` at the EC2 host's Elastic IP.
+
+The web app must share a site with the API (`example.com` and `api.example.com`): the sign-in cookie is set by the API with `SameSite=Strict`, so on a `*.vercel.app` address every reload signs you out. Include the web app's origin in the API's `WEB_ORIGIN` secret.
+
+Leave `web` out of `COMPOSE_PROFILES`, so Caddy doesn't try to get a certificate for a domain that points at Vercel. To serve the web app from EC2 instead, add `web` to `COMPOSE_PROFILES`, point the domain at the host, and remove it from Vercel.
 
 ## Operating the host
 

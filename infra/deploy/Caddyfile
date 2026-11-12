@@ -9,11 +9,6 @@
 	header -Server
 }
 
-{$WEB_DOMAIN} {
-	import common
-	reverse_proxy web:3000
-}
-
 {$API_DOMAIN} {
 	import common
 	# Streamed responses (chat, server-sent events) are flushed as they arrive.
@@ -35,3 +30,7 @@
 	header X-Robots-Tag "noindex, nofollow"
 	reverse_proxy admin:3001
 }
+
+# The web app's site, written by deploy.sh only when the web profile is on.
+# When the web app runs on Vercel, nothing matches and WEB_DOMAIN isn't served here.
+import sites/*.caddy
