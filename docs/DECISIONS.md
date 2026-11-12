@@ -417,4 +417,3 @@ The web app deploys to Vercel; the API, MCP server, admin app, worker, and datab
 ## D-099 A public site, with sign-in in a modal
 
 The web app has a public site: home, features, pricing, security, privacy, and terms, sharing one header and footer (`app/(marketing)`). Pages are static, with their own titles, descriptions, canonical addresses, and share cards; `robots.txt` keeps search engines out of the signed-in app, and `sitemap.xml` lists the public pages. Log in, sign up, and the password pages open as a modal over the home page but keep their own addresses, so redirects like `/login?next=/settings`, emailed links, and the end-to-end tests work as before. Closing the modal goes home. Plans on the pricing page come from the same `PLANS` the API bills with, so prices can't drift.
-
