@@ -19,6 +19,25 @@ describe("GET /users/me", () => {
   });
 });
 
+describe("PATCH /users/me", () => {
+  const app = createTestApp();
+
+  it("changes the name, and refuses an empty one", async () => {
+    const user = await signUp(app);
+    const res = await request(app)
+      .patch("/users/me")
+      .set("Authorization", bearer(user))
+      .send({ name: "  Katherine Johnson " });
+    expect(res.status).toBe(200);
+    expect(res.body.name).toBe("Katherine Johnson");
+    const empty = await request(app)
+      .patch("/users/me")
+      .set("Authorization", bearer(user))
+      .send({ name: "  " });
+    expect(empty.status).toBe(400);
+  });
+});
+
 describe("POST /users/me/password", () => {
   const app = createTestApp();
 

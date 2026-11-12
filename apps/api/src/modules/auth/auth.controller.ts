@@ -1,12 +1,10 @@
 import {
   forgotPasswordRequestSchema,
   loginRequestSchema,
-  resendSignupRequestSchema,
   resetPasswordRequestSchema,
   sessionParamsSchema,
   signupRequestSchema,
   twoFactorLoginRequestSchema,
-  verifySignupRequestSchema,
   type TwoFactorRequired,
 } from "@tessel/contracts";
 import type { RequestHandler } from "express";
@@ -18,17 +16,8 @@ import { sessionMeta } from "./session-meta";
 
 export function createAuthController(service: AuthService, cookie: RefreshCookie) {
   const signup: RequestHandler = async (req, res) => {
-    res.status(202).json(await service.startSignup(signupRequestSchema.parse(req.body)));
-  };
-
-  const resendSignup: RequestHandler = async (req, res) => {
-    const { challengeId } = resendSignupRequestSchema.parse(req.body);
-    res.status(202).json(await service.resendSignup(challengeId));
-  };
-
-  const verifySignup: RequestHandler = async (req, res) => {
-    const input = verifySignupRequestSchema.parse(req.body);
-    const { auth, refreshToken } = await service.verifySignup(input, sessionMeta(req));
+    const input = signupRequestSchema.parse(req.body);
+    const { auth, refreshToken } = await service.signup(input, sessionMeta(req));
     cookie.set(res, refreshToken);
     res.status(201).json(auth);
   };
@@ -102,8 +91,6 @@ export function createAuthController(service: AuthService, cookie: RefreshCookie
 
   return {
     signup,
-    resendSignup,
-    verifySignup,
     login,
     twoFactor,
     forgotPassword,

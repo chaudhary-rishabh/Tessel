@@ -3,7 +3,11 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ApiClientError } from "@tessel/api-client";
 import { useMe, useRenameWorkspace } from "@tessel/api-client/react";
-import { changePasswordRequestSchema, updateWorkspaceRequestSchema } from "@tessel/contracts";
+import {
+  changePasswordRequestSchema,
+  updateProfileRequestSchema,
+  updateWorkspaceRequestSchema,
+} from "@tessel/contracts";
 import { Button, TextField } from "@tessel/ui";
 import { Suspense, useEffect, useState, type ReactNode } from "react";
 import { useForm } from "react-hook-form";
@@ -19,7 +23,7 @@ import { SessionsSection } from "@/components/settings/sessions-section";
 import { SignInMethodsSection } from "@/components/settings/sign-in-methods-section";
 import { TwoFactorSection } from "@/components/settings/two-factor-section";
 import { UsageSection } from "@/components/settings/usage-section";
-import { useChangePassword } from "@/hooks/use-auth";
+import { useChangePassword, useResendEmailVerification, useUpdateProfile } from "@/hooks/use-auth";
 import { useCurrentWorkspace } from "@/hooks/use-current-workspace";
 import { applyApiError } from "@/lib/form-errors";
 import { useSessionStore } from "@/lib/session-store";
@@ -53,6 +57,14 @@ function Section({
 
 function ProfileSection() {
   const user = useSessionStore((state) => state.user);
+  const update = useUpdateProfile();
+  const resend = useResendEmailVerification();
+  const [saved, setSaved] = useState<string>();
+  const form = useForm({
+    resolver: zodResolver(updateProfileRequestSchema),
+    defaultValues: { name: user?.name ?? "" },
+  });
+  const { errors, isSubmitting, isDirty } = form.formState;
   if (!user) return null;
   const memberSince = new Date(user.createdAt).toLocaleDateString(undefined, {
     year: "numeric",
@@ -60,16 +72,60 @@ function ProfileSection() {
     day: "numeric",
   });
 
+  const onSubmit = form.handleSubmit(async (values) => {
+    setSaved(undefined);
+    try {
+      const updated = await update.mutateAsync(values);
+      form.reset({ name: updated.name });
+      setSaved("Name saved.");
+    } catch (error) {
+      applyApiError(error, form.setError, ["name"]);
+    }
+  });
+
   return (
     <Section id="profile" title="Profile" description="How you appear to your teammates.">
-      <dl className="grid gap-4">
-        <div>
-          <dt className="text-muted text-sm">Name</dt>
-          <dd className="mt-0.5 font-medium">{user.name}</dd>
+      <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4">
+        <FormError message={errors.root?.server?.message} />
+        <TextField
+          label="Your name"
+          autoComplete="name"
+          error={errors.name?.message}
+          {...form.register("name")}
+        />
+        <div className="flex items-center gap-4">
+          <Button type="submit" loading={isSubmitting} disabled={!isDirty}>
+            Save name
+          </Button>
+          <FormSuccess message={saved} />
         </div>
+      </form>
+      <dl className="mt-6 grid gap-4">
         <div>
           <dt className="text-muted text-sm">Email</dt>
           <dd className="mt-0.5 font-medium break-all">{user.email}</dd>
+          <dd className="mt-1 text-sm">
+            {user.emailVerified ? (
+              <span className="text-muted">Confirmed</span>
+            ) : resend.isSuccess ? (
+              <span role="status" className="text-muted">
+                We sent a new link. Check your inbox.
+              </span>
+            ) : (
+              <span className="flex flex-wrap items-center gap-x-3">
+                <span className="text-muted">Not confirmed yet.</span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-accent -ml-3 sm:ml-0"
+                  loading={resend.isPending}
+                  onClick={() => resend.mutate()}
+                >
+                  Send a new link
+                </Button>
+              </span>
+            )}
+          </dd>
         </div>
         <div>
           <dt className="text-muted text-sm">Member since</dt>

@@ -1,5 +1,13 @@
 import { expect, test } from "@playwright/test";
-import { latestEmail, logOut, openNavigation, PASSWORD, signUp, uniqueEmail } from "./helpers";
+import {
+  confirmEmailFromLink,
+  latestEmail,
+  logOut,
+  openNavigation,
+  PASSWORD,
+  signUp,
+  uniqueEmail,
+} from "./helpers";
 
 test.describe("authentication", () => {
   test("signs up and lands in the personal workspace", async ({ page }) => {
@@ -50,52 +58,56 @@ test.describe("authentication", () => {
     await page.goto("/signup");
     await page.getByLabel("Email").fill("not-an-email");
     await page.getByLabel("Password").fill("short");
-    await page.getByRole("button", { name: "Continue" }).click();
+    await page.getByRole("button", { name: "Create account" }).click();
 
-    await expect(page.getByText("Name is required")).toBeVisible();
     await expect(page.getByText("Enter a valid email address")).toBeVisible();
     await expect(page.getByText("Password must be at least 10 characters")).toBeVisible();
+    await expect(page).toHaveURL(/\/signup$/);
   });
 
-  test("emails the owner, not the visitor, when an email is already registered", async ({
-    page,
-    browser,
-  }) => {
+  test("says when an email already has an account", async ({ page, browser }) => {
     const { email } = await signUp(page);
 
     const other = await browser.newPage();
     await other.goto("/signup");
-    await other.getByLabel("Name").fill("Someone Else");
     await other.getByLabel("Email").fill(email);
     await other.getByLabel("Password").fill(PASSWORD);
-    await other.getByRole("button", { name: "Continue" }).click();
-    // The page looks the same as for a new address, so it can't be used to find accounts.
-    await expect(other.getByRole("heading", { name: "Check your email" })).toBeVisible();
-    const { message } = await latestEmail(other, email, /already have one/);
-    expect(message.subject).toBe("You already have a Tessel account");
+    await other.getByRole("button", { name: "Create account" }).click();
+    await expect(
+      other.getByRole("alert").filter({ hasText: "already an account with this email" }),
+    ).toBeVisible();
+    await expect(other).toHaveURL(/\/signup$/);
     await other.close();
   });
 
-  test("rejects a wrong signup code, then accepts a new one", async ({ page }) => {
-    const email = uniqueEmail();
-    await page.goto("/signup");
-    await page.getByLabel("Name").fill("Mary Jackson");
-    await page.getByLabel("Email").fill(email);
-    await page.getByLabel("Password").fill(PASSWORD);
-    await page.getByRole("button", { name: "Continue" }).click();
-    const first = (await latestEmail(page, email, /^(\d{6})$/m)).match[1]!;
+  test("signs in straight away, then confirms the email from the link", async ({ page }) => {
+    const { email } = await signUp(page);
+    const reminder = page.getByRole("region", { name: "Confirm your email" });
+    await expect(reminder).toContainText(email);
 
-    await page.getByLabel("Code from your email").fill(first === "000000" ? "111111" : "000000");
-    await expect(page.getByRole("alert").filter({ hasText: "wrong or has expired" })).toBeVisible();
-
-    await page.getByRole("button", { name: "Send a new code" }).click();
-    await expect(page.getByText("We sent a new code.")).toBeVisible();
-    await expect
-      .poll(async () => (await latestEmail(page, email, /^(\d{6})$/m)).message.subject)
-      .not.toBe(`${first} is your Tessel code`);
-    const second = (await latestEmail(page, email, /^(\d{6})$/m)).match[1]!;
-    await page.getByLabel("Code from your email").fill(second);
+    await confirmEmailFromLink(page, email);
+    await page.getByRole("link", { name: "Go to chat" }).click();
     await expect(page).toHaveURL(/\/chat$/);
+    await expect(reminder).toHaveCount(0);
+    await page.goto("/settings");
+    await expect(page.getByRole("region", { name: "Profile" })).toContainText("Confirmed");
+  });
+
+  test("confirms the email after logging in, when the link was opened signed out", async ({
+    page,
+    browser,
+  }) => {
+    const { email } = await signUp(page);
+    const { match } = await latestEmail(page, email, /(\/verify-email\?token=[\w-]+)/);
+
+    // Opened on another device: log in first, then the link finishes.
+    const phone = await (await browser.newContext()).newPage();
+    await phone.goto(match[1]!);
+    await expect(phone).toHaveURL(/\/login\?next=/);
+    await phone.getByLabel("Email").fill(email);
+    await phone.getByLabel("Password").fill(PASSWORD);
+    await phone.getByRole("button", { name: "Log in" }).click();
+    await expect(phone.getByRole("heading", { name: "Your email is confirmed" })).toBeVisible();
   });
 
   test("sends visitors who aren't logged in to the login page", async ({ page }) => {

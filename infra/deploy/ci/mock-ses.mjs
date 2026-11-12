@@ -1,6 +1,6 @@
 // A stand-in for Amazon SES in the CI smoke test. It accepts the SESv2
 // SendEmail call the API makes and keeps the messages, so the test can read
-// a signup code: GET /messages?to=address. Not used anywhere else.
+// a signup confirmation link: GET /messages?to=address. Not used anywhere else.
 import { createServer } from "node:http";
 
 const messages = [];

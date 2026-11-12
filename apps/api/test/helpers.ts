@@ -183,7 +183,7 @@ export function findRefreshCookie(setCookie: string[] | string | undefined): str
   return header?.split(";")[0];
 }
 
-/** The emails every test app sends (signup codes, reset links). */
+/** The emails every test app sends (confirmation and reset links). */
 export const testOutbox = createOutboxMailer();
 
 /**
@@ -211,31 +211,68 @@ export function textedCode(phone: string): string {
   return code;
 }
 
-/** The newest six-digit code emailed to an address. */
-export function emailedCode(email: string): string {
-  const code = /\b(\d{6})\b/.exec(testOutbox.latest(email)?.text ?? "")?.[1];
-  if (!code) throw new Error(`No code was emailed to ${email}`);
-  return code;
+/** The token in the newest "confirm your email" link sent to an address. */
+export function emailLinkToken(email: string): string {
+  const token = /verify-email\?token=([\w-]+)/.exec(testOutbox.latest(email)?.text ?? "")?.[1];
+  if (!token) throw new Error(`No confirmation link was emailed to ${email}`);
+  return token;
 }
 
-/** Signs up the way a person does: submit the form, then enter the emailed code. */
+/** Waits for the confirmation email, which is sent after the signup response. */
+export async function waitForEmailLink(email: string, previous?: string): Promise<string> {
+  return vi.waitFor(
+    () => {
+      const token = emailLinkToken(email);
+      if (token === previous) throw new Error(`No new confirmation link for ${email} yet`);
+      return token;
+    },
+    { timeout: 5_000, interval: 20 },
+  );
+}
+
+/**
+ * Signs up the way a person does (email and password), then by default
+ * follows the emailed link to confirm the address and sets the name in
+ * Settings. Without an email, one is made from the name, so the personal
+ * workspace is called "<first name>'s workspace".
+ */
 export async function signUp(
   app: Express,
-  { email = uniqueEmail(), name = "Ada Lovelace", password = TEST_PASSWORD } = {},
+  {
+    name = "Ada Lovelace",
+    email = `${name.toLowerCase().split(/\s+/).join(".")}-${randomUUID().slice(0, 8)}@example.com`,
+    password = TEST_PASSWORD,
+    confirmEmail = true,
+  }: { name?: string; email?: string; password?: string; confirmEmail?: boolean } = {},
 ): Promise<SignedUpUser> {
-  const started = await request(app).post("/auth/signup").send({ email, name, password });
-  if (started.status !== 202) {
-    throw new Error(`Signup failed: ${started.status} ${JSON.stringify(started.body)}`);
-  }
-  const res = await request(app)
-    .post("/auth/signup/verify")
-    .send({ challengeId: started.body.challengeId, code: emailedCode(email) });
+  const res = await request(app).post("/auth/signup").send({ email, password });
   if (res.status !== 201) {
-    throw new Error(`Signup verification failed: ${res.status} ${JSON.stringify(res.body)}`);
+    throw new Error(`Signup failed: ${res.status} ${JSON.stringify(res.body)}`);
   }
   const refreshCookie = findRefreshCookie(res.headers["set-cookie"]);
   if (!refreshCookie) throw new Error("Signup did not set a refresh cookie");
-  return { auth: res.body as AuthResponse, email, refreshCookie };
+  const auth = res.body as AuthResponse;
+  const authorization = `Bearer ${auth.accessToken}`;
+  if (confirmEmail) {
+    const token = await waitForEmailLink(email);
+    const confirmed = await request(app)
+      .post("/users/me/email/verify")
+      .set("Authorization", authorization)
+      .send({ token });
+    if (confirmed.status !== 200) {
+      throw new Error(
+        `Email confirmation failed: ${confirmed.status} ${JSON.stringify(confirmed.body)}`,
+      );
+    }
+    auth.user = confirmed.body;
+  }
+  const named = await request(app)
+    .patch("/users/me")
+    .set("Authorization", authorization)
+    .send({ name });
+  if (named.status !== 200) throw new Error(`Setting the name failed: ${named.status}`);
+  auth.user = named.body;
+  return { auth, email, refreshCookie };
 }
 
 export function bearer(user: SignedUpUser): string {

@@ -14,6 +14,7 @@ export default function robots(): MetadataRoute.Robots {
         "/skills",
         "/members",
         "/settings",
+        "/verify-email",
         "/invite/",
         "/oauth/",
         "/forgot-password",

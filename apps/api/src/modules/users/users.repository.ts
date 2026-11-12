@@ -25,6 +25,15 @@ export const usersRepository = {
     return row;
   },
 
+  async update(
+    db: Executor,
+    id: string,
+    values: Partial<Pick<UserRow, "name">>,
+  ): Promise<UserRow | undefined> {
+    const [row] = await db.update(users).set(values).where(eq(users.id, id)).returning();
+    return row;
+  },
+
   async updatePassword(db: Executor, id: string, passwordHash: string): Promise<void> {
     await db.update(users).set({ passwordHash }).where(eq(users.id, id));
   },

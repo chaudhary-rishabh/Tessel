@@ -1,19 +1,18 @@
-import { randomBytes, randomInt, randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import type {
   AuthResponse,
   LoginRequest,
+  PublicUser,
   ResetPasswordRequest,
   Session,
   SignupRequest,
-  SignupStartedResponse,
   TwoFactorLoginRequest,
-  VerifySignupRequest,
 } from "@tessel/contracts";
 import {
+  emailVerifications,
   passwordResets,
   recoveryCodes,
   refreshTokens,
-  signupChallenges,
   users,
   type Database,
   type UserRow,
@@ -24,12 +23,12 @@ import type { Logger } from "@tessel/logger";
 import { AppError, errors, isUniqueViolation } from "../../lib/errors";
 import { usersRepository } from "../users/users.repository";
 import { toPublicUser } from "../users/users.mapper";
-import { createAccount } from "./accounts";
+import { createAccount, nameFromEmail, resetUnverifiedAccount } from "./accounts";
 import { refreshTokenRepository } from "./auth.repository";
 import type { PasswordHasher } from "./password";
 import { emails, type Mailer } from "../../lib/mailer";
 import { noAudit, type AuditRecorder } from "../../lib/audit";
-import { type SessionTokens, generateRefreshToken, hashCode, hashToken, sameHash } from "./tokens";
+import { type SessionTokens, generateRefreshToken, hashToken } from "./tokens";
 import { verifyTotp } from "./totp";
 
 export interface SessionMeta {
@@ -66,16 +65,18 @@ export type SignInMethod = "password" | "google" | "github" | "phone";
 export type LoginOutcome =
   { kind: "session"; session: IssuedSession } | { kind: "two_factor"; challengeToken: string };
 
-const SIGNUP_CODE_TTL_MS = 15 * 60_000;
-/** However often a code is resent, a signup must finish within this time of starting. */
-const SIGNUP_MAX_LIFETIME_MS = 60 * 60_000;
-const MAX_CODE_ATTEMPTS = 5;
 const RESET_TTL_MS = 30 * 60_000;
+const EMAIL_LINK_TTL_MS = 7 * 24 * 60 * 60_000;
 
-const INVALID_CODE = () =>
+const EMAIL_TAKEN = () =>
+  errors.conflict(
+    "email_taken",
+    "There's already an account with this email. Log in instead, or reset your password.",
+  );
+const INVALID_EMAIL_LINK = () =>
   errors.badRequest(
-    "invalid_code",
-    "That code is wrong or has expired. Check the newest email, or start again.",
+    "invalid_email_link",
+    "This link has expired, was already used, or is for another account. Send a new one from Tessel.",
   );
 const INVALID_RESET = () =>
   errors.badRequest(
@@ -188,107 +189,102 @@ export function createAuthService({
     return { kind: "session", session: await issueSession(user, meta) };
   }
 
+  /** Emails a new confirmation link; only the newest one works. */
+  async function sendEmailVerification(user: UserRow): Promise<void> {
+    const token = randomBytes(32).toString("base64url");
+    await db.transaction(async (tx) => {
+      await tx
+        .update(emailVerifications)
+        .set({ usedAt: now() })
+        .where(and(eq(emailVerifications.userId, user.id), isNull(emailVerifications.usedAt)));
+      await tx.insert(emailVerifications).values({
+        userId: user.id,
+        tokenHash: hashToken(token),
+        expiresAt: new Date(now().getTime() + EMAIL_LINK_TTL_MS),
+      });
+    });
+    await mailer.send(emails.confirmEmail(user.email, `${webOrigin}/verify-email?token=${token}`));
+  }
+
+  /** Sends the confirmation email after the response, so a slow mail service never fails signup. */
+  function sendInBackground(user: UserRow, failure: string): void {
+    void sendEmailVerification(user).catch((error: unknown) =>
+      logger.error({ err: error, userId: user.id }, failure),
+    );
+  }
+
   return {
     /**
-     * Starts a signup: nothing is created until the emailed code is entered.
-     * The answer is the same whether or not the email has an account.
+     * Creates the account and its personal workspace, signs in, and emails a
+     * link to confirm the address. Until it's confirmed, the account can't
+     * join workspaces by invitation, and whoever proves they own the address
+     * can take it over (see `app.reset_unverified_account`).
      */
-    async startSignup(input: SignupRequest): Promise<SignupStartedResponse> {
+    async signup(input: SignupRequest, meta: SessionMeta): Promise<IssuedSession> {
       const passwordHash = await passwords.hash(input.password);
-      const existing = await usersRepository.findByEmail(db, input.email);
-      const challengeId = randomUUID();
-      const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
-      await db.insert(signupChallenges).values({
-        id: challengeId,
-        email: input.email,
-        name: input.name,
-        passwordHash,
-        codeHash: existing ? null : hashCode(challengeId, code),
-        expiresAt: new Date(now().getTime() + SIGNUP_CODE_TTL_MS),
-      });
-      await mailer.send(
-        existing
-          ? emails.accountExists(input.email, webOrigin)
-          : emails.signupCode(input.email, code),
-      );
-      return { status: "verification_sent", challengeId };
-    },
-
-    /** Sends the code again (or the "you already have an account" note). */
-    async resendSignup(challengeId: string): Promise<SignupStartedResponse> {
-      const [challenge] = await db
-        .select()
-        .from(signupChallenges)
-        .where(and(eq(signupChallenges.id, challengeId), gt(signupChallenges.expiresAt, now())));
-      if (!challenge) throw INVALID_CODE();
-      if (!challenge.codeHash) {
-        await mailer.send(emails.accountExists(challenge.email, webOrigin));
-      } else {
-        const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
-        const expiresAt = Math.min(
-          now().getTime() + SIGNUP_CODE_TTL_MS,
-          challenge.createdAt.getTime() + SIGNUP_MAX_LIFETIME_MS,
+      let user: UserRow;
+      try {
+        user = await db.transaction((tx) =>
+          createAccount(tx, {
+            email: input.email,
+            name: nameFromEmail(input.email),
+            passwordHash,
+            emailVerifiedAt: null,
+          }),
         );
-        // A new code gets its own tries; the per-challenge resend limit and the
-        // lifetime cap above keep the total number of guesses small.
-        await db
-          .update(signupChallenges)
-          .set({
-            codeHash: hashCode(challengeId, code),
-            attempts: 0,
-            expiresAt: new Date(expiresAt),
-          })
-          .where(eq(signupChallenges.id, challengeId));
-        await mailer.send(emails.signupCode(challenge.email, code));
+      } catch (error) {
+        if (isUniqueViolation(error, "users_email_unique")) throw EMAIL_TAKEN();
+        throw error;
       }
-      return { status: "verification_sent", challengeId };
-    },
-
-    /** Finishes a signup with its code: creates the account (email verified) and its personal workspace. */
-    async verifySignup(input: VerifySignupRequest, meta: SessionMeta): Promise<IssuedSession> {
-      const outcome = await db.transaction(async (tx) => {
-        const [challenge] = await tx
-          .select()
-          .from(signupChallenges)
-          .where(eq(signupChallenges.id, input.challengeId))
-          .for("update");
-        if (!challenge || challenge.expiresAt <= now() || challenge.attempts >= MAX_CODE_ATTEMPTS) {
-          return { kind: "invalid" as const };
-        }
-        if (
-          !challenge.codeHash ||
-          !sameHash(challenge.codeHash, hashCode(challenge.id, input.code))
-        ) {
-          await tx
-            .update(signupChallenges)
-            .set({ attempts: challenge.attempts + 1 })
-            .where(eq(signupChallenges.id, challenge.id));
-          return { kind: "invalid" as const };
-        }
-        try {
-          const created = await createAccount(tx, {
-            email: challenge.email,
-            name: challenge.name,
-            passwordHash: challenge.passwordHash,
-            emailVerifiedAt: now(),
-          });
-          await tx.delete(signupChallenges).where(eq(signupChallenges.email, challenge.email));
-          return { kind: "created" as const, user: created };
-        } catch (error) {
-          // Two signups for the same email raced; the other one won.
-          if (isUniqueViolation(error, "users_email_unique")) return { kind: "invalid" as const };
-          throw error;
-        }
-      });
-      if (outcome.kind === "invalid") throw INVALID_CODE();
-      logger.info({ userId: outcome.user.id }, "User signed up");
+      logger.info({ userId: user.id }, "User signed up");
       await audit.record({
-        actorId: outcome.user.id,
+        actorId: user.id,
         action: "auth.signed_up",
         metadata: { method: "email" },
         ipAddress: meta.ipAddress,
       });
-      return issueSession(outcome.user, meta);
+      sendInBackground(user, "Couldn't send a confirmation email");
+      return issueSession(user, meta);
+    },
+
+    /** Sends a new confirmation link; the old one stops working. Nothing to do once confirmed. */
+    async resendEmailVerification(userId: string): Promise<void> {
+      const user = await usersRepository.findById(db, userId);
+      if (!user) throw errors.unauthorized();
+      if (user.emailVerifiedAt) return;
+      await sendEmailVerification(user);
+    },
+
+    /**
+     * Confirms the signed-in user's email from the emailed link. The link only
+     * works for the account it was sent for, so opening someone else's
+     * confirmation link can't confirm their account.
+     */
+    async verifyEmail(userId: string, token: string): Promise<PublicUser> {
+      const user = await db.transaction(async (tx) => {
+        const [verification] = await tx
+          .update(emailVerifications)
+          .set({ usedAt: now() })
+          .where(
+            and(
+              eq(emailVerifications.tokenHash, hashToken(token)),
+              eq(emailVerifications.userId, userId),
+              isNull(emailVerifications.usedAt),
+              gt(emailVerifications.expiresAt, now()),
+            ),
+          )
+          .returning();
+        if (!verification) return undefined;
+        const [updated] = await tx
+          .update(users)
+          .set({ emailVerifiedAt: sql`coalesce(${users.emailVerifiedAt}, now())` })
+          .where(eq(users.id, userId))
+          .returning();
+        return updated;
+      });
+      if (!user) throw INVALID_EMAIL_LINK();
+      await audit.record({ actorId: user.id, action: "auth.email_verified" });
+      return toPublicUser(user);
     },
 
     async login(input: LoginRequest, meta: SessionMeta): Promise<LoginOutcome> {
@@ -395,6 +391,9 @@ export function createAuthService({
           )
           .returning();
         if (!reset) return undefined;
+        // The link proves the email. If it wasn't confirmed yet, whoever signed
+        // up with it may not own it: drop every way in they set up.
+        await resetUnverifiedAccount(tx, reset.userId);
         const [updated] = await tx
           .update(users)
           .set({ passwordHash, emailVerifiedAt: sql`coalesce(${users.emailVerifiedAt}, now())` })

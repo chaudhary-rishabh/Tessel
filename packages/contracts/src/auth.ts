@@ -1,16 +1,14 @@
 import { z } from "zod";
-import {
-  emailSchema,
-  passwordSchema,
-  personNameSchema,
-  phoneSchema,
-  publicUserSchema,
-} from "./users";
+import { emailSchema, passwordSchema, phoneSchema, publicUserSchema } from "./users";
 
+/**
+ * Signup creates the account and signs in straight away. The name comes from
+ * the email until the user changes it in Settings; the email is confirmed
+ * later from a link.
+ */
 export const signupRequestSchema = z.object({
   email: emailSchema,
   password: passwordSchema,
-  name: personNameSchema,
 });
 
 /** Login does not re-check password rules, only that something was sent. */
@@ -37,22 +35,8 @@ export const oneTimeCodeSchema = z
   .transform((value) => value.replace(/\s+/g, ""))
   .pipe(z.string().regex(/^\d{6}$/, "Enter the 6-digit code"));
 
-/**
- * Signup never says whether an email is taken: it always answers that a code
- * was sent. A new address gets the code; an address that already has an
- * account gets a note saying so instead.
- */
-export const signupStartedResponseSchema = z.object({
-  status: z.literal("verification_sent"),
-  challengeId: z.uuid(),
-});
-
-export const verifySignupRequestSchema = z.object({
-  challengeId: z.uuid(),
-  code: oneTimeCodeSchema,
-});
-
-export const resendSignupRequestSchema = z.object({ challengeId: z.uuid() });
+/** The link from the "confirm your email" message. */
+export const verifyEmailRequestSchema = z.object({ token: z.string().min(20).max(200) });
 
 /** Login answers with a session, or asks for a second factor first. */
 export const twoFactorRequiredSchema = z.object({
@@ -159,8 +143,7 @@ export type PhoneCodeSentResponse = z.infer<typeof phoneCodeSentResponseSchema>;
 export type PhoneVerifyRequest = z.infer<typeof phoneVerifyRequestSchema>;
 
 export type SignupRequest = z.infer<typeof signupRequestSchema>;
-export type SignupStartedResponse = z.infer<typeof signupStartedResponseSchema>;
-export type VerifySignupRequest = z.infer<typeof verifySignupRequestSchema>;
+export type VerifyEmailRequest = z.infer<typeof verifyEmailRequestSchema>;
 export type TwoFactorRequired = z.infer<typeof twoFactorRequiredSchema>;
 export type TwoFactorLoginRequest = z.input<typeof twoFactorLoginRequestSchema>;
 export type ResetPasswordRequest = z.infer<typeof resetPasswordRequestSchema>;

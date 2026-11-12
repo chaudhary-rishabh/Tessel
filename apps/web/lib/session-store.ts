@@ -13,6 +13,8 @@ interface SessionState {
   user: PublicUser | null;
   signedOutReason: SignedOutReason | null;
   setSession: (auth: AuthResponse) => void;
+  /** Swaps in fresh details for the signed-in user, such as a new name. */
+  setUser: (user: PublicUser) => void;
   clear: (reason?: SignedOutReason) => void;
 }
 
@@ -28,6 +30,7 @@ export const useSessionStore = create<SessionState>()((set) => ({
       user: auth.user,
       signedOutReason: null,
     }),
+  setUser: (user) => set((state) => (state.status === "authenticated" ? { user } : {})),
   clear: (reason = "expired") =>
     set({ status: "anonymous", accessToken: null, user: null, signedOutReason: reason }),
 }));

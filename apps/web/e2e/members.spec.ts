@@ -1,5 +1,13 @@
 import { expect, test, type Page } from "@playwright/test";
-import { latestEmail, openNavigation, PASSWORD, signUp, uniqueEmail } from "./helpers";
+import {
+  confirmEmailFromLink,
+  latestEmail,
+  openNavigation,
+  PASSWORD,
+  setName,
+  signUp,
+  uniqueEmail,
+} from "./helpers";
 
 async function createTeamWorkspace(page: Page, name: string) {
   await openNavigation(page);
@@ -33,14 +41,18 @@ test.describe("workspace members", () => {
     await expect(invitee.getByRole("heading", { name: "Join Compiler team" })).toBeVisible();
     await expect(invitee.getByText("Grace Hopper invited")).toBeVisible();
     await invitee.getByRole("link", { name: "Create an account" }).click();
-    await invitee.getByLabel("Name").fill("Ada Lovelace");
     await invitee.getByLabel("Email").fill(email);
     await invitee.getByLabel("Password").fill(PASSWORD);
-    await invitee.getByRole("button", { name: "Continue" }).click();
-    const code = (await latestEmail(invitee, email, /^(\d{6})$/m)).match[1]!;
-    await invitee.getByLabel("Code from your email").fill(code);
+    await invitee.getByRole("button", { name: "Create account" }).click();
 
-    // Back on the invitation once signed in.
+    // Back on the invitation once signed in. Joining needs the email confirmed first.
+    await invitee.getByRole("button", { name: "Join Compiler team" }).click();
+    await expect(
+      invitee.getByRole("alert").filter({ hasText: "Confirm your email first" }),
+    ).toBeVisible();
+    await confirmEmailFromLink(invitee, email);
+    await setName(invitee, "Ada Lovelace");
+    await invitee.goto(match[1]!);
     await invitee.getByRole("button", { name: "Join Compiler team" }).click();
     await expect(invitee).toHaveURL(/\/chat$/);
     await openNavigation(invitee);

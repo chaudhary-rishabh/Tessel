@@ -66,15 +66,10 @@ const signature = "\n\n— Tessel";
 
 /** The account emails Tessel sends, as plain text. */
 export const emails = {
-  signupCode: (to: string, code: string): MailMessage => ({
+  confirmEmail: (to: string, link: string): MailMessage => ({
     to,
-    subject: `${code} is your Tessel code`,
-    text: `Enter this code to finish creating your Tessel account:\n\n${code}\n\nIt works for 15 minutes. If you didn't try to sign up, you can ignore this email.${signature}`,
-  }),
-  accountExists: (to: string, webOrigin: string): MailMessage => ({
-    to,
-    subject: "You already have a Tessel account",
-    text: `Someone tried to create a Tessel account with this email address, but you already have one.\n\nLog in: ${webOrigin}/login\nForgot your password? ${webOrigin}/forgot-password\n\nIf this wasn't you, you can ignore this email; nothing has changed.${signature}`,
+    subject: "Confirm your email for Tessel",
+    text: `Welcome to Tessel. Confirm this is your email address so you can join your team's workspaces and recover your account:\n\n${link}\n\nOpen it while you're logged in to Tessel. It works for 7 days.\n\nIf you didn't create a Tessel account, you can ignore this email; the account can't do anything in your name, and you can take it over by resetting the password.${signature}`,
   }),
   passwordReset: (to: string, link: string): MailMessage => ({
     to,
