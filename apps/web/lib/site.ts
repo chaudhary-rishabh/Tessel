@@ -12,12 +12,8 @@ export const site = {
   contactEmail: "support@tessel.chat",
 } as const;
 
-/** Links in the site header, in order. */
-export const navigation = [
-  { href: "/features", label: "Features" },
-  { href: "/pricing", label: "Pricing" },
-  { href: "/security", label: "Security" },
-] as const;
+/** Links in the site header, in order. Features, Security, and the rest are in the footer. */
+export const navigation = [{ href: "/pricing", label: "Pricing" }] as const;
 
 /** The share card image (app/opengraph-image.png), named again when a page sets its own card. */
 const shareImage = {
