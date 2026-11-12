@@ -93,6 +93,9 @@ export async function signUp(
   if (confirmEmail) await confirmEmailFromLink(page, email);
   if (name) await setName(page, name);
   if (confirmEmail || name) await page.goto("/chat");
+  // Signed in and loaded (the session refresh after a page load has finished),
+  // so a test can reload straight away.
+  await expect(page.getByRole("textbox", { name: "Message" })).toBeVisible();
   return { name: name ?? email, email };
 }
 
