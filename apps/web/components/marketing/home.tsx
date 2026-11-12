@@ -32,8 +32,9 @@ export function Home() {
 
   return (
     <>
-      <section className="px-3 pt-3 sm:px-5 sm:pt-5">
-        <div className="bg-forest relative isolate overflow-hidden rounded-[2rem] px-5 pt-16 text-center text-white sm:rounded-[2.75rem] sm:px-8 sm:pt-24">
+      {/* Full width, running up under the see-through site header (h-16). */}
+      <section className="-mt-16">
+        <div className="bg-forest relative isolate overflow-hidden px-5 pt-32 text-center text-white sm:px-8 sm:pt-40">
           <Tessellation className="absolute inset-0 -z-10 h-full w-full [mask-image:radial-gradient(ellipse_at_top,black_10%,transparent_70%)] opacity-[0.13]" />
           <div className="bg-mint/25 absolute top-[38%] left-1/2 -z-10 h-72 w-[42rem] max-w-full -translate-x-1/2 rounded-full blur-3xl" />
 
