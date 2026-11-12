@@ -41,7 +41,9 @@ export default function ResetPasswordPage() {
   if (done) {
     return (
       <>
-        <h1 className="text-3xl font-semibold tracking-tight">Password changed</h1>
+        <h1 className="text-[1.65rem] leading-tight font-semibold tracking-tight">
+          Password changed
+        </h1>
         <p className="text-muted mt-2" role="status">
           You&apos;ve been logged out on every device. Log in with your new password.
         </p>
@@ -58,7 +60,9 @@ export default function ResetPasswordPage() {
   if (!token) {
     return (
       <>
-        <h1 className="text-3xl font-semibold tracking-tight">This link is incomplete</h1>
+        <h1 className="text-[1.65rem] leading-tight font-semibold tracking-tight">
+          This link is incomplete
+        </h1>
         <p className="text-muted mt-2">Open the link from the email again, or ask for a new one.</p>
         <p className="mt-8">
           <Link
@@ -74,7 +78,9 @@ export default function ResetPasswordPage() {
 
   return (
     <>
-      <h1 className="text-3xl font-semibold tracking-tight">Choose a new password</h1>
+      <h1 className="text-[1.65rem] leading-tight font-semibold tracking-tight">
+        Choose a new password
+      </h1>
       <p className="text-muted mt-2">This signs you out everywhere else.</p>
 
       <form onSubmit={onSubmit} noValidate className="mt-8 flex flex-col gap-5">

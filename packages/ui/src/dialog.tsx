@@ -47,6 +47,67 @@ export function DialogContent({
   );
 }
 
+/**
+ * A large rounded modal that is always open while it's rendered, such as a
+ * route shown as a modal. Closing it (the close button, Escape, or a click
+ * outside) calls `onClose`. A sheet from the bottom on phones, centered above.
+ */
+export function Modal({
+  label,
+  onClose,
+  children,
+  className,
+}: {
+  /** The modal's accessible name; the content shows its own visible heading. */
+  label: string;
+  onClose: () => void;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <DialogPrimitive.Root open onOpenChange={(open) => (open ? undefined : onClose())}>
+      <DialogPrimitive.Portal>
+        <DialogPrimitive.Overlay className="bg-tile-ink/45 fixed inset-0 z-40 backdrop-blur-[3px] data-[state=open]:animate-[fade-in_200ms_ease-out] motion-reduce:animate-none" />
+        <DialogPrimitive.Content
+          aria-describedby={undefined}
+          // Focus the modal itself: its content may still be loading, which would
+          // leave Close as the only thing to focus.
+          onOpenAutoFocus={(event) => {
+            event.preventDefault();
+            (event.currentTarget as HTMLElement | null)?.focus();
+          }}
+          className={cn(
+            "bg-surface border-line fixed z-50 flex flex-col border shadow-2xl focus:outline-none",
+            "inset-x-0 bottom-0 max-h-[94dvh] rounded-t-[1.75rem] pb-[env(safe-area-inset-bottom)]",
+            "data-[state=open]:animate-[sheet-up_260ms_cubic-bezier(0.2,0.8,0.2,1)]",
+            "sm:inset-auto sm:top-1/2 sm:left-1/2 sm:max-h-[min(46rem,92dvh)] sm:w-[calc(100%-2rem)] sm:max-w-[27rem] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-[1.75rem] sm:pb-0",
+            "sm:data-[state=open]:animate-[modal-in_220ms_cubic-bezier(0.2,0.8,0.2,1)]",
+            "motion-reduce:animate-none sm:motion-reduce:animate-none",
+            className,
+          )}
+        >
+          <DialogPrimitive.Title className="sr-only">{label}</DialogPrimitive.Title>
+          <div className="bg-line mx-auto mt-3 h-1.5 w-10 shrink-0 rounded-full sm:hidden" />
+          <div className="overflow-y-auto px-6 pt-4 pb-7 sm:px-9 sm:pt-9 sm:pb-9">{children}</div>
+          <DialogPrimitive.Close
+            aria-label="Close"
+            className="text-muted hover:bg-ink/6 hover:text-ink focus-visible:outline-accent absolute top-3 right-3 grid size-10 place-items-center rounded-full transition-colors focus-visible:outline-2 sm:top-4 sm:right-4"
+          >
+            <svg viewBox="0 0 24 24" className="size-5" aria-hidden="true">
+              <path
+                d="M6 6l12 12M18 6L6 18"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+              />
+            </svg>
+          </DialogPrimitive.Close>
+        </DialogPrimitive.Content>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
+  );
+}
+
 /** A panel that slides in from the left: the sidebar on small screens. */
 export function Sheet({
   open,

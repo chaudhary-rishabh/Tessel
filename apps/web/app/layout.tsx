@@ -1,12 +1,40 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
+import { site } from "@/lib/site";
 import { THEME_BOOT_SCRIPT } from "@/lib/theme";
 import { Providers } from "./providers";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: { default: "Tessel", template: "%s · Tessel" },
-  description: "An AI workspace for teams, over their own knowledge and tools.",
+  metadataBase: new URL(site.url),
+  title: { default: site.title, template: "%s · Tessel" },
+  description: site.description,
+  applicationName: site.name,
+  keywords: [
+    "AI workspace",
+    "AI for teams",
+    "chat with documents",
+    "RAG",
+    "AI agents",
+    "MCP",
+    "knowledge base",
+    "team knowledge",
+  ],
+  openGraph: {
+    type: "website",
+    siteName: site.name,
+    title: site.title,
+    description: site.description,
+    url: "/",
+    locale: "en_US",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: site.title,
+    description: site.description,
+  },
+  appleWebApp: { title: site.name, statusBarStyle: "default" },
+  formatDetection: { telephone: false },
 };
 
 export const viewport: Viewport = {

@@ -40,7 +40,9 @@ export default function SignupPage() {
 
   return (
     <>
-      <h1 className="text-3xl font-semibold tracking-tight">Create your account</h1>
+      <h1 className="text-[1.65rem] leading-tight font-semibold tracking-tight">
+        Create your account
+      </h1>
       <p className="text-muted mt-2">You&apos;ll get a personal workspace to start in.</p>
 
       <SocialButtons next={next} />
@@ -99,7 +101,9 @@ function VerifyEmail({
 
   return (
     <>
-      <h1 className="text-3xl font-semibold tracking-tight">Check your email</h1>
+      <h1 className="text-[1.65rem] leading-tight font-semibold tracking-tight">
+        Check your email
+      </h1>
       <p className="text-muted mt-2">
         We sent a 6-digit code to <span className="text-ink font-medium">{email}</span>. Enter it to
         finish creating your account.

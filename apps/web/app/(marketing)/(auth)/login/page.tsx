@@ -31,7 +31,9 @@ export default function LoginPage() {
 
   return (
     <>
-      <h1 className="text-3xl font-semibold tracking-tight">Log in to Tessel</h1>
+      <h1 className="text-[1.65rem] leading-tight font-semibold tracking-tight">
+        Log in to Tessel
+      </h1>
       <p className="text-muted mt-2">Welcome back. Pick up where your team left off.</p>
       {socialError ? (
         <div className="mt-6">

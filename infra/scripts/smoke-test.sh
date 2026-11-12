@@ -90,14 +90,16 @@ workspaces=$(http --header "Authorization: Bearer $token" http://127.0.0.1:4000/
 grep -q "Smoke's workspace" <<<"$workspaces" || fail "personal workspace missing"
 
 echo "==> Other services"
-compose exec -T web wget -qO- http://127.0.0.1:3000/ | grep -q "Tessel" || fail "web app did not render"
-compose exec -T admin wget -qO- http://127.0.0.1:3001/login | grep -q "Tessel Admin" || fail "admin app did not render"
-compose exec -T mcp-server wget -qO- http://127.0.0.1:4100/health | grep -q '"ok"' || fail "mcp-server unhealthy"
+# Whole responses go through grep (no -q): grep -q stops reading at the first
+# match, and with pipefail the cut-off wget would count as a failure.
+compose exec -T web wget -qO- http://127.0.0.1:3000/ | grep "Tessel" >/dev/null || fail "web app did not render"
+compose exec -T admin wget -qO- http://127.0.0.1:3001/login | grep "Tessel Admin" >/dev/null || fail "admin app did not render"
+compose exec -T mcp-server wget -qO- http://127.0.0.1:4100/health | grep '"ok"' >/dev/null || fail "mcp-server unhealthy"
 echo "==> Sign-in for outside MCP clients (OAuth metadata on the API and the MCP server)"
-http http://127.0.0.1:4000/.well-known/oauth-authorization-server | grep -q '"token_endpoint"' ||
+http http://127.0.0.1:4000/.well-known/oauth-authorization-server | grep '"token_endpoint"' >/dev/null ||
   fail "API OAuth metadata missing"
 compose exec -T mcp-server wget -qO- http://127.0.0.1:4100/.well-known/oauth-protected-resource/mcp |
-  grep -q '"authorization_servers"' || fail "MCP protected resource metadata missing"
-compose exec -T worker wget -qO- http://127.0.0.1:4200/health | grep -q '"ok"' || fail "worker unhealthy"
+  grep '"authorization_servers"' >/dev/null || fail "MCP protected resource metadata missing"
+compose exec -T worker wget -qO- http://127.0.0.1:4200/health | grep '"ok"' >/dev/null || fail "worker unhealthy"
 
 echo "==> Every check passed"

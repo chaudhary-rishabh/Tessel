@@ -40,6 +40,11 @@
   --color-tile-moss: #8fa67a;
   --color-tile-ink: #18201d;
   --color-tile-paper: #f6f7f5;
+
+  /* The public site's deep green panels, and the soft green that lights them. Same in both themes. */
+  --color-forest: #0d3a31;
+  --color-forest-soft: #145045;
+  --color-mint: #b9efc8;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -84,6 +89,19 @@
 @keyframes fade-in {
   from {
     opacity: 0;
+  }
+}
+
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(8px);
+  }
+}
+
+@keyframes sheet-up {
+  from {
+    transform: translateY(100%);
   }
 }
 
