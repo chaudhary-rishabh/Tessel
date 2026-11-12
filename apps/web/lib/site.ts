@@ -4,7 +4,7 @@ import type { Metadata } from "next";
 export const site = {
   name: "Tessel",
   url: (process.env.NEXT_PUBLIC_SITE_URL ?? "https://tessel.chat").replace(/\/$/, ""),
-  title: "Tessel: the AI workspace for your team's documents and tools",
+  title: "Tessel, the AI workspace for your team's documents and tools",
   description:
     "Chat with AI over your team's documents with cited answers, run agents that ask before they act, and connect GitHub, Notion, and Linear through MCP. One workspace for the whole team.",
   repository: "https://github.com/chaudhary-rishabh/tessel",
