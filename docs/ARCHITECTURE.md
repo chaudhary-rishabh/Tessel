@@ -447,7 +447,8 @@ flowchart LR
 | Piece            | Where                                                                                                                                                                                        |
 | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Images           | `infra/docker/node.Dockerfile` (api, worker, mcp-server, migrate) and `infra/docker/web.Dockerfile`, built by `infra/scripts/build-images.sh`                                                |
-| Production stack | `infra/deploy/docker-compose.prod.yml` with profiles: apps (always), `edge` (Caddy + HTTPS), `data` (databases on the host), `tools` (migrate job)                                           |
+| Web app          | Vercel, from `apps/web` on every push to `main` (previews for pull requests). It shares a site with the API so the `SameSite=Strict` sign-in cookie works                                    |
+| Production stack | `infra/deploy/docker-compose.prod.yml` with profiles: apps (always), `web` (the web app, when not on Vercel), `edge` (Caddy + HTTPS), `data` (databases on the host), `tools` (migrate job)  |
 | Deploy           | `.github/workflows/deploy.yml` runs after CI passes on `main`: build, push to ECR, run `infra/deploy/deploy.sh` on EC2 through SSM                                                           |
 | Secrets          | SSM Parameter Store under `/tessel/prod`, written to a root-only `.env` on each deploy                                                                                                       |
 | Health           | Every service has a health check; deploys wait for all of them and roll back on failure                                                                                                      |

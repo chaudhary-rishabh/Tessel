@@ -68,6 +68,8 @@ jobs:
         run: infra/scripts/build-images.sh "$ECR_REGISTRY" "${{ steps.tag.outputs.tag }}" push
         env:
           BUILD_CACHE: gha
+          # The web app's image is only needed when it runs on EC2 (the web profile).
+          BUILD_WEB: ${{ contains(format(',{0},', vars.COMPOSE_PROFILES), ',web,') }}
           PUBLIC_API_URL: https://${{ vars.API_DOMAIN }}
           PUBLIC_MCP_URL: https://${{ vars.MCP_DOMAIN }}/mcp
           PUBLIC_WEB_URL: https://${{ vars.WEB_DOMAIN }}

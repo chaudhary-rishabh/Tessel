@@ -409,3 +409,7 @@ A full review before the first deploy changed a few rules worth recording:
 - **Backups are verified before upload** (`pg_restore --list`, `tar -t`), and restores download and verify first.
 - **Only pushes to this repository deploy**, never a pull request from a fork's `main`, and every GitHub Action is pinned to a commit.
 - **"Cancelled" is spelled one way** in every API value, including the billing status (migration 0020). Stripe's own "canceled" is translated where it arrives.
+
+## D-098 The web app runs on Vercel
+
+The web app deploys to Vercel; the API, MCP server, admin app, worker, and databases stay on EC2. Vercel gives the public-facing app a CDN, preview deploys for pull requests, and builds that skip when the web app hasn't changed, while the EC2 host keeps its memory for the services that need it. The web app's domain must stay on the same site as the API (`tessel.chat` and `api.tessel.chat`), because the refresh cookie is `SameSite=Strict`; a `*.vercel.app` address would sign people out on every reload. On EC2 the web app moved to an optional `web` profile: without it, Caddy doesn't serve the web domain (so it never asks Let's Encrypt for a certificate it can't get) and the deploy doesn't build the web image. CI's smoke test still runs the web image.
