@@ -31,7 +31,9 @@ export default function ForgotPasswordPage() {
   if (sentTo) {
     return (
       <>
-        <h1 className="text-3xl font-semibold tracking-tight">Check your email</h1>
+        <h1 className="text-[1.65rem] leading-tight font-semibold tracking-tight">
+          Check your email
+        </h1>
         <p className="text-muted mt-2" role="status">
           If <span className="text-ink font-medium">{sentTo}</span> has a Tessel account, a link to
           reset the password is on its way. It works once, for 30 minutes.
@@ -50,7 +52,9 @@ export default function ForgotPasswordPage() {
 
   return (
     <>
-      <h1 className="text-3xl font-semibold tracking-tight">Reset your password</h1>
+      <h1 className="text-[1.65rem] leading-tight font-semibold tracking-tight">
+        Reset your password
+      </h1>
       <p className="text-muted mt-2">Enter your account&apos;s email and we&apos;ll send a link.</p>
 
       <form onSubmit={onSubmit} noValidate className="mt-8 flex flex-col gap-5">

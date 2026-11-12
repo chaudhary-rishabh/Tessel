@@ -27,7 +27,14 @@ export function RequireSession({ children }: { children: ReactNode }) {
 }
 
 /** Shows its children only to signed-out users; sends signed-in users on into the app. */
-export function GuestOnly({ children }: { children: ReactNode }) {
+export function GuestOnly({
+  children,
+  fallback = <FullPageSpinner />,
+}: {
+  children: ReactNode;
+  /** Shown while the session is checked, and while a signed-in user is sent on. */
+  fallback?: ReactNode;
+}) {
   const status = useSessionStore((state) => state.status);
   const router = useRouter();
   const next = safeNextPath(useSearchParams().get("next"));
@@ -36,6 +43,6 @@ export function GuestOnly({ children }: { children: ReactNode }) {
     if (status === "authenticated") router.replace(next);
   }, [status, next, router]);
 
-  if (status !== "anonymous") return <FullPageSpinner />;
+  if (status !== "anonymous") return fallback;
   return children;
 }

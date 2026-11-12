@@ -29,7 +29,9 @@ export function TwoFactorStep({
 
   return (
     <>
-      <h1 className="text-3xl font-semibold tracking-tight">Two-step sign-in</h1>
+      <h1 className="text-[1.65rem] leading-tight font-semibold tracking-tight">
+        Two-step sign-in
+      </h1>
       <p className="text-muted mt-2">
         {useRecovery
           ? "Enter one of the recovery codes you saved. Each one works once."

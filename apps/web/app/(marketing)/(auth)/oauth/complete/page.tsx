@@ -50,7 +50,9 @@ export default function OAuthCompletePage() {
   if (error) {
     return (
       <>
-        <h1 className="text-3xl font-semibold tracking-tight">Sign-in didn&apos;t finish</h1>
+        <h1 className="text-[1.65rem] leading-tight font-semibold tracking-tight">
+          Sign-in didn&apos;t finish
+        </h1>
         <div className="mt-6">
           <FormError message={error} />
         </div>
