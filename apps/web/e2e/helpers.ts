@@ -108,7 +108,7 @@ export async function setName(page: Page, name: string) {
   await page.goto("/settings");
   const profile = page.getByRole("region", { name: "Profile" });
   await profile.getByLabel("Your name").fill(name);
-  await profile.getByRole("button", { name: "Save name" }).click();
+  await profile.getByRole("button", { name: "Update name" }).click();
   await expect(profile.getByText("Name saved.")).toBeVisible();
 }
 

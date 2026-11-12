@@ -95,7 +95,7 @@ function ProfileSection() {
         />
         <div className="flex items-center gap-4">
           <Button type="submit" loading={isSubmitting} disabled={!isDirty}>
-            Save name
+            Update name
           </Button>
           <FormSuccess message={saved} />
         </div>
