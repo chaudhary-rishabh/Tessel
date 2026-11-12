@@ -3,6 +3,7 @@ import type { AuditEvent } from "@tessel/contracts";
 const ACTIONS: Record<string, string> = {
   "auth.signed_up": "Signed up",
   "auth.signed_in": "Signed in",
+  "auth.email_verified": "Confirmed their email",
   "auth.password_changed": "Changed their password",
   "auth.password_reset": "Reset their password",
   "auth.two_factor_enabled": "Turned on two-step sign-in",

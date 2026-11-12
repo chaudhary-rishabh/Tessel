@@ -1,4 +1,6 @@
 import {
+  updateProfileRequestSchema,
+  verifyEmailRequestSchema,
   changePasswordRequestSchema,
   disableTwoFactorRequestSchema,
   enableTwoFactorRequestSchema,
@@ -19,6 +21,21 @@ export function createUsersController(
 ) {
   const getMe: RequestHandler = async (req, res) => {
     res.json(await users.getMe(getAuth(req).userId));
+  };
+
+  const updateMe: RequestHandler = async (req, res) => {
+    const input = updateProfileRequestSchema.parse(req.body);
+    res.json(await users.updateProfile(getAuth(req).userId, input));
+  };
+
+  const verifyEmail: RequestHandler = async (req, res) => {
+    const { token } = verifyEmailRequestSchema.parse(req.body);
+    res.json(await auth.verifyEmail(getAuth(req).userId, token));
+  };
+
+  const resendEmailVerification: RequestHandler = async (req, res) => {
+    await auth.resendEmailVerification(getAuth(req).userId);
+    res.status(202).json({ status: "sent" });
   };
 
   const changePassword: RequestHandler = async (req, res) => {
@@ -49,6 +66,9 @@ export function createUsersController(
 
   return {
     getMe,
+    updateMe,
+    verifyEmail,
+    resendEmailVerification,
     changePassword,
     setupTwoFactor,
     enableTwoFactor,

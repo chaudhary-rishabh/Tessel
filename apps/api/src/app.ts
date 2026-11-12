@@ -395,6 +395,7 @@ export function createApp({
       controller: createUsersController(usersService, authService, refreshCookie, twoFactorService),
       authenticate,
       passwordRateLimit: config.rateLimits.password,
+      emailRateLimit: config.rateLimits.signup,
       storeFactory: rateLimitStoreFactory,
     }),
   );

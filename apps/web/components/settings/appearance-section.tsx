@@ -24,7 +24,7 @@ export function AppearanceSection() {
           <label
             key={value}
             className={cn(
-              "border-line hover:bg-ink/4 flex min-h-11 cursor-pointer items-center gap-2.5 rounded-xl border px-3 py-2 text-sm",
+              "border-line hover:bg-ink/4 relative flex min-h-11 cursor-pointer items-center gap-2.5 rounded-xl border px-3 py-2 text-sm",
               "has-[:focus-visible]:outline-accent has-[:focus-visible]:outline-2",
               choice === value && "border-accent ring-accent/20 font-medium ring-2",
             )}

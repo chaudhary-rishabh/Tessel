@@ -64,7 +64,7 @@ describe("API core", () => {
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe("validation_error");
     const paths = res.body.error.details.map((issue: { path: string }) => issue.path);
-    expect(paths).toEqual(expect.arrayContaining(["email", "password", "name"]));
+    expect(paths).toEqual(expect.arrayContaining(["email", "password"]));
   });
 
   it("rate limits with a 429 in the standard error shape", async () => {

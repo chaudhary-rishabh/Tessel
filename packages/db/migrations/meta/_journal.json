@@ -148,6 +148,13 @@
       "when": 1794205112299,
       "tag": "0020_review_fixes",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1794493912099,
+      "tag": "0021_email_verifications",
+      "breakpoints": true
     }
   ]
 }

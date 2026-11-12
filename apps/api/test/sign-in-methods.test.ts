@@ -161,6 +161,24 @@ describe("Google and GitHub sign-in", () => {
     ]);
   });
 
+  it("takes an unconfirmed account back from whoever signed up with someone else's email", async () => {
+    const squatter = await signUp(app, { confirmEmail: false });
+    const { body } = await signInWith("google", { email: squatter.email });
+    // Same account, now confirmed, with only the owner's way in.
+    expect(body.user).toMatchObject({
+      id: squatter.auth.user.id,
+      emailVerified: true,
+      hasPassword: false,
+    });
+    expect(
+      (await request(app).post("/auth/refresh").set("Cookie", squatter.refreshCookie)).status,
+    ).toBe(401);
+    const login = await request(app)
+      .post("/auth/login")
+      .send({ email: squatter.email, password: TEST_PASSWORD });
+    expect(login.status).toBe(401);
+  });
+
   it("never matches an account by an email the provider hasn't verified", async () => {
     const user = await signUp(app);
     const destination = await throughProvider(await startLogin("google"), "google", {

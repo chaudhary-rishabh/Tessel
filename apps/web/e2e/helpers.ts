@@ -66,19 +66,53 @@ export async function latestTextedCode(page: Page, phone: string): Promise<strin
   return code!;
 }
 
-/** Signs up the way a person does: fill in the form, then enter the emailed code. */
-export async function signUp(page: Page, { name = "Ada Lovelace", email = uniqueEmail() } = {}) {
+/** An address made from a name, so the starting name and workspace match it: "ada.lovelace-1a2b3c4d@…". */
+export function emailFor(name: string): string {
+  return `${name.toLowerCase().split(/\s+/).join(".")}-${randomUUID().slice(0, 8)}@example.com`;
+}
+
+/**
+ * Signs up the way a person does: email and password, straight into chat.
+ * The personal workspace is named from the email ("Ada's workspace"). With a
+ * `name`, it's then set in Settings; with `confirmEmail`, the emailed link is
+ * followed too. Ends on the chat page.
+ */
+export async function signUp(
+  page: Page,
+  {
+    name,
+    email = emailFor(name ?? "Ada Lovelace"),
+    confirmEmail = false,
+  }: { name?: string; email?: string; confirmEmail?: boolean } = {},
+) {
   await page.goto("/signup");
-  await page.getByLabel("Name").fill(name);
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password").fill(PASSWORD);
-  await page.getByRole("button", { name: "Continue" }).click();
-  await expect(page.getByRole("heading", { name: "Check your email" })).toBeVisible();
-  const { match } = await latestEmail(page, email, /^(\d{6})$/m);
-  // A full code submits itself.
-  await page.getByLabel("Code from your email").fill(match[1]!);
+  await page.getByRole("button", { name: "Create account" }).click();
   await expect(page).toHaveURL(/\/chat$/);
-  return { name, email };
+  if (confirmEmail) await confirmEmailFromLink(page, email);
+  if (name) await setName(page, name);
+  if (confirmEmail || name) await page.goto("/chat");
+  // Signed in and loaded (the session refresh after a page load has finished),
+  // so a test can reload straight away.
+  await expect(page.getByRole("textbox", { name: "Message" })).toBeVisible();
+  return { name: name ?? email, email };
+}
+
+/** Opens the newest "confirm your email" link, signed in, as a person would. */
+export async function confirmEmailFromLink(page: Page, email: string) {
+  const { match } = await latestEmail(page, email, /(\/verify-email\?token=[\w-]+)/);
+  await page.goto(match[1]!);
+  await expect(page.getByRole("heading", { name: "Your email is confirmed" })).toBeVisible();
+}
+
+/** Changes the signed-in person's name in Settings. */
+export async function setName(page: Page, name: string) {
+  await page.goto("/settings");
+  const profile = page.getByRole("region", { name: "Profile" });
+  await profile.getByLabel("Your name").fill(name);
+  await profile.getByRole("button", { name: "Update name" }).click();
+  await expect(profile.getByText("Name saved.")).toBeVisible();
 }
 
 /** Opens the navigation: always visible on desktop, a drawer on phones. */

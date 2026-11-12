@@ -22,7 +22,7 @@ export const users = pgTable("users", {
   name: text("name").notNull(),
   /** Null for accounts that only sign in another way (Google, GitHub, phone). */
   passwordHash: text("password_hash"),
-  /** When the user proved they own the email (signup code or password reset). */
+  /** When the user proved they own the email (the emailed link, Google or GitHub, or a password reset). */
   emailVerifiedAt: timestamp("email_verified_at", { withTimezone: true }),
   /** Two-factor sign-in: the TOTP secret, encrypted, once confirmed. */
   totpSecret: text("totp_secret"),
@@ -49,10 +49,8 @@ export type UserRow = typeof users.$inferSelect;
 export type NewUserRow = typeof users.$inferInsert;
 
 /**
- * A signup waiting for its email code. The account is created only when the
- * code is entered, so signing up never reveals whether an email is taken: an
- * existing address gets a "you already have an account" email instead, and
- * its challenge can never be completed.
+ * Signups waiting for an email code, from before signup created the account
+ * at once (D-100). Nothing writes here any more; the nightly cleanup empties it.
  */
 export const signupChallenges = pgTable(
   "signup_challenges",
@@ -81,6 +79,22 @@ export const passwordResets = pgTable("password_resets", {
   usedAt: timestamp("used_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/** Links that confirm a user owns their email; only a hash of the token is kept. Only the newest works. */
+export const emailVerifications = pgTable(
+  "email_verifications",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull().unique(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("email_verifications_user_idx").on(table.userId)],
+);
 
 /** Two-factor recovery codes, hashed; each works once. */
 export const recoveryCodes = pgTable(

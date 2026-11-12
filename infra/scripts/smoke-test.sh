@@ -67,24 +67,18 @@ echo "$ready"
 grep -q '"status":"ready"' <<<"$ready" ||
   fail "API is not ready: $(compose exec -T api wget -qO- --content-on-error http://127.0.0.1:4000/health/ready 2>&1 || true)"
 
-echo "==> Signup through the production image (the code arrives by email through SES)"
-started=$(http --header 'Content-Type: application/json' \
-  --post-data '{"email":"smoke@example.com","password":"a long enough password","name":"Smoke Test"}' \
+echo "==> Signup through the production image (signed in at once; the confirmation link goes out through SES)"
+signup=$(http --header 'Content-Type: application/json' \
+  --post-data '{"email":"smoke.test@example.com","password":"a long enough password"}' \
   http://127.0.0.1:4000/auth/signup) || fail "signup request failed"
-challenge=$(sed -E 's/.*"challengeId":"([^"]+)".*/\1/' <<<"$started")
-[[ "$challenge" =~ ^[0-9a-f-]{36}$ ]] || fail "signup did not start a verification: $started"
-code=""
+grep -q '"accessToken"' <<<"$signup" || fail "signup did not return an access token"
+sent=""
 for _ in $(seq 1 10); do
-  # The subject starts with the code: "123456 is your Tessel code".
-  code=$(http 'http://ses:8005/messages?to=smoke@example.com' | grep -oE '"subject":"[0-9]{6} ' | grep -oE '[0-9]{6}' | tail -1) || true
-  [[ -n "$code" ]] && break
+  sent=$(http 'http://ses:8005/messages?to=smoke.test@example.com') || true
+  grep -q "Confirm your email for Tessel" <<<"$sent" && break
   sleep 1
 done
-[[ -n "$code" ]] || fail "no signup code was emailed"
-signup=$(http --header 'Content-Type: application/json' \
-  --post-data "{\"challengeId\":\"$challenge\",\"code\":\"$code\"}" \
-  http://127.0.0.1:4000/auth/signup/verify) || fail "signup verification failed"
-grep -q '"accessToken"' <<<"$signup" || fail "signup did not return an access token"
+grep -q "verify-email?token=" <<<"$sent" || fail "no confirmation link was emailed"
 token=$(sed -E 's/.*"accessToken":"([^"]+)".*/\1/' <<<"$signup")
 workspaces=$(http --header "Authorization: Bearer $token" http://127.0.0.1:4000/workspaces) || fail "workspaces request failed"
 grep -q "Smoke's workspace" <<<"$workspaces" || fail "personal workspace missing"

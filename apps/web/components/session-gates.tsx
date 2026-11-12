@@ -17,8 +17,10 @@ export function RequireSession({ children }: { children: ReactNode }) {
     if (status !== "anonymous") return;
     // After an expired session, come back to this page once logged in again.
     // After choosing to log out, start fresh.
+    // Keep the query too, such as the token in an emailed link.
+    const here = `${pathname}${window.location.search}`;
     router.replace(
-      signedOutReason === "logout" ? "/login" : `/login?next=${encodeURIComponent(pathname)}`,
+      signedOutReason === "logout" ? "/login" : `/login?next=${encodeURIComponent(here)}`,
     );
   }, [status, signedOutReason, pathname, router]);
 

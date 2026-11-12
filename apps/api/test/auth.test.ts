@@ -4,8 +4,10 @@ import { describe, expect, it } from "vitest";
 import {
   bearer,
   createTestApp,
-  emailedCode,
+  emailLinkToken,
+  resetLinkToken,
   testOutbox,
+  waitForEmailLink,
   findRefreshCookie,
   signUp,
   TEST_PASSWORD,
@@ -16,28 +18,19 @@ import {
 describe("signup", () => {
   const app = createTestApp();
 
-  it("emails a code, then creates the account with a verified email and a secure session", async () => {
-    const email = uniqueEmail();
-    const started = await request(app)
-      .post("/auth/signup")
-      .send({ email: `  ${email.toUpperCase()} `, name: "Grace Hopper", password: TEST_PASSWORD });
-    expect(started.status).toBe(202);
-    expect(started.body).toEqual({ status: "verification_sent", challengeId: expect.any(String) });
-    // Nothing exists until the code is entered.
-    expect(
-      (await request(app).post("/auth/login").send({ email, password: TEST_PASSWORD })).status,
-    ).toBe(401);
-
+  it("creates the account and signs in at once, with a secure session", async () => {
+    const email = `grace.hopper-${uniqueEmail()}`;
     const res = await request(app)
-      .post("/auth/signup/verify")
-      .send({ challengeId: started.body.challengeId, code: emailedCode(email) });
+      .post("/auth/signup")
+      .send({ email: `  ${email.toUpperCase()} `, password: TEST_PASSWORD });
     expect(res.status).toBe(201);
     const body = authResponseSchema.parse(res.body);
     expect(body.user).toMatchObject({
       email,
-      name: "Grace Hopper",
+      // A starting name from the email, until it's changed in Settings.
+      name: expect.stringMatching(/^Grace Hopper/),
       role: "user",
-      emailVerified: true,
+      emailVerified: false,
       twoFactorEnabled: false,
       hasPassword: true,
     });
@@ -50,41 +43,47 @@ describe("signup", () => {
     expect(cookie).toMatch(/HttpOnly/);
     expect(cookie).toMatch(/SameSite=Strict/);
     expect(cookie).toMatch(/Path=\/auth/);
+
+    // The password works for logging in later.
+    const login = await request(app).post("/auth/login").send({ email, password: TEST_PASSWORD });
+    expect(login.status).toBe(200);
   });
 
-  it("refuses wrong codes, and stops after five tries", async () => {
-    const email = uniqueEmail();
-    const started = await request(app)
-      .post("/auth/signup")
-      .send({ email, name: "Grace", password: TEST_PASSWORD });
-    const verify = (code: string) =>
-      request(app)
-        .post("/auth/signup/verify")
-        .send({ challengeId: started.body.challengeId, code });
-    const right = emailedCode(email);
-    const wrong = right === "000000" ? "111111" : "000000";
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-      const res = await verify(wrong);
-      expect(res.status).toBe(400);
-      expect(res.body.error.code).toBe("invalid_code");
-    }
-    expect((await verify(right)).status).toBe(400);
+  it("emails a link that confirms the address, once, for that account only", async () => {
+    const user = await signUp(app, { confirmEmail: false });
+    const other = await signUp(app, { confirmEmail: false });
+    const token = await waitForEmailLink(user.email);
+    expect(testOutbox.latest(user.email)?.subject).toBe("Confirm your email for Tessel");
+    const verify = (who: typeof user) =>
+      request(app).post("/users/me/email/verify").set("Authorization", bearer(who)).send({ token });
+
+    // Someone else signed in can't use it.
+    const wrong = await verify(other);
+    expect(wrong.status).toBe(400);
+    expect(wrong.body.error.code).toBe("invalid_email_link");
+
+    const res = await verify(user);
+    expect(res.status).toBe(200);
+    expect(res.body.emailVerified).toBe(true);
+    expect((await verify(user)).status).toBe(400);
   });
 
-  it("sends a fresh code on request; only the newest works", async () => {
-    const email = uniqueEmail();
-    const started = await request(app)
-      .post("/auth/signup")
-      .send({ email, name: "Grace", password: TEST_PASSWORD });
-    const first = emailedCode(email);
-    await request(app).post("/auth/signup/resend").send({ challengeId: started.body.challengeId });
-    const second = emailedCode(email);
-    const verify = (code: string) =>
+  it("sends a new link on request; only the newest works", async () => {
+    const user = await signUp(app, { confirmEmail: false });
+    const first = await waitForEmailLink(user.email);
+    const resend = await request(app)
+      .post("/users/me/email/verification")
+      .set("Authorization", bearer(user));
+    expect(resend.status).toBe(202);
+    const second = emailLinkToken(user.email);
+    expect(second).not.toBe(first);
+    const verify = (token: string) =>
       request(app)
-        .post("/auth/signup/verify")
-        .send({ challengeId: started.body.challengeId, code });
-    if (first !== second) expect((await verify(first)).status).toBe(400);
-    expect((await verify(second)).status).toBe(201);
+        .post("/users/me/email/verify")
+        .set("Authorization", bearer(user))
+        .send({ token });
+    expect((await verify(first)).status).toBe(400);
+    expect((await verify(second)).status).toBe(200);
   });
 
   it("creates a personal workspace owned by the new user", async () => {
@@ -95,34 +94,60 @@ describe("signup", () => {
     ]);
   });
 
-  it("doesn't reveal whether an email has an account", async () => {
+  it("says when an email already has an account", async () => {
     const { email } = await signUp(app);
-    const fresh = uniqueEmail();
     const taken = await request(app)
       .post("/auth/signup")
-      .send({ email: email.toUpperCase(), name: "Copy", password: TEST_PASSWORD });
-    const free = await request(app)
-      .post("/auth/signup")
-      .send({ email: fresh, name: "New", password: TEST_PASSWORD });
-    expect(taken.status).toBe(free.status);
-    expect(Object.keys(taken.body)).toEqual(Object.keys(free.body));
-
-    // The owner hears about it; no code exists that could take over the account.
-    expect(testOutbox.latest(email)?.subject).toBe("You already have a Tessel account");
-    for (const code of ["000000", "123456"]) {
-      const res = await request(app)
-        .post("/auth/signup/verify")
-        .send({ challengeId: taken.body.challengeId, code });
-      expect(res.status).toBe(400);
-    }
+      .send({ email: email.toUpperCase(), password: TEST_PASSWORD });
+    expect(taken.status).toBe(409);
+    expect(taken.body.error.code).toBe("email_taken");
+    expect(findRefreshCookie(taken.headers["set-cookie"])).toBeUndefined();
   });
 
   it("rejects a short password", async () => {
     const res = await request(app)
       .post("/auth/signup")
-      .send({ email: uniqueEmail(), name: "Short", password: "short" });
+      .send({ email: uniqueEmail(), password: "short" });
     expect(res.status).toBe(400);
     expect(res.body.error.details[0]).toMatchObject({ path: "password" });
+  });
+
+  it("lets the email's owner take over an unconfirmed account with a password reset", async () => {
+    // Someone signs up with an address they don't own, and makes an access token.
+    const squatter = await signUp(app, { confirmEmail: false });
+    const workspace = (await request(app).get("/workspaces").set("Authorization", bearer(squatter)))
+      .body.workspaces[0].id as string;
+    const pat = await request(app)
+      .post(`/workspaces/${workspace}/access-tokens`)
+      .set("Authorization", bearer(squatter))
+      .send({ name: "backdoor" });
+    expect(pat.status).toBe(201);
+
+    // The real owner resets the password from their inbox.
+    await request(app).post("/auth/password/forgot").send({ email: squatter.email });
+    const token = await resetLinkToken(squatter.email);
+    const NEW_PASSWORD = "the owner's own password";
+    expect(
+      (await request(app).post("/auth/password/reset").send({ token, password: NEW_PASSWORD }))
+        .status,
+    ).toBe(204);
+
+    // Every way in the squatter set up is gone.
+    expect(
+      (await request(app).post("/auth/refresh").set("Cookie", squatter.refreshCookie)).status,
+    ).toBe(401);
+    expect(
+      (
+        await request(app)
+          .get(`/workspaces/${workspace}`)
+          .set("Authorization", `Bearer ${pat.body.token}`)
+      ).status,
+    ).toBe(401);
+    const login = await request(app)
+      .post("/auth/login")
+      .send({ email: squatter.email, password: NEW_PASSWORD });
+    expect(login.status).toBe(200);
+    expect(login.body.user.emailVerified).toBe(true);
   });
 });
 

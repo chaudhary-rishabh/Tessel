@@ -49,16 +49,13 @@ import {
   loginResponseSchema,
   recoveryCodesResponseSchema,
   sessionListResponseSchema,
-  signupStartedResponseSchema,
   twoFactorSetupResponseSchema,
   type DisableTwoFactorRequest,
   type LoginResponse,
   type ResetPasswordRequest,
   type Session,
-  type SignupStartedResponse,
   type TwoFactorLoginRequest,
   type TwoFactorSetupResponse,
-  type VerifySignupRequest,
   completionResponseSchema,
   modelListResponseSchema,
   usageSummarySchema,
@@ -118,6 +115,7 @@ import {
   type LoginRequest,
   type PublicUser,
   type SignupRequest,
+  type UpdateProfileRequest,
   type Workspace,
 } from "@tessel/contracts";
 import type { z } from "zod";
@@ -135,14 +133,9 @@ export function createApi(client: ApiClient) {
 
   return {
     auth: {
-      /** Emails a code; the account is created by `verifySignup`. */
-      signup: async (input: SignupRequest): Promise<SignupStartedResponse> =>
-        parse(signupStartedResponseSchema, (await http.post("/auth/signup", input)).data),
-      verifySignup: async (input: VerifySignupRequest): Promise<AuthResponse> =>
-        parse(authResponseSchema, (await http.post("/auth/signup/verify", input)).data),
-      resendSignup: async (challengeId: string): Promise<void> => {
-        await http.post("/auth/signup/resend", { challengeId });
-      },
+      /** Creates the account and signs in; a link to confirm the email follows by email. */
+      signup: async (input: SignupRequest): Promise<AuthResponse> =>
+        parse(authResponseSchema, (await http.post("/auth/signup", input)).data),
       /** A session, or a request for the second sign-in step. */
       login: async (input: LoginRequest): Promise<LoginResponse> =>
         parse(loginResponseSchema, (await http.post("/auth/login", input)).data),
@@ -181,6 +174,15 @@ export function createApi(client: ApiClient) {
     users: {
       me: async (): Promise<PublicUser> =>
         parse(publicUserSchema, (await http.get("/users/me")).data),
+      updateProfile: async (input: UpdateProfileRequest): Promise<PublicUser> =>
+        parse(publicUserSchema, (await http.patch("/users/me", input)).data),
+      /** Confirms the signed-in user's email with the token from the emailed link. */
+      verifyEmail: async (token: string): Promise<PublicUser> =>
+        parse(publicUserSchema, (await http.post("/users/me/email/verify", { token })).data),
+      /** Emails a new confirmation link. */
+      resendEmailVerification: async (): Promise<void> => {
+        await http.post("/users/me/email/verification");
+      },
       changePassword: async (input: ChangePasswordRequest): Promise<AuthResponse> =>
         parse(authResponseSchema, (await http.post("/users/me/password", input)).data),
       identities: async (): Promise<Identity[]> =>

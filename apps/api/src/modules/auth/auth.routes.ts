@@ -35,11 +35,6 @@ export function createAuthRouter({
   const signupIp = limiter("signup-ip", rateLimits.signup);
   // Per address, so nobody can flood someone's inbox from many IPs.
   const signupEmail = limiter("signup-email", rateLimits.signup, emailKey);
-  const signupVerify = limiter("signup-verify", rateLimits.login);
-  const signupResend = limiter("signup-resend", rateLimits.signup, (req) => {
-    const challenge: unknown = req.body?.challengeId;
-    return typeof challenge === "string" ? hashedKey(challenge) : undefined;
-  });
   // Logging in: per IP and email, so an attacker elsewhere can't lock a user
   // out; per email, so many IPs can't share the guessing; and per IP overall.
   const loginPair = limiter("login", rateLimits.login, (req, ip) => {
@@ -69,8 +64,6 @@ export function createAuthRouter({
 
   router.use(requireAllowedOrigin(allowedOrigins));
   router.post("/signup", signupIp, signupEmail, controller.signup);
-  router.post("/signup/verify", signupVerify, controller.verifySignup);
-  router.post("/signup/resend", signupIp, signupResend, controller.resendSignup);
   router.post("/login", loginIp, loginEmail, loginPair, controller.login);
   router.post("/login/two-factor", loginIp, twoFactor, controller.twoFactor);
   router.post("/password/forgot", forgotIp, forgotEmail, controller.forgotPassword);

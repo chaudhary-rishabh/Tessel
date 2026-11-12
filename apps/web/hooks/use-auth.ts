@@ -1,6 +1,6 @@
 "use client";
 
-import { useApi } from "@tessel/api-client/react";
+import { queryKeys, useApi } from "@tessel/api-client/react";
 import type {
   LoginResponse,
   PhoneVerifyRequest,
@@ -9,7 +9,7 @@ import type {
   ResetPasswordRequest,
   SignupRequest,
   TwoFactorLoginRequest,
-  VerifySignupRequest,
+  UpdateProfileRequest,
 } from "@tessel/contracts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { resetChatSession } from "@/lib/chat-store";
@@ -77,24 +77,48 @@ export function useCompleteTwoFactor() {
   });
 }
 
-/** Sends the signup code; `useVerifySignup` creates the account. */
+/** Creates the account and signs straight in; a link to confirm the email follows by email. */
 export function useSignup() {
-  const api = useApi();
-  return useMutation({ mutationFn: (input: SignupRequest) => api.auth.signup(input) });
-}
-
-export function useVerifySignup() {
   const api = useApi();
   const startSession = useStartSession();
   return useMutation({
-    mutationFn: (input: VerifySignupRequest) => api.auth.verifySignup(input),
+    mutationFn: (input: SignupRequest) => api.auth.signup(input),
     onSuccess: startSession,
   });
 }
 
-export function useResendSignup() {
+/** Keeps the signed-in user's details current everywhere after a change. */
+function useSetUser() {
+  const queryClient = useQueryClient();
+  const setUser = useSessionStore((state) => state.setUser);
+  return (user: Parameters<typeof setUser>[0]) => {
+    setUser(user);
+    queryClient.setQueryData(queryKeys.me, user);
+  };
+}
+
+/** Confirms the signed-in user's email with the token from the emailed link. */
+export function useVerifyEmail() {
   const api = useApi();
-  return useMutation({ mutationFn: (challengeId: string) => api.auth.resendSignup(challengeId) });
+  const setUser = useSetUser();
+  return useMutation({
+    mutationFn: (token: string) => api.users.verifyEmail(token),
+    onSuccess: setUser,
+  });
+}
+
+export function useResendEmailVerification() {
+  const api = useApi();
+  return useMutation({ mutationFn: () => api.users.resendEmailVerification() });
+}
+
+export function useUpdateProfile() {
+  const api = useApi();
+  const setUser = useSetUser();
+  return useMutation({
+    mutationFn: (input: UpdateProfileRequest) => api.users.updateProfile(input),
+    onSuccess: setUser,
+  });
 }
 
 export function useForgotPassword() {

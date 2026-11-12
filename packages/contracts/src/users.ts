@@ -14,6 +14,10 @@ export const passwordSchema = z
 
 export const personNameSchema = z.string().trim().min(1, "Name is required").max(100);
 
+/** Changes to the signed-in user's own profile. */
+export const updateProfileRequestSchema = z.object({ name: personNameSchema });
+export type UpdateProfileRequest = z.infer<typeof updateProfileRequestSchema>;
+
 export const userRoleSchema = z.enum(["user", "admin"]);
 
 export const publicUserSchema = z.object({

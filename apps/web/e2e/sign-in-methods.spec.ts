@@ -46,7 +46,8 @@ test.describe("signing in with Google, GitHub, and a phone", () => {
   test("GitHub joins the account that has the same email, and returns to the page asked for", async ({
     page,
   }) => {
-    const { email } = await signUp(page);
+    // A confirmed account: an unconfirmed one would be taken over instead (D-100).
+    const { email } = await signUp(page, { confirmEmail: true });
     await logOut(page);
     await page.goto("/settings");
     await expect(page).toHaveURL(/\/login\?next=%2Fsettings$/);

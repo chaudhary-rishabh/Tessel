@@ -116,6 +116,20 @@ describe("invitations", () => {
     expect(res.body.error.code).toBe("invalid_invitation");
   });
 
+  it("asks for a confirmed email before joining", async () => {
+    const owner = await signUp(app);
+    const workspaceId = await teamWorkspace(owner);
+    const email = uniqueEmail("unconfirmed");
+    await invite(owner, workspaceId, email);
+    const token = invitationToken(email);
+    const invitee = await signUp(app, { email, confirmEmail: false });
+    const res = await request(app)
+      .post(`/invitations/${token}/accept`)
+      .set("Authorization", bearer(invitee));
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe("email_unconfirmed");
+  });
+
   it("isn't possible for personal workspaces, existing members, or owners", async () => {
     const owner = await signUp(app);
     const personal = (await request(app).get("/workspaces").set("Authorization", bearer(owner)))
@@ -334,6 +348,7 @@ describe("audit log", () => {
     expect(rows.map((row) => row.action)).toEqual([
       "auth.password_changed",
       "auth.signed_in",
+      "auth.email_verified",
       "auth.signed_up",
     ]);
     expect(rows[1]).toMatchObject({

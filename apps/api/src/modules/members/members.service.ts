@@ -28,6 +28,7 @@ import type { AuditRecorder } from "../../lib/audit";
 import { errors } from "../../lib/errors";
 import { emails, type Mailer } from "../../lib/mailer";
 import { hashToken } from "../auth/tokens";
+import { usersRepository } from "../users/users.repository";
 import { toWorkspace, workspacesRepository } from "../workspaces/workspaces.repository";
 
 const INVITATION_TTL_MS = 7 * 86_400_000;
@@ -309,6 +310,14 @@ export function createMembersService({
         return membership(tx, joined, actor.userId);
       });
       if (!workspace) {
+        // Invitations go to an email address, so only a confirmed one can accept.
+        const user = await usersRepository.findById(db, actor.userId);
+        if (user && !user.emailVerifiedAt) {
+          throw errors.badRequest(
+            "email_unconfirmed",
+            "Confirm your email first: open the link we sent you, then accept the invitation again.",
+          );
+        }
         throw errors.badRequest(
           "invalid_invitation",
           "This invitation has expired, was already used, or was sent to a different email address.",

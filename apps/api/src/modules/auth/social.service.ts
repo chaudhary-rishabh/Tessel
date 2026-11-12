@@ -8,7 +8,7 @@ import { errors, isUniqueViolation } from "../../lib/errors";
 import { emails, type Mailer } from "../../lib/mailer";
 import { noAudit, type AuditRecorder } from "../../lib/audit";
 import { usersRepository } from "../users/users.repository";
-import { createAccount } from "./accounts";
+import { createAccount, resetUnverifiedAccount } from "./accounts";
 import type { LoginOutcome, SessionMeta, SignInMethod } from "./auth.service";
 import { assertNotLastSignInMethod } from "./sign-in-methods";
 import type { SocialProvider, SocialProfile } from "./social-providers";
@@ -142,6 +142,26 @@ export function createSocialService({
     try {
       return await db.transaction(async (tx) => {
         const existing = await usersRepository.findByEmail(tx, profile.email);
+        const link = (userId: string) =>
+          tx.insert(userIdentities).values({
+            userId,
+            provider: name,
+            providerUserId: profile.id,
+            email: profile.email,
+          });
+        if (existing && !existing.emailVerifiedAt) {
+          // The provider proved the email. It wasn't confirmed yet, so whoever
+          // made the account may not own it: drop every way in they set up
+          // (including sign-ins they linked), then link this one.
+          await resetUnverifiedAccount(tx, existing.id);
+          await link(existing.id);
+          const [claimed] = await tx
+            .update(users)
+            .set({ emailVerifiedAt: now() })
+            .where(eq(users.id, existing.id))
+            .returning();
+          return { user: claimed ?? existing, linked: true, created: false };
+        }
         const user =
           existing ??
           (await createAccount(tx, {
@@ -150,15 +170,7 @@ export function createSocialService({
             passwordHash: null,
             emailVerifiedAt: now(),
           }));
-        await tx.insert(userIdentities).values({
-          userId: user.id,
-          provider: name,
-          providerUserId: profile.id,
-          email: profile.email,
-        });
-        if (existing && !existing.emailVerifiedAt) {
-          await tx.update(users).set({ emailVerifiedAt: now() }).where(eq(users.id, existing.id));
-        }
+        await link(user.id);
         return { user, linked: Boolean(existing), created: !existing };
       });
     } catch (error) {

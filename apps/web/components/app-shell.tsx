@@ -16,6 +16,7 @@ import { usePathname } from "next/navigation";
 import { useId, useState, type ReactNode } from "react";
 import { useCurrentWorkspace } from "@/hooks/use-current-workspace";
 import { ThreadList } from "./chat/thread-list";
+import { EmailReminder } from "./email-reminder";
 import { UserMenu } from "./user-menu";
 import { WorkspaceSwitcher } from "./workspace-switcher";
 
@@ -111,6 +112,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </Button>
           <span className="font-display truncate font-semibold">{current?.name ?? "Tessel"}</span>
         </header>
+        <EmailReminder />
         <main className="min-h-0 flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)]">
           {children}
         </main>
