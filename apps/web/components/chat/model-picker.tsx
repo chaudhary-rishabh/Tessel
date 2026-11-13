@@ -163,6 +163,7 @@ export function ModelPicker({
               return (
                 <div key={provider.id}>
                   <DropdownMenuItem
+                    aria-label={provider.name}
                     aria-expanded={open}
                     // Keeps the menu open: this shows or hides the maker's models.
                     onSelect={(event) => {
@@ -201,7 +202,7 @@ export function ModelPicker({
             const current = provider.models.some((model) => model.id === selected?.id);
             return (
               <DropdownMenuSub key={provider.id}>
-                <DropdownMenuSubTrigger className="gap-2.5">
+                <DropdownMenuSubTrigger className="gap-2.5" aria-label={provider.name}>
                   <Monogram name={provider.name} active={current} />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-medium">{provider.name}</span>

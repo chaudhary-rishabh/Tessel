@@ -152,6 +152,8 @@ export function totpCode(secret: string, stepsAhead = 0): string {
  */
 export async function pickModel(page: Page, maker: string, model: RegExp) {
   await page.getByRole("button", { name: /^Model:/ }).click();
-  await page.getByRole("menuitem", { name: new RegExp(`^${maker}`) }).click();
+  const row = page.getByRole("menuitem", { name: maker, exact: true });
+  // On phones the selected model's maker starts open; another tap would close it.
+  if ((await row.getAttribute("aria-expanded")) !== "true") await row.click();
   await page.getByRole("menuitem", { name: model }).press("Enter");
 }
