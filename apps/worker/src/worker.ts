@@ -120,6 +120,15 @@ await systemQueue
 const store = createDocumentStore(database.db);
 // Audio and video uploads are transcribed before they're indexed.
 const transcriber = createTranscriber(env);
+// Scanned PDFs are read by a model that takes PDFs, when the registry has it.
+const ocrModel = (() => {
+  try {
+    return ai.registry.get(env.AI_OCR_MODEL).id;
+  } catch {
+    logger.warn({ model: env.AI_OCR_MODEL }, "The text recognition model isn't in the registry");
+    return undefined;
+  }
+})();
 const documentsWorker = new Worker(
   QUEUE_NAMES.documents,
   async (job) => {
@@ -127,9 +136,13 @@ const documentsWorker = new Worker(
     if (!parsed.success)
       throw new UnrecoverableError(`Invalid ingest payload: ${parsed.error.message}`);
     const isLastAttempt = job.attemptsMade + 1 >= (job.opts.attempts ?? 1);
-    return ingestDocument({ store, objects, index, ai, logger, graph, transcriber }, parsed.data, {
-      isLastAttempt,
-    });
+    return ingestDocument(
+      { store, objects, index, ai, logger, graph, transcriber, ocrModel },
+      parsed.data,
+      {
+        isLastAttempt,
+      },
+    );
   },
   // Long documents take a while to embed; keep the job's lock alive meanwhile.
   { connection, concurrency: env.INGEST_CONCURRENCY, lockDuration: 120_000 },

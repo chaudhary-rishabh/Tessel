@@ -252,7 +252,15 @@ const app = createApp({
   logger,
   db: database.db,
   ai,
-  storage: { objects, uploads, uploadEvents: env.UPLOAD_EVENTS },
+  storage: {
+    objects,
+    uploads,
+    uploadEvents: env.UPLOAD_EVENTS,
+    multipart: {
+      thresholdBytes: env.UPLOAD_MULTIPART_THRESHOLD_BYTES,
+      partBytes: env.UPLOAD_PART_BYTES,
+    },
+  },
   vectorIndex,
   memory: { episodes, queue: memoryQueue },
   graph,

@@ -15,6 +15,7 @@ import { useRouter } from "next/navigation";
 import { useCallback } from "react";
 import { replyControllers, useChatStore } from "@/lib/chat-store";
 import { useChatPreferences } from "@/lib/chat-preferences";
+import { useDocumentScope } from "@/lib/document-scope-store";
 
 export interface SendInput {
   threadId?: string;
@@ -187,6 +188,14 @@ export function useReplyStream(workspaceId: string | undefined) {
             content,
             attachmentIds: attachments.map((file) => file.id),
             ...(knowledge ? { knowledge } : {}),
+            ...(() => {
+              // Documents picked in the composer narrow the search.
+              const picked = useDocumentScope
+                .getState()
+                .for(workspaceId)
+                .map((doc) => doc.id);
+              return picked.length ? { documentIds: picked } : {};
+            })(),
             ...(mode ? { mode } : {}),
             // The server applies it only when the model reasons.
             effort: useChatPreferences.getState().effort,

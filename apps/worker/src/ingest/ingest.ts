@@ -13,6 +13,7 @@ import type { IngestJobData } from "@tessel/queue";
 import { storageKeys, type ObjectStore } from "@tessel/storage";
 import { IngestError, parseDocument, type ParsedDocument } from "./parse";
 import type { DocumentStore } from "./store";
+import { recognizeText } from "./ocr";
 import { speechAudio, transcriptSections } from "./transcribe";
 
 /** About 500 pages of dense text. Larger documents need a summary-first pipeline. */
@@ -28,6 +29,8 @@ export interface IngestDependencies {
   graph?: GraphStore | undefined;
   /** Turns audio and video into text; without it, recordings can't be added. */
   transcriber?: Transcriber | undefined;
+  /** The model that reads scanned PDFs; without it, PDFs with no text layer fail. */
+  ocrModel?: string | undefined;
 }
 
 /**
@@ -88,7 +91,7 @@ export type IngestOutcome = "ready" | "failed" | "skipped";
  * `isLastAttempt` marks the document failed before the final throw.
  */
 export async function ingestDocument(
-  { store, objects, index, ai, logger, graph, transcriber }: IngestDependencies,
+  { store, objects, index, ai, logger, graph, transcriber, ocrModel }: IngestDependencies,
   { workspaceId, documentId }: IngestJobData,
   { isLastAttempt }: { isLastAttempt: boolean },
 ): Promise<IngestOutcome> {
@@ -110,9 +113,24 @@ export async function ingestDocument(
     }
 
     const bytes = await objects.get(document.storageKey);
-    const parsed = isRecording(document.mediaType)
+    let parsed = isRecording(document.mediaType)
       ? await transcribeRecording({ ai, transcriber, logger: log }, { userId, workspaceId }, bytes)
       : await parseDocument(bytes, document.mediaType);
+    // A PDF with (almost) no text layer is a scan: read it with a model instead.
+    const textLength = parsed.sections.reduce(
+      (total, section) => total + section.text.trim().length,
+      0,
+    );
+    if (document.mediaType === "application/pdf" && ocrModel && textLength < 20) {
+      log.info({ pages: parsed.pageCount }, "Reading a scanned PDF");
+      const sections = await recognizeText(
+        ai,
+        { userId, workspaceId },
+        { bytes, filename: document.filename, pageCount: parsed.pageCount },
+        ocrModel,
+      );
+      parsed = { sections, pageCount: parsed.pageCount ?? sections.length };
+    }
     const characterCount = parsed.sections.reduce(
       (total, section) => total + section.text.length,
       0,
@@ -126,7 +144,7 @@ export async function ingestDocument(
         "no_text",
         isRecording(document.mediaType)
           ? "No speech was found in this recording"
-          : "No text was found. Scanned documents need text recognition, which isn't supported yet",
+          : "No text was found, even with text recognition",
       );
     }
     await objects.put(

@@ -137,6 +137,8 @@ export const sendMessageRequestSchema = z.object({
   attachmentIds: z.array(z.uuid()).max(MAX_ATTACHMENTS_PER_MESSAGE).default([]),
   /** Whether to search the workspace's documents: the router decides, always, or never. */
   knowledge: knowledgeModeSchema.default("auto"),
+  /** Search only these documents (and always search them). */
+  documentIds: z.array(z.uuid()).max(50).optional(),
   mode: agentModeSchema.default("auto"),
   /** For models that reason; others ignore it. Omitted means the model's own default. */
   effort: reasoningEffortSchema.optional(),

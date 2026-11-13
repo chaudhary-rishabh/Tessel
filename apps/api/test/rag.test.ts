@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { memoryVectorIndex, sparseVector } from "@tessel/ai";
 import { startMockGateway, type MockGateway } from "@tessel/ai/testing";
 import type { ChatEvent } from "@tessel/contracts";
@@ -126,6 +127,23 @@ describe("answers from documents", () => {
     ).map((row) => row.feature);
     expect(features.filter((feature) => feature === "rag")).toHaveLength(3); // router, query embedding, reranker
     expect(features).toContain("chat");
+  });
+
+  it("searches only the documents picked for a message, even when the router wouldn't", async () => {
+    const { user, base, documentId } = await userWithDocument();
+    const other = randomUUID();
+    // MOCK_DIRECT makes the router skip documents; picking them searches anyway.
+    const picked = await chat(user, base, {
+      content: "MOCK_DIRECT What is the zephyrine allowance?",
+      documentIds: [documentId],
+    });
+    expect(ofType(picked, "sources")[0]!.sources[0]!.documentId).toBe(documentId);
+
+    const elsewhere = await chat(user, base, {
+      content: "What is the zephyrine allowance?",
+      documentIds: [other],
+    });
+    expect(ofType(elsewhere, "sources").flatMap((event) => event.sources)).toEqual([]);
   });
 
   it("answers directly when the router decides documents won't help", async () => {

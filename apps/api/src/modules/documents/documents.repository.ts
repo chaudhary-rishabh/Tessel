@@ -53,7 +53,8 @@ export const documentsRepository = {
     values: Pick<
       DocumentRow,
       "id" | "workspaceId" | "userId" | "filename" | "mediaType" | "sizeBytes" | "storageKey"
-    >,
+    > &
+      Partial<Pick<DocumentRow, "uploadId">>,
   ): Promise<DocumentRow> {
     const [row] = await tx.insert(documents).values(values).returning();
     if (!row) throw new Error("Failed to insert document");
@@ -73,6 +74,10 @@ export const documentsRepository = {
       .where(and(eq(documents.id, documentId), inArray(documents.status, from)))
       .returning();
     return row;
+  },
+
+  async clearUploadId(tx: Transaction, documentId: string): Promise<void> {
+    await tx.update(documents).set({ uploadId: null }).where(eq(documents.id, documentId));
   },
 
   async remove(tx: Transaction, documentId: string): Promise<boolean> {

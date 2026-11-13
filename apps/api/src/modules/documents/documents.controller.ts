@@ -30,6 +30,12 @@ export function createDocumentsController(service: DocumentsService) {
   const complete: RequestHandler = async (req, res) => {
     res.json(await service.complete(actorFor(req), documentIdOf(req)));
   };
+  const presignParts: RequestHandler = async (req, res) => {
+    res.json(await service.presignParts(actorFor(req), documentIdOf(req), req.body));
+  };
+  const uploadedParts: RequestHandler = async (req, res) => {
+    res.json(await service.uploadedParts(actorFor(req), documentIdOf(req)));
+  };
   const reprocess: RequestHandler = async (req, res) => {
     res.json(await service.reprocess(actorFor(req), documentIdOf(req)));
   };
@@ -47,5 +53,17 @@ export function createDocumentsController(service: DocumentsService) {
   const search: RequestHandler = async (req, res) => {
     res.json(await service.search(actorFor(req), req.body));
   };
-  return { list, get, create, complete, reprocess, download, text, remove, search };
+  return {
+    list,
+    get,
+    create,
+    complete,
+    presignParts,
+    uploadedParts,
+    reprocess,
+    download,
+    text,
+    remove,
+    search,
+  };
 }

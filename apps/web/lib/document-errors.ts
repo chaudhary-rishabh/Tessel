@@ -1,7 +1,7 @@
 const MESSAGES: Record<string, string> = {
   file_missing: "The upload didn't finish. Upload the file again.",
   file_too_large: "Files can be up to 50 MB, and recordings up to 500 MB.",
-  no_text: "No text was found. Scanned documents aren't supported yet.",
+  no_text: "No text was found, even with text recognition.",
   unreadable_file: "The file couldn't be read. It may be damaged or password protected.",
   unsupported_encoding: "Text files must be UTF-8.",
   unsupported_file_type: "This file type isn't supported.",

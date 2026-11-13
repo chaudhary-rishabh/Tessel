@@ -9,6 +9,7 @@ import { useEffect, useId, useRef, useState, type ClipboardEvent, type KeyboardE
 import type { SendResult } from "@/hooks/use-send-message";
 import { MediaImage } from "@/components/media/media-image";
 import { chatErrorMessage } from "@/lib/chat-errors";
+import { useDocumentScope } from "@/lib/document-scope-store";
 import { useImageReference } from "@/lib/image-reference-store";
 import { AttachmentChip } from "./attachment-chip";
 import { DictationButton } from "./dictation-button";
@@ -70,6 +71,8 @@ export function Composer({
   const mode = useChatPreferences((state) => state.mode);
   const voiceStatus = useVoiceStatus(workspaceId);
   const setMode = useChatPreferences((state) => state.setMode);
+  const scope = useDocumentScope();
+  const scoped = scope.for(workspaceId);
   const imageId = useImageReference((state) => state.imageId);
   const clearImage = useImageReference((state) => state.clear);
 
@@ -195,6 +198,23 @@ export function Composer({
         </p>
       ) : null}
       <div className="border-line bg-surface focus-within:border-accent/60 rounded-2xl border p-2 shadow-sm transition-colors">
+        {scoped.length > 0 ? (
+          <div className="flex items-center gap-2 px-1.5 pt-1 pb-1.5 text-sm">
+            <span className="bg-accent/10 text-ink inline-flex min-w-0 items-center gap-1.5 rounded-full py-1 pr-1 pl-3">
+              <span className="truncate">
+                Searching {scoped.length === 1 ? scoped[0]!.filename : `${scoped.length} documents`}
+              </span>
+              <button
+                type="button"
+                aria-label="Search all documents"
+                onClick={scope.clear}
+                className="hover:bg-ink/10 focus-visible:outline-accent inline-flex size-6 items-center justify-center rounded-full focus-visible:outline-2"
+              >
+                <X className="size-3.5" aria-hidden="true" />
+              </button>
+            </span>
+          </div>
+        ) : null}
         {imageId ? (
           <div className="flex items-center gap-2.5 p-1.5 pb-2">
             <MediaImage
@@ -282,7 +302,7 @@ export function Composer({
               }}
             />
           ) : null}
-          <KnowledgePicker value={knowledge} onChange={setKnowledge} />
+          <KnowledgePicker workspaceId={workspaceId} value={knowledge} onChange={setKnowledge} />
           <ModePicker value={mode} onChange={setMode} />
           <div className="ml-auto flex items-center gap-1.5">
             <ModelPicker value={modelId} onChange={onModelChange} />

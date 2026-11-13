@@ -55,6 +55,7 @@ export function workspaceTools({
   requestId,
   sources,
   graph,
+  documentIds,
 }: {
   documents: DocumentsService;
   workspaceId: string;
@@ -63,6 +64,8 @@ export function workspaceTools({
   sources: Source[];
   /** The knowledge graph, when Neo4j is set up. */
   graph?: GraphService;
+  /** Documents the user picked for the message; searches stay within them. */
+  documentIds?: string[];
 }): ToolDefinition[] {
   const actor = { workspaceId, userId, ...(requestId ? { requestId } : {}) };
 
@@ -77,7 +80,11 @@ export function workspaceTools({
     }),
     risk: "read",
     async run({ query, limit }) {
-      const { hits } = await documents.search(actor, { query, limit });
+      const { hits } = await documents.search(actor, {
+        query,
+        limit,
+        ...(documentIds?.length ? { documentIds } : {}),
+      });
       const found = hits.map((hit) => {
         const existing = sources.find(
           (source) => source.documentId === hit.documentId && source.chunkIndex === hit.chunkIndex,

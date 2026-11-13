@@ -112,7 +112,13 @@ export interface AppDependencies {
   /** The registry `ai` uses, when it can be edited live (the admin app's model settings). */
   models?: LiveModelRegistry;
   /** S3 for files, SQS for upload events. */
-  storage: { objects: ObjectStore; uploads: UploadEventQueue; uploadEvents: "s3" | "api" };
+  storage: {
+    objects: ObjectStore;
+    uploads: UploadEventQueue;
+    uploadEvents: "s3" | "api";
+    /** When files go up in parts, and how big each part is. */
+    multipart?: { thresholdBytes: number; partBytes: number } | undefined;
+  };
   /** Qdrant: document chunks for search. */
   vectorIndex: VectorIndex;
   readinessChecks: DependencyCheckFn[];
@@ -345,6 +351,7 @@ export function createApp({
     objects: storage.objects,
     uploads: storage.uploads,
     uploadEvents: storage.uploadEvents,
+    ...(storage.multipart ? { multipart: storage.multipart } : {}),
     index: vectorIndex,
     logger,
   });

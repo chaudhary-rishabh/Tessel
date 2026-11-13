@@ -26,10 +26,40 @@ const ACCEPT = Object.keys(DOCUMENT_TYPES)
   .map((extension) => `.${extension}`)
   .join(",");
 
+/**
+ * Big uploads in progress, by file, so picking the same file again after a
+ * dropped connection or a reload carries on instead of starting over.
+ */
+const resumeKey = (workspaceId: string, file: File) =>
+  `tessel.upload.${workspaceId}.${file.name}.${file.size}.${file.lastModified}`;
+const remembered = {
+  get(key: string) {
+    try {
+      return window.localStorage.getItem(key) ?? undefined;
+    } catch {
+      return undefined;
+    }
+  },
+  set(key: string, documentId: string) {
+    try {
+      window.localStorage.setItem(key, documentId);
+    } catch {
+      // Without storage, an interrupted upload starts over.
+    }
+  },
+  forget(key: string) {
+    try {
+      window.localStorage.removeItem(key);
+    } catch {
+      // Nothing to forget.
+    }
+  },
+};
+
 function validate(file: File): string | undefined {
   const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
   if (!file.name.includes(".") || !Object.hasOwn(DOCUMENT_TYPES, extension)) {
-    return "Upload a PDF, Word, text, Markdown, CSV, JSON, or HTML file, or an audio or video recording";
+    return "Upload a PDF, Word, Excel, PowerPoint, text, Markdown, CSV, JSON, or HTML file, or an audio or video recording";
   }
   if (file.size === 0) return "The file is empty";
   const max = maxUploadBytes(file.name);
@@ -67,9 +97,15 @@ export function UploadZone({ workspaceId }: { workspaceId: string }) {
         },
       ]);
       if (problem) continue;
+      const key = resumeKey(workspaceId, file);
+      const resume = remembered.get(key);
       api.documents
-        .upload(workspaceId, file, (progress) => update(id, { progress }))
+        .upload(workspaceId, file, (progress) => update(id, { progress }), {
+          ...(resume ? { resume } : {}),
+          onStart: (documentId) => remembered.set(key, documentId),
+        })
         .then((document) => {
+          remembered.forget(key);
           queryClient.setQueryData<DocumentSummary[]>(
             queryKeys.documents(workspaceId),
             (current = []) => [document, ...current.filter((item) => item.id !== document.id)],
@@ -80,7 +116,8 @@ export function UploadZone({ workspaceId }: { workspaceId: string }) {
         .catch((error: unknown) =>
           update(id, {
             error:
-              error instanceof ApiClientError ? error.message : "The file couldn't be uploaded",
+              (error instanceof ApiClientError ? error.message : "The file couldn't be uploaded") +
+              (remembered.get(key) ? " Add the same file again to carry on where it stopped." : ""),
           }),
         );
     }
@@ -119,8 +156,8 @@ export function UploadZone({ workspaceId }: { workspaceId: string }) {
           <span className="text-muted"> or drop them here</span>
         </div>
         <p id={hintId} className="text-muted text-sm">
-          PDF, Word, text, Markdown, CSV, JSON, or HTML, up to 50 MB each. Audio and video
-          recordings, up to 500 MB, are transcribed.
+          PDF, Word, Excel, PowerPoint, text, Markdown, CSV, JSON, or HTML, up to 50 MB each. Audio
+          and video recordings, up to 500 MB, are transcribed.
         </p>
         <input
           ref={input}

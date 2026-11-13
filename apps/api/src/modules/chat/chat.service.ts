@@ -59,6 +59,8 @@ export interface PreparedReply {
     mode: KnowledgeMode;
     hasDocuments: boolean;
     turns: { role: "user" | "assistant"; content: string }[];
+    /** The documents the user picked for this message; searched every time. */
+    documentIds?: string[];
   };
 }
 
@@ -377,8 +379,13 @@ export function createChatService({
         ...(request.effort ? { effort: request.effort } : {}),
         memorySettings,
         knowledge: {
-          mode: request.knowledge,
+          // Documents picked for the message are always searched.
+          mode:
+            request.documentIds?.length && request.knowledge !== "off"
+              ? "always"
+              : request.knowledge,
           hasDocuments: saved.hasDocuments,
+          ...(request.documentIds?.length ? { documentIds: request.documentIds } : {}),
           // Earlier turns only; the new message is passed separately.
           turns: saved.history
             .filter((row) => row.id !== saved.userRow.id && row.content && row.status !== "error")

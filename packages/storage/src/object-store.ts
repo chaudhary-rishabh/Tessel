@@ -1,5 +1,10 @@
 import {
+  AbortMultipartUploadCommand,
+  CompleteMultipartUploadCommand,
   CreateBucketCommand,
+  CreateMultipartUploadCommand,
+  ListPartsCommand,
+  UploadPartCommand,
   DeleteObjectsCommand,
   GetObjectCommand,
   HeadBucketCommand,
@@ -27,6 +32,13 @@ export interface PresignedUpload {
   expiresAt: string;
 }
 
+/** One finished part of a multipart upload. */
+export interface UploadedPart {
+  partNumber: number;
+  size: number;
+  etag: string;
+}
+
 /** The storage operations Tessel needs, so tests can swap in memory storage. */
 export interface ObjectStore {
   readonly bucket: string;
@@ -48,6 +60,20 @@ export interface ObjectStore {
   ): Promise<string>;
   /** Cheap request that fails when the bucket is unreachable, for readiness checks. */
   ping(): Promise<void>;
+  /**
+   * Multipart uploads, for big files: the browser PUTs each part to its own
+   * presigned URL (and can resume), then the parts are joined into one object.
+   */
+  createMultipart(key: string, contentType: string): Promise<{ uploadId: string }>;
+  presignPart(
+    key: string,
+    uploadId: string,
+    partNumber: number,
+    options?: { expiresInSeconds?: number },
+  ): Promise<string>;
+  listParts(key: string, uploadId: string): Promise<UploadedPart[]>;
+  completeMultipart(key: string, uploadId: string, parts: UploadedPart[]): Promise<void>;
+  abortMultipart(key: string, uploadId: string): Promise<void>;
 }
 
 const isNotFound = (error: unknown) =>
@@ -167,6 +193,56 @@ export function createS3ObjectStore(
         }),
         { expiresIn: expiresInSeconds },
       );
+    },
+
+    async createMultipart(key, contentType) {
+      const result = await client.send(
+        new CreateMultipartUploadCommand({ Bucket, Key: key, ContentType: contentType }),
+      );
+      if (!result.UploadId) throw new Error("Storage didn't start the multipart upload");
+      return { uploadId: result.UploadId };
+    },
+
+    async presignPart(key, uploadId, partNumber, { expiresInSeconds = 3600 } = {}) {
+      return getSignedUrl(
+        signer,
+        new UploadPartCommand({ Bucket, Key: key, UploadId: uploadId, PartNumber: partNumber }),
+        { expiresIn: expiresInSeconds },
+      );
+    },
+
+    async listParts(key, uploadId) {
+      const parts: UploadedPart[] = [];
+      let marker: string | undefined;
+      do {
+        const page = await client.send(
+          new ListPartsCommand({ Bucket, Key: key, UploadId: uploadId, PartNumberMarker: marker }),
+        );
+        for (const part of page.Parts ?? []) {
+          if (part.PartNumber && part.ETag) {
+            parts.push({ partNumber: part.PartNumber, size: part.Size ?? 0, etag: part.ETag });
+          }
+        }
+        marker = page.IsTruncated ? page.NextPartNumberMarker : undefined;
+      } while (marker);
+      return parts.sort((a, b) => a.partNumber - b.partNumber);
+    },
+
+    async completeMultipart(key, uploadId, parts) {
+      await client.send(
+        new CompleteMultipartUploadCommand({
+          Bucket,
+          Key: key,
+          UploadId: uploadId,
+          MultipartUpload: {
+            Parts: parts.map((part) => ({ PartNumber: part.partNumber, ETag: part.etag })),
+          },
+        }),
+      );
+    },
+
+    async abortMultipart(key, uploadId) {
+      await client.send(new AbortMultipartUploadCommand({ Bucket, Key: key, UploadId: uploadId }));
     },
 
     async ping() {
