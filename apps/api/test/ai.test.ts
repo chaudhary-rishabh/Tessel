@@ -51,10 +51,10 @@ describe("models", () => {
     const res = await request(app).get("/models").set("Authorization", bearer(user));
 
     expect(res.status).toBe(200);
-    expect(res.body.defaultModel).toBe("anthropic/claude-sonnet-5");
+    expect(res.body.defaultModel).toBe("anthropic/claude-sonnet-5.5");
     const ids = res.body.models.map((model: { id: string }) => model.id);
-    expect(ids).toContain("anthropic/claude-sonnet-5");
-    expect(ids).not.toContain("openai/gpt-5.4-nano");
+    expect(ids).toContain("anthropic/claude-sonnet-5.5");
+    expect(ids).toContain("deepseek/deepseek-v4-flash");
     expect(ids).not.toContain("openai/text-embedding-3-small");
     expect(res.body.models[0]).not.toHaveProperty("pricing");
     expect(res.body.models[0]).not.toHaveProperty("fallback");
@@ -222,8 +222,8 @@ describe("usage", () => {
         .set("Authorization", bearer(user))
         .send({ model: "anthropic/claude-sonnet-5", ...ask("Hi") });
     };
-    expect((await complete(owner, 1_000_000)).status).toBe(200); // $3
-    expect((await complete(member, 500_000)).status).toBe(200); // $1.50
+    expect((await complete(owner, 1_000_000)).status).toBe(200); // $2
+    expect((await complete(member, 500_000)).status).toBe(200); // $1
 
     const summary = (user: SignedUpUser) =>
       request(app)
@@ -237,7 +237,7 @@ describe("usage", () => {
       calls: 2,
       inputTokens: 1_500_000,
       outputTokens: 0,
-      costUsd: 4.5,
+      costUsd: 3,
     });
     expect(ownerView.body.byModel).toEqual([
       {
@@ -246,21 +246,21 @@ describe("usage", () => {
         calls: 2,
         inputTokens: 1_500_000,
         outputTokens: 0,
-        costUsd: 4.5,
+        costUsd: 3,
       },
     ]);
     expect(ownerView.body.byFeature[0]).toMatchObject({ feature: "completion", calls: 2 });
     expect(ownerView.body.byDay).toEqual([
-      { day: new Date().toISOString().slice(0, 10), calls: 2, costUsd: 4.5 },
+      { day: new Date().toISOString().slice(0, 10), calls: 2, costUsd: 3 },
     ]);
     expect(ownerView.body.today).toMatchObject({
-      user: { spentUsd: 3, limitUsd: 100 },
-      workspace: { spentUsd: 4.5, limitUsd: 100 },
+      user: { spentUsd: 2, limitUsd: 100 },
+      workspace: { spentUsd: 3, limitUsd: 100 },
     });
 
     const memberView = await summary(member);
     expect(memberView.body.scope).toBe("user");
-    expect(memberView.body.totals).toMatchObject({ calls: 1, costUsd: 1.5 });
+    expect(memberView.body.totals).toMatchObject({ calls: 1, costUsd: 1 });
   });
 
   it("hides other workspaces' usage", async () => {

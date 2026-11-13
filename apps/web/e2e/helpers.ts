@@ -144,3 +144,14 @@ export function totpCode(secret: string, stepsAhead = 0): string {
   const offset = hmac[hmac.length - 1]! & 15;
   return String((hmac.readUInt32BE(offset) & 0x7fffffff) % 1_000_000).padStart(6, "0");
 }
+
+/**
+ * Picks a model: the maker first (its models open beside it on wide screens,
+ * or below it on phones), then the model. The model is chosen with the
+ * keyboard, so the pointer never leaves the maker's row on its way there.
+ */
+export async function pickModel(page: Page, maker: string, model: RegExp) {
+  await page.getByRole("button", { name: /^Model:/ }).click();
+  await page.getByRole("menuitem", { name: new RegExp(`^${maker}`) }).click();
+  await page.getByRole("menuitem", { name: model }).press("Enter");
+}

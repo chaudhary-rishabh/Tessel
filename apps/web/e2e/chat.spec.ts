@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { openNavigation, signUp } from "./helpers";
+import { openNavigation, pickModel, signUp } from "./helpers";
 
 const PNG = Buffer.from(
   "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d49444154789c6360000002000154a24f5d0000000049454e44ae426082",
@@ -131,11 +131,29 @@ test.describe("chat", () => {
 
   test("remembers the chosen model for new chats", async ({ page }) => {
     await signUp(page);
-    await page.getByRole("button", { name: /^Model:/ }).click();
-    await page.getByRole("menuitem", { name: /GPT-5.4 mini/ }).click();
+    await pickModel(page, "OpenAI", /^GPT-5\.4 mini/);
     await expect(page.getByRole("button", { name: "Model: GPT-5.4 mini" })).toBeVisible();
     await page.reload();
     await expect(page.getByRole("button", { name: "Model: GPT-5.4 mini" })).toBeVisible();
+  });
+
+  test("sets how hard a reasoning model thinks", async ({ page, isMobile }) => {
+    await signUp(page);
+    const model = page.getByRole("button", { name: /^Model:/ });
+    await model.click();
+    if (isMobile) {
+      // Phones show the three levels in the menu itself.
+      await page.getByRole("menuitemradio", { name: "High" }).press("Enter");
+      await expect(page.getByRole("menuitemradio", { name: "High" })).toHaveAttribute(
+        "aria-checked",
+        "true",
+      );
+    } else {
+      await page.getByRole("menuitem", { name: "Effort: Medium" }).click();
+      await page.getByRole("menuitem", { name: /^High/ }).press("Enter");
+      await model.click();
+      await expect(page.getByRole("menuitem", { name: "Effort: High" })).toBeVisible();
+    }
   });
 
   test("renames and deletes a chat from the sidebar", async ({ page }) => {

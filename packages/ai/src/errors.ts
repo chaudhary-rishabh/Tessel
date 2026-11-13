@@ -49,6 +49,36 @@ export class AiNotConfiguredError extends AiError {
   }
 }
 
+/**
+ * The AI provider refused the model for billing reasons: the gateway account
+ * has no credits, or is on a free tier that doesn't include this model.
+ */
+export class ModelNeedsCreditsError extends AiError {
+  constructor(modelId: string, cause: unknown) {
+    super(
+      402,
+      "model_needs_credits",
+      "This model isn't included in the AI plan on this server. Pick another model",
+      { model: modelId },
+    );
+    this.cause = cause;
+  }
+}
+
+const CREDITS_REFUSAL = /credit|free tier|top.?up|insufficient (funds|balance|quota)|billing/i;
+
+/** Whether a provider error (or one it wraps) says the account can't pay for the model. */
+export function isCreditsRefusal(error: unknown): boolean {
+  let current: unknown = error;
+  for (let depth = 0; current && depth < 5; depth += 1) {
+    const status = (current as { status?: unknown }).status;
+    const message = current instanceof Error ? current.message : String(current);
+    if ((status === 402 || status === 403) && CREDITS_REFUSAL.test(message)) return true;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
 export class ModelUnavailableError extends AiError {
   constructor(modelId: string, cause: unknown) {
     super(502, "model_unavailable", "The model couldn't be reached. Try again in a moment", {

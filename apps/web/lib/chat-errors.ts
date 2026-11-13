@@ -3,6 +3,8 @@ const MESSAGES: Record<string, string> = {
   content_blocked: "This message can't be sent because it breaks the usage policy.",
   daily_cost_cap_reached: "You've reached today's AI usage limit. It resets at midnight UTC.",
   model_unavailable: "The model couldn't finish this reply. Try again.",
+  model_needs_credits:
+    "This model isn't included in the AI plan on this server yet. Pick another model.",
   model_cannot_read_images:
     "This model can't read images. Pick a model that can, or remove the image.",
   model_not_found: "That model isn't available any more. Pick another one.",

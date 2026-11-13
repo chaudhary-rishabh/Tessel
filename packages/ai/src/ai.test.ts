@@ -6,10 +6,11 @@ import {
   AiNotConfiguredError,
   ContentBlockedError,
   CostCapExceededError,
+  ModelNeedsCreditsError,
   ModelNotFoundError,
   ModelUnavailableError,
 } from "./errors";
-import { loadModelRegistry } from "./registry";
+import { createModelRegistry, loadModelRegistry } from "./registry";
 import { createSpendGuard, memorySpendStore, type SpendLimits } from "./spend";
 import { memoryLedger, startMockGateway, type MockGateway } from "./testing";
 import type { AiCallContext } from "./usage";
@@ -78,8 +79,8 @@ describe("complete", () => {
     expect(result.text).toBe("Hello there");
     expect(result.route).toBe("gateway");
     expect(result.usage).toMatchObject({ inputTokens: 1000, outputTokens: 500 });
-    // $3 per million input, $15 per million output.
-    expect(result.costNanoUsd).toBe(1000 * 3_000 + 500 * 15_000);
+    // $2 per million input, $10 per million output.
+    expect(result.costNanoUsd).toBe(1000 * 2_000 + 500 * 10_000);
 
     const [moderation, chat] = ledger.events;
     expect(moderation).toMatchObject({
@@ -109,7 +110,7 @@ describe("complete", () => {
   it("uses the default chat model when none is named", async () => {
     const { ai } = setup({ moderation: { mode: "off", failure: "allow" } });
     const result = await ai.complete(context, { messages: [{ role: "user", content: "Hi" }] });
-    expect(result.model.id).toBe("anthropic/claude-sonnet-5");
+    expect(result.model.id).toBe("anthropic/claude-sonnet-5.5");
     expect(result.text).toBe("Echo: Hi");
   });
 
@@ -157,7 +158,7 @@ describe("complete", () => {
     const { ai } = setup();
     await expect(
       ai.complete(context, {
-        model: "openai/gpt-5.4-nano",
+        model: "openai/text-embedding-3-small",
         messages: [{ role: "user", content: "Hi" }],
       }),
     ).rejects.toBeInstanceOf(ModelNotFoundError);
@@ -243,6 +244,48 @@ describe("emergency fallback", () => {
     }
     expect(streamed).toBe("Streaming from Anthropic now");
     expect(direct.requests.at(-1)!.body.stream).toBe(true);
+  });
+
+  it("asks reasoning models for the chosen effort, and leaves others alone", async () => {
+    const { ai } = setup(noModeration);
+    gateway.enqueue({ text: "thought about it" }, { text: "just answered" });
+
+    await ai
+      .chatModel(context, "anthropic/claude-sonnet-5.5", { effort: "high" })
+      .invoke([{ role: "user", content: "Hi" }]);
+    expect(chatRequests(gateway).at(-1)!.body.reasoning).toEqual({ effort: "high" });
+
+    // The same catalog, but with a model that doesn't reason.
+    const roles = ["chat", "utility", "moderation", "embedding"] as const;
+    const withoutReasoning = createModelRegistry({
+      defaults: Object.fromEntries(roles.map((role) => [role, registry.forRole(role).id])),
+      models: registry
+        .list()
+        .map((model) =>
+          model.id === "openai/gpt-5.4-mini" ? { ...model, capabilities: ["tools"] } : model,
+        ),
+    });
+    const plain = setup({ ...noModeration, registry: withoutReasoning });
+    await plain.ai
+      .chatModel(context, "openai/gpt-5.4-mini", { effort: "high" })
+      .invoke([{ role: "user", content: "Hi" }]);
+    expect(chatRequests(gateway).at(-1)!.body).not.toHaveProperty("reasoning");
+  });
+
+  it("says when the AI account can't pay for a model", async () => {
+    // With no direct provider key to fall back to.
+    const { ai } = setup({ ...noModeration, fallback: {} });
+    gateway.enqueue({
+      status: 403,
+      errorMessage: "Free tier users do not have access to this model. Upgrade to paid credits.",
+    });
+
+    await expect(
+      ai.complete(context, {
+        model: "openai/gpt-5.4-mini",
+        messages: [{ role: "user", content: "Hi" }],
+      }),
+    ).rejects.toBeInstanceOf(ModelNeedsCreditsError);
   });
 
   it("doesn't fall back when the request itself is invalid", async () => {

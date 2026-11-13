@@ -101,7 +101,7 @@ describe("chat", () => {
       .set("Authorization", bearer(user));
     expect(thread.body.thread).toMatchObject({
       title: "Plan a launch for",
-      modelId: "anthropic/claude-sonnet-5",
+      modelId: "anthropic/claude-sonnet-5.5",
     });
     expect(
       thread.body.messages.map((m: { role: string; status: string }) => [m.role, m.status]),
@@ -459,6 +459,21 @@ describe("attachments", () => {
     const reused = await send(user, base, { content: "Again", attachmentIds: [file.body.id] });
     expect(reused.res.status).toBe(400);
     expect(reused.res.body.error.code).toBe("invalid_attachments");
+  });
+
+  it("passes the chosen effort to reasoning models", async () => {
+    const { user, base } = await setup();
+    const before = chatRequests().length;
+    const { res } = await send(user, base, { content: "Think hard about this", effort: "high" });
+    expect(res.status).toBe(200);
+    // The reply itself, not the title or moderation calls made with the utility model.
+    const reply = chatRequests()
+      .slice(before)
+      .find((request) => request.body.model === "anthropic/claude-sonnet-5.5");
+    expect(reply?.body.reasoning).toEqual({ effort: "high" });
+
+    const invalid = await send(user, base, { content: "Hi", effort: "extreme" });
+    expect(invalid.res.status).toBe(400);
   });
 
   it("sends images to models that can read them", async () => {

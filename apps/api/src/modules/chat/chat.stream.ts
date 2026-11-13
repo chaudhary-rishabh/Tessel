@@ -2,6 +2,8 @@ import { SystemMessage, type BaseMessage } from "@langchain/core/messages";
 import {
   AiError,
   citedSourceIds,
+  isCreditsRefusal,
+  ModelNeedsCreditsError,
   createToolRegistry,
   loadSkillTool,
   resumeOrchestrator,
@@ -20,7 +22,7 @@ import {
   type Source,
   type ToolCallRecord,
 } from "@tessel/ai";
-import type { ChatEvent, ChatMessage } from "@tessel/contracts";
+import type { ChatEvent, ChatMessage, ReasoningEffort } from "@tessel/contracts";
 import type { AgentRunRow, MessageSource } from "@tessel/db";
 import type { Logger } from "@tessel/logger";
 import { AppError } from "../../lib/errors";
@@ -65,6 +67,10 @@ export function openEventStream(res: Response) {
 
 function publicError(error: unknown): { code: string; message: string } {
   if (error instanceof AiError) return { code: error.code, message: error.message };
+  if (isCreditsRefusal(error)) {
+    const { code, message } = new ModelNeedsCreditsError("", error);
+    return { code, message };
+  }
   return { code: "model_unavailable", message: "The model couldn't finish this reply. Try again" };
 }
 
@@ -91,6 +97,8 @@ interface Drive {
   threadId: string;
   messageId: string;
   modelId: string;
+  /** How hard a reasoning model thinks; unset means the model's default. */
+  effort?: ReasoningEffort;
   /** Whether the model can call tools; models that can't just answer. */
   canUseTools: boolean;
   /** Skills the agent can load with load_skill. */
@@ -186,8 +194,14 @@ async function drive(run: Drive): Promise<void> {
   const helper = { ...context, feature: "agent" as const };
   const options: OrchestratorOptions = {
     // The thread is the session: follow-up calls reuse the provider's prompt cache.
-    model: deps.ai.chatModel(context, run.modelId, { sessionId: run.threadId }),
-    thinker: deps.ai.chatModel(helper, run.modelId, { sessionId: run.threadId }),
+    model: deps.ai.chatModel(context, run.modelId, {
+      sessionId: run.threadId,
+      ...(run.effort ? { effort: run.effort } : {}),
+    }),
+    thinker: deps.ai.chatModel(helper, run.modelId, {
+      sessionId: run.threadId,
+      ...(run.effort ? { effort: run.effort } : {}),
+    }),
     critic: deps.ai.chatModel(helper, deps.ai.registry.forRole("utility").id, { temperature: 0 }),
     tools,
     workers: connectors?.names.length
@@ -456,6 +470,7 @@ async function replyOnStream({
     threadId: prepared.thread.id,
     messageId: prepared.assistantMessageId,
     modelId: prepared.model.id,
+    ...(prepared.effort ? { effort: prepared.effort } : {}),
     canUseTools,
     skills,
     memorySettings: prepared.memorySettings,

@@ -19,6 +19,8 @@ import {
   AiNotConfiguredError,
   ContentBlockedError,
   ModelNotFoundError,
+  isCreditsRefusal,
+  ModelNeedsCreditsError,
   ModelUnavailableError,
 } from "./errors";
 import {
@@ -73,7 +75,16 @@ export interface ChatModelOptions {
    * that holds the prompt cache.
    */
   sessionId?: string;
+  /**
+   * How hard a reasoning model thinks before answering. Sent as the gateway's
+   * `reasoning.effort`, which it maps to each provider's own setting; ignored
+   * for models that don't reason.
+   */
+  effort?: ReasoningEffort;
 }
+
+/** Reasoning effort levels offered in the model picker. */
+export type ReasoningEffort = "low" | "medium" | "high";
 
 export interface CompletionMessage {
   role: "user" | "assistant";
@@ -157,7 +168,12 @@ export function createAi(options: AiOptions): Ai {
               : {}),
           },
           // Prompt caching: the gateway adds cache markers for providers that need them (Anthropic).
-          modelKwargs: { providerOptions: { gateway: { caching: "auto" } } },
+          modelKwargs: {
+            providerOptions: { gateway: { caching: "auto" } },
+            ...(chatOptions.effort && info.capabilities.includes("reasoning")
+              ? { reasoning: { effort: chatOptions.effort } }
+              : {}),
+          },
           // The gateway already retries across providers; fail over to the next route quickly.
           maxRetries: 1,
           timeout: timeoutMs,
@@ -349,6 +365,7 @@ export function createAi(options: AiOptions): Ai {
       });
     } catch (error) {
       if (error instanceof AiError || request.signal?.aborted) throw error;
+      if (isCreditsRefusal(error)) throw new ModelNeedsCreditsError(info.id, error);
       throw new ModelUnavailableError(info.id, error);
     }
 

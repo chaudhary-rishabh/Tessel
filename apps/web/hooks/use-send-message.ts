@@ -14,6 +14,7 @@ import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useCallback } from "react";
 import { replyControllers, useChatStore } from "@/lib/chat-store";
+import { useChatPreferences } from "@/lib/chat-preferences";
 
 export interface SendInput {
   threadId?: string;
@@ -186,6 +187,8 @@ export function useReplyStream(workspaceId: string | undefined) {
             attachmentIds: attachments.map((file) => file.id),
             ...(knowledge ? { knowledge } : {}),
             ...(mode ? { mode } : {}),
+            // The server applies it only when the model reasons.
+            effort: useChatPreferences.getState().effort,
             ...(threadId ? { threadId } : {}),
             ...(model ? { model } : {}),
             ...(editMessageId ? { editMessageId } : {}),
