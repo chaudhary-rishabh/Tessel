@@ -144,6 +144,7 @@ export function useReplyStream(workspaceId: string | undefined) {
           : item,
       ),
       agentMode: live?.agentMode ?? null,
+      voiceSessionId: null,
     };
   };
 

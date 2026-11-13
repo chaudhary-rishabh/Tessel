@@ -21,7 +21,7 @@ test.describe("chat", () => {
 
     await expect(page).toHaveURL(/\/chat\/[0-9a-f-]{36}$/);
     await expect(messages(page).getByText("Echo: Plan the team offsite in March")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Send message" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Stop response" })).toHaveCount(0);
 
     await openNavigation(page);
     await expect(page.getByRole("link", { name: "Plan the team offsite" })).toBeVisible();
@@ -98,7 +98,7 @@ test.describe("chat", () => {
 
     // Retrying writes the last reply again, still with two messages.
     await page.getByRole("button", { name: "Retry reply" }).click();
-    await expect(page.getByRole("button", { name: "Send message" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Stop response" })).toHaveCount(0);
     await expect(messages(page).getByText("Echo: A sharper first idea")).toBeVisible();
     await page.reload();
     await expect(messages(page).getByRole("listitem")).toHaveCount(2);

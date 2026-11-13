@@ -83,6 +83,7 @@ export const useChatStore = create<ChatStore>()((set) => ({
             toolCalls: [],
             activity: [],
             agentMode: null,
+            voiceSessionId: null,
           },
           assistantMessageId: null,
           text: "",

@@ -23,6 +23,7 @@ import type { VoiceRuntime } from "../src/runtime";
 import { runVoiceSession, SPEND_LIMIT_MESSAGE } from "../src/session";
 import { GatewaySTT } from "../src/speech/gateway-stt";
 import { gatewayTTS, TTS_SAMPLE_RATE } from "../src/speech/gateway-tts";
+import { createMockSpeech, MOCK_TRANSCRIPT } from "../src/speech/mock";
 import type { SpeechProviders } from "../src/speech/providers";
 import { createVoiceStore } from "../src/store";
 
@@ -407,6 +408,36 @@ describe("a voice conversation", () => {
     expect(ended).toEqual({ status: "ended", end_reason: "spend_limit" });
     expect(speech.spoken.join(" ")).toBe(SPEND_LIMIT_MESSAGE);
     expect(gateway.requests.filter((r) => r.path.endsWith("/chat/completions"))).toHaveLength(0);
+  });
+
+  it("runs on the offline mock speech, as development and browser tests do", async () => {
+    const seeded = await seedSession();
+    gateway.reset();
+    const microphone = new Microphone();
+    const speaker = new Speaker();
+    const session = await runVoiceSession(job(seeded.sessionId), runtimeWith(), {
+      speech: createMockSpeech(),
+      turnDetection: "stt",
+      io: { input: microphone, output: speaker },
+    });
+    microphone.start();
+    const saved = await eventually(
+      async () =>
+        (
+          await owner.query<{ role: string; content: string }>(
+            "select role, content from messages where thread_id = $1 order by created_at",
+            [seeded.threadId],
+          )
+        ).rows,
+      (rows) => rows.length >= 2,
+    );
+    microphone.stop();
+    await session?.close();
+    expect(saved).toEqual([
+      { role: "user", content: MOCK_TRANSCRIPT },
+      { role: "assistant", content: `Echo: ${MOCK_TRANSCRIPT}` },
+    ]);
+    expect(speaker.frames).toBeGreaterThan(0);
   });
 
   it("leaves a session that already ended", async () => {

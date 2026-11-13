@@ -3,7 +3,7 @@
 import type { ChatMessage } from "@tessel/contracts";
 import { useModels } from "@tessel/api-client/react";
 import { Button } from "@tessel/ui";
-import { CircleAlert, Pencil, RotateCcw } from "lucide-react";
+import { AudioLines, CircleAlert, Pencil, RotateCcw } from "lucide-react";
 import { useId, useState } from "react";
 import { chatErrorMessage } from "@/lib/chat-errors";
 import type { LiveReply } from "@/lib/chat-store";
@@ -103,6 +103,7 @@ function UserMessage({
       <div className="bg-paper border-line max-w-[85%] rounded-2xl rounded-br-md border px-4 py-2.5 [overflow-wrap:anywhere] whitespace-pre-wrap">
         {message.content}
       </div>
+      {message.voiceSessionId ? <Spoken /> : null}
       {onEdit ? (
         <div className="text-muted flex gap-1 transition-opacity pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:focus-within:opacity-100">
           <CopyButton text={message.content} label="Copy message" />
@@ -117,6 +118,16 @@ function UserMessage({
         </div>
       ) : null}
     </div>
+  );
+}
+
+/** Marks a message that was said in a voice conversation rather than typed. */
+function Spoken() {
+  return (
+    <span className="text-muted inline-flex items-center gap-1 text-xs">
+      <AudioLines className="size-3.5" aria-hidden="true" />
+      Spoken
+    </span>
   );
 }
 
@@ -156,7 +167,7 @@ function AssistantMessage({
   message: Pick<
     ChatMessage,
     "content" | "status" | "errorCode" | "sources" | "toolCalls" | "activity" | "agentMode"
-  >;
+  > & { voiceSessionId?: string | null };
   streaming?: boolean;
   searching?: boolean;
   modelLabel?: string | undefined;
@@ -208,6 +219,7 @@ function AssistantMessage({
             </button>
           ) : null}
           {message.status === "stopped" ? <span>Stopped</span> : null}
+          {message.voiceSessionId ? <Spoken /> : null}
           {modelLabel ? (
             <span className="transition-opacity pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100">
               {modelLabel}

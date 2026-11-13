@@ -68,6 +68,11 @@ import {
   searchResponseSchema,
   skillListResponseSchema,
   memoryResponseSchema,
+  voiceSessionSchema,
+  voiceStatusSchema,
+  type CreateVoiceSessionRequest,
+  type VoiceSession,
+  type VoiceStatus,
   memorySchema,
   memorySettingsSchema,
   accessTokenListResponseSchema,
@@ -596,6 +601,23 @@ export function createApi(client: ApiClient) {
           searchResponseSchema,
           (await http.post(`/workspaces/${workspaceId}/search`, input)).data,
         ),
+    },
+    voice: {
+      /** Whether this server offers voice conversations. */
+      status: async (workspaceId: string): Promise<VoiceStatus> =>
+        parse(voiceStatusSchema, (await http.get(`/workspaces/${workspaceId}/voice/status`)).data),
+      /** Starts a conversation: a new chat, or `threadId` continued by voice. */
+      start: async (
+        workspaceId: string,
+        input: CreateVoiceSessionRequest = {},
+      ): Promise<VoiceSession> =>
+        parse(
+          voiceSessionSchema,
+          (await http.post(`/workspaces/${workspaceId}/voice/sessions`, input)).data,
+        ),
+      end: async (workspaceId: string, sessionId: string): Promise<void> => {
+        await http.post(`/workspaces/${workspaceId}/voice/sessions/${sessionId}/end`);
+      },
     },
     usage: {
       summary: async (workspaceId: string, days = 30): Promise<UsageSummary> =>

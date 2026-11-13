@@ -8,6 +8,7 @@ import { useChatModel } from "@/hooks/use-chat-model";
 import { useChatPreferences } from "@/lib/chat-preferences";
 import { useCurrentWorkspace } from "@/hooks/use-current-workspace";
 import { useSendMessage } from "@/hooks/use-send-message";
+import { useStartVoice } from "@/hooks/use-voice";
 import { replyControllers, useChatStore } from "@/lib/chat-store";
 import { useSessionStore } from "@/lib/session-store";
 
@@ -36,6 +37,7 @@ export default function NewChatPage() {
   const mode = useChatPreferences((state) => state.mode);
   const send = useSendMessage(current?.id);
   const { modelId, setModelId } = useChatModel();
+  const startVoice = useStartVoice(current?.id);
   // A new chat waiting for the server to create it (the page then moves to the chat).
   const pending = useChatStore((state) =>
     Object.values(state.replies).find((reply) => reply.threadId === null),
@@ -69,6 +71,7 @@ export default function NewChatPage() {
         onModelChange={setModelId}
         onSend={onSend}
         onStop={() => (pending ? replyControllers.stop(pending.key) : undefined)}
+        onVoice={startVoice ? () => startVoice(modelId ? { model: modelId } : {}) : undefined}
         streaming={Boolean(pending)}
         placeholder="How can I help today?"
         autoFocus

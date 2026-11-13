@@ -127,7 +127,9 @@ services:
   # browsers on this machine reach it at ws://localhost:7880.
   livekit:
     image: livekit/livekit-server:v1.13.11
-    command: ["--dev", "--bind", "0.0.0.0"]
+    # Media on one UDP port (and TCP as a fallback), offered at 127.0.0.1 so a
+    # browser on this machine reaches the container on every OS.
+    command: ["--dev", "--bind", "0.0.0.0", "--node-ip", "127.0.0.1", "--udp-port", "7882"]
     ports:
       - "127.0.0.1:7880:7880"
       - "127.0.0.1:7881:7881"

@@ -73,6 +73,8 @@ export const messageSchema = z.object({
   toolCalls: z.array(toolCallSchema).default([]),
   activity: z.array(activityItemSchema).default([]),
   agentMode: agentModeSchema.nullable().default(null),
+  /** Set when the message was spoken in a voice conversation. */
+  voiceSessionId: z.uuid().nullable().default(null),
 });
 
 export const threadSummarySchema = z.object({

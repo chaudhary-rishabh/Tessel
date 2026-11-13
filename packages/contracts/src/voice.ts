@@ -40,3 +40,6 @@ export type VoiceDispatchMetadata = z.infer<typeof voiceDispatchMetadataSchema>;
 
 /** The LiveKit agent name the API dispatches and the voice agent registers as. */
 export const VOICE_AGENT_NAME = "tessel-voice";
+
+/** RPC the browser calls on the agent to stop it mid-sentence (tapping the voice visual). */
+export const VOICE_INTERRUPT_RPC = "tessel.interrupt";

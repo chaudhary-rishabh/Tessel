@@ -139,3 +139,46 @@ export function Sheet({
     </DialogPrimitive.Root>
   );
 }
+
+/**
+ * A full-screen layer that takes over the app while it's open, such as a
+ * voice conversation. Escape calls `onClose`; focus stays inside.
+ */
+export function Takeover({
+  label,
+  onClose,
+  children,
+  className,
+}: {
+  /** The layer's accessible name. */
+  label: string;
+  onClose: () => void;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <DialogPrimitive.Root open onOpenChange={(open) => (open ? undefined : onClose())}>
+      <DialogPrimitive.Portal>
+        <DialogPrimitive.Content
+          aria-describedby={undefined}
+          // Clicks outside can't happen (it covers the screen); only Escape closes it.
+          onPointerDownOutside={(event) => event.preventDefault()}
+          // Focus the layer itself, not its first button, so nothing looks selected on open.
+          onOpenAutoFocus={(event) => {
+            event.preventDefault();
+            (event.currentTarget as HTMLElement | null)?.focus();
+          }}
+          className={cn(
+            "fixed inset-0 z-50 flex flex-col focus:outline-none",
+            "pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]",
+            "data-[state=open]:animate-[fade-in_220ms_ease-out] motion-reduce:animate-none",
+            className,
+          )}
+        >
+          <DialogPrimitive.Title className="sr-only">{label}</DialogPrimitive.Title>
+          {children}
+        </DialogPrimitive.Content>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
+  );
+}

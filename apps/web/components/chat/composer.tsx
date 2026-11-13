@@ -4,7 +4,7 @@ import { ApiClientError } from "@tessel/api-client";
 import { useApi } from "@tessel/api-client/react";
 import { MAX_ATTACHMENTS_PER_MESSAGE, type Attachment } from "@tessel/contracts";
 import { cn } from "@tessel/ui";
-import { ArrowUp, Paperclip, Square } from "lucide-react";
+import { ArrowUp, AudioLines, Paperclip, Square } from "lucide-react";
 import { useEffect, useId, useRef, useState, type ClipboardEvent, type KeyboardEvent } from "react";
 import type { SendResult } from "@/hooks/use-send-message";
 import { chatErrorMessage } from "@/lib/chat-errors";
@@ -36,6 +36,7 @@ export function Composer({
   onModelChange,
   onSend,
   onStop,
+  onVoice,
   streaming = false,
   placeholder = "Message Tessel",
   autoFocus = false,
@@ -46,6 +47,8 @@ export function Composer({
   onModelChange: (modelId: string) => void;
   onSend: (content: string, attachments: Attachment[]) => Promise<SendResult>;
   onStop?: () => void;
+  /** Starts a voice conversation; offered in place of Send while nothing is typed. */
+  onVoice?: (() => void) | undefined;
   streaming?: boolean;
   placeholder?: string;
   autoFocus?: boolean;
@@ -240,18 +243,29 @@ export function Composer({
           <ModePicker value={mode} onChange={setMode} />
           <div className="ml-auto flex items-center gap-1.5">
             <ModelPicker value={modelId} onChange={onModelChange} />
-            <button
-              type="submit"
-              disabled={!streaming && !canSend}
-              aria-label={streaming ? "Stop response" : "Send message"}
-              className="bg-accent text-accent-ink hover:bg-accent-strong focus-visible:outline-accent flex size-10 items-center justify-center rounded-full focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-40"
-            >
-              {streaming ? (
-                <Square className="size-4 fill-current" aria-hidden="true" />
-              ) : (
-                <ArrowUp className="size-5" aria-hidden="true" />
-              )}
-            </button>
+            {onVoice && !streaming && text.trim().length === 0 && files.length === 0 ? (
+              <button
+                type="button"
+                onClick={onVoice}
+                aria-label="Start voice conversation"
+                className="bg-accent text-accent-ink hover:bg-accent-strong focus-visible:outline-accent flex size-10 items-center justify-center rounded-full focus-visible:outline-2 focus-visible:outline-offset-2"
+              >
+                <AudioLines className="size-5" aria-hidden="true" />
+              </button>
+            ) : (
+              <button
+                type="submit"
+                disabled={!streaming && !canSend}
+                aria-label={streaming ? "Stop response" : "Send message"}
+                className="bg-accent text-accent-ink hover:bg-accent-strong focus-visible:outline-accent flex size-10 items-center justify-center rounded-full focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-40"
+              >
+                {streaming ? (
+                  <Square className="size-4 fill-current" aria-hidden="true" />
+                ) : (
+                  <ArrowUp className="size-5" aria-hidden="true" />
+                )}
+              </button>
+            )}
           </div>
         </div>
       </div>

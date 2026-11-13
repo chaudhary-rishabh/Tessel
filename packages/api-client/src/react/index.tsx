@@ -84,6 +84,7 @@ export const queryKeys = {
   thread: (workspaceId: string, threadId: string) =>
     ["workspaces", workspaceId, "threads", threadId] as const,
   usage: (workspaceId: string, days: number) => ["workspaces", workspaceId, "usage", days] as const,
+  voiceStatus: (workspaceId: string) => ["workspaces", workspaceId, "voice", "status"] as const,
 };
 
 type QueryOptions<T> = Omit<UseQueryOptions<T, ApiClientError>, "queryKey" | "queryFn">;
@@ -151,6 +152,17 @@ export function useModels(options: QueryOptions<ModelListResponse> = {}) {
     queryFn: api.models.list,
     staleTime: 10 * 60_000,
     ...options,
+  });
+}
+
+/** Whether voice conversations are offered; the voice button shows only when they are. */
+export function useVoiceStatus(workspaceId: string | undefined) {
+  const api = useApi();
+  return useQuery({
+    queryKey: queryKeys.voiceStatus(workspaceId ?? "none"),
+    queryFn: () => api.voice.status(workspaceId!),
+    enabled: Boolean(workspaceId),
+    staleTime: 10 * 60_000,
   });
 }
 
