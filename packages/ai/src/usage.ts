@@ -13,7 +13,8 @@ export type UsageFeature =
   | "agent"
   | "memory"
   | "search"
-  | "graph";
+  | "graph"
+  | "voice";
 
 /** Who a model call is for. Always taken from the session, never from model output. */
 export interface AiCallContext {

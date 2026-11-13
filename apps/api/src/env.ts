@@ -85,6 +85,16 @@ export const envSchema = z
     /** India's DLT registration, needed to text Indian numbers through SNS. */
     SMS_DLT_ENTITY_ID: optional,
     SMS_DLT_TEMPLATE_ID: optional,
+    /**
+     * Voice mode. The browser joins LIVEKIT_PUBLIC_URL (wss://…); the API talks
+     * to LIVEKIT_URL to end rooms. Voice is off without a key and secret.
+     */
+    LIVEKIT_URL: optional,
+    LIVEKIT_PUBLIC_URL: optional,
+    LIVEKIT_API_KEY: optional,
+    LIVEKIT_API_SECRET: optional,
+    /** The longest one voice conversation can run. */
+    VOICE_MAX_SESSION_MINUTES: z.coerce.number().int().positive().default(30),
     ...aiEnvShape,
     ...storageEnvShape,
     ...connectorsEnvShape,

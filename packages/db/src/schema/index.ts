@@ -12,3 +12,4 @@ export * from "./memories";
 export * from "./members";
 export * from "./settings";
 export * from "./billing";
+export * from "./voice";
