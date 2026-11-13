@@ -32,6 +32,11 @@ if [[ ",$COMPOSE_PROFILES," == *",edge,"* ]]; then
   done
 fi
 
+if [[ ",$COMPOSE_PROFILES," == *",voice,"* && ",$COMPOSE_PROFILES," == *",edge,"* && -z "${RTC_DOMAIN:-}" ]]; then
+  echo "RTC_DOMAIN must be set in deploy.env when the voice and edge profiles are on" >&2
+  exit 1
+fi
+
 # Caddy serves the web app's domain only when the web app runs on this host.
 # Otherwise (the web app on Vercel) it would keep asking Let's Encrypt for a
 # certificate for a domain that points somewhere else.
@@ -42,6 +47,17 @@ if [[ ",$COMPOSE_PROFILES," == *",web,"* ]]; then
 {$WEB_DOMAIN} {
 	import common
 	reverse_proxy web:3000
+}
+CADDY
+fi
+# Likewise LiveKit's signalling domain, only with the voice profile on.
+rm -f caddy-sites/rtc.caddy
+if [[ ",$COMPOSE_PROFILES," == *",voice,"* ]]; then
+  cat >caddy-sites/rtc.caddy <<'CADDY'
+{$RTC_DOMAIN} {
+	header -Server
+	# A WebSocket per call; audio itself goes straight to LiveKit over UDP or TCP.
+	reverse_proxy livekit:7880
 }
 CADDY
 fi
@@ -98,6 +114,15 @@ mv .env.next .env
 # Database containers get only their own secret, not every app variable.
 grep -E '^POSTGRES_PASSWORD=' .env >postgres.env || true
 grep -E '^NEO4J_AUTH=' .env >neo4j.env || true
+# LiveKit reads its key pair as LIVEKIT_KEYS="<key>: <secret>".
+livekit_key=$(sed -n 's/^LIVEKIT_API_KEY=//p' .env)
+livekit_secret=$(sed -n 's/^LIVEKIT_API_SECRET=//p' .env)
+if [[ -n "$livekit_key" && -n "$livekit_secret" ]]; then
+  printf 'LIVEKIT_KEYS=%s: %s\n' "$livekit_key" "$livekit_secret" >livekit.env
+elif [[ ",$COMPOSE_PROFILES," == *",voice,"* ]]; then
+  echo "LIVEKIT_API_KEY and LIVEKIT_API_SECRET must be in $SSM_PATH for the voice profile" >&2
+  exit 1
+fi
 
 log "Logging in to ECR"
 aws ecr get-login-password --region "$AWS_REGION" |

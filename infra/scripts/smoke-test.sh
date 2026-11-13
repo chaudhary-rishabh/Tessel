@@ -6,8 +6,9 @@
 #
 # Uses throwaway secrets from infra/deploy/ci/secrets.env. Runs the data
 # profile (databases in containers) with S3 and SQS emulators in place of
-# AWS (and a mock of SES for email), and the web profile so the web app's image
-# is checked too. Skips the edge profile (Caddy).
+# AWS (and a mock of SES for email), the web profile so the web app's image
+# is checked too, and the voice profile (LiveKit and the voice agent). Skips
+# the edge profile (Caddy).
 set -euo pipefail
 
 REGISTRY=${1:?usage: smoke-test.sh <registry> <tag>}
@@ -15,18 +16,20 @@ TAG=${2:?usage: smoke-test.sh <registry> <tag>}
 
 cd "$(dirname "$0")/../deploy"
 WORK=$(mktemp -d)
-cp docker-compose.prod.yml ci/docker-compose.emulators.yml ci/mock-ses.mjs "$WORK/"
+cp docker-compose.prod.yml livekit.yaml ci/docker-compose.emulators.yml ci/mock-ses.mjs "$WORK/"
 cp ../docker/seaweedfs/s3.json "$WORK/"
 cp ci/secrets.env "$WORK/.env"
 cat >"$WORK/deploy.env" <<EOF
 ECR_REGISTRY=$REGISTRY
 AWS_REGION=unused
-COMPOSE_PROFILES=data,web
+COMPOSE_PROFILES=data,web,voice
 EOF
 cd "$WORK"
 # Database containers get only their own secret, not every app variable.
 grep -E '^POSTGRES_PASSWORD=' .env >postgres.env || true
 grep -E '^NEO4J_AUTH=' .env >neo4j.env || true
+printf 'LIVEKIT_KEYS=%s: %s\n' "$(sed -n 's/^LIVEKIT_API_KEY=//p' .env)" \
+  "$(sed -n 's/^LIVEKIT_API_SECRET=//p' .env)" >livekit.env
 
 compose() {
   IMAGE_TAG=$TAG docker compose --project-name tessel-smoke \
@@ -95,5 +98,15 @@ http http://127.0.0.1:4000/.well-known/oauth-authorization-server | grep '"token
 compose exec -T mcp-server wget -qO- http://127.0.0.1:4100/.well-known/oauth-protected-resource/mcp |
   grep '"authorization_servers"' >/dev/null || fail "MCP protected resource metadata missing"
 compose exec -T worker wget -qO- http://127.0.0.1:4200/health | grep '"ok"' >/dev/null || fail "worker unhealthy"
+
+echo "==> Voice (the agent registered with LiveKit, and the API hands out a room)"
+# The agent's health check passes only while it's connected to LiveKit.
+compose exec -T voice node -e "fetch('http://127.0.0.1:4700/').then(async (r) => { console.log(await r.text()); process.exit(r.ok ? 0 : 1) }, () => process.exit(1))" ||
+  fail "voice agent is not connected to LiveKit"
+workspace_id=$(grep -oE '"id":"[0-9a-f-]{36}"' <<<"$workspaces" | head -1 | cut -d'"' -f4)
+voice=$(http --header "Authorization: Bearer $token" --header 'Content-Type: application/json' \
+  --post-data '{}' "http://127.0.0.1:4000/workspaces/$workspace_id/voice/sessions") ||
+  fail "voice session request failed"
+grep -q '"token"' <<<"$voice" || fail "voice session has no room token: $voice"
 
 echo "==> Every check passed"

@@ -1,7 +1,9 @@
 # syntax=docker/dockerfile:1.7
-# One Dockerfile for every Node service (api, worker, mcp-server, migrate).
+# One Dockerfile for every Node service (api, worker, mcp-server, migrate, voice).
 #   PACKAGE      workspace package name, e.g. @tessel/api
-#   ENTRY        bundled entry file inside the package, e.g. dist/server.mjs
+#   ENTRY        bundled entry file inside the package, e.g. dist/server.mjs,
+#                plus any arguments (the voice agent's is "dist/main.mjs start")
+#   NODE_IMAGE   base image; Alpine unless a service needs glibc
 
 ARG NODE_IMAGE=node:24-alpine
 
@@ -37,4 +39,5 @@ WORKDIR /app
 # runtime files it ships (the migrate image's SQL files, for example).
 COPY --from=builder --chown=node:node /out ./
 USER node
-CMD ["sh", "-c", "exec node --enable-source-maps \"$ENTRY\""]
+# ENTRY is split on spaces, so it can carry arguments.
+CMD ["sh", "-c", "exec node --enable-source-maps $ENTRY"]

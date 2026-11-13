@@ -17,13 +17,13 @@ Commands use `ap-south-1` (Mumbai) and placeholder IDs. Replace `ACCOUNT_ID`, `R
 ## 1. Image repositories
 
 ```bash
-for repo in api worker mcp-server web admin migrate; do
+for repo in api worker mcp-server web admin migrate voice; do
   aws ecr create-repository --region ap-south-1 --repository-name "tessel-$repo" \
     --image-scanning-configuration scanOnPush=true
 done
 ```
 
-The `tessel-web` repository is only used when the web app runs on EC2 (the `web` profile). Optional: add a lifecycle policy to each repository to keep only the last 30 images.
+The `tessel-web` repository is only used when the web app runs on EC2 (the `web` profile), and `tessel-voice` with the `voice` profile. Optional: add a lifecycle policy to each repository to keep only the last 30 images.
 
 ## 2. File storage and upload events
 
@@ -154,7 +154,12 @@ Test with each provider's test-mode keys first; a test card payment should move 
    - Amazon Linux 2023, `t3.large` or larger (8 GB of memory runs the apps and every database). Use `t3.medium` if databases are managed elsewhere.
    - 40 GB gp3 disk.
    - Instance profile: `tessel-ec2`.
-   - Security group: allow inbound 80 and 443 from anywhere. No SSH port is needed.
+   - Security group: allow inbound 80 and 443 from anywhere. No SSH port is needed. With the `voice` profile, also 7881/tcp and 7882/udp from anywhere: the audio of voice calls goes straight to LiveKit on these ports (UDP, or TCP where a network blocks UDP).
+     ```bash
+     aws ec2 authorize-security-group-ingress --group-id SG_ID --ip-permissions \
+       'IpProtocol=tcp,FromPort=7881,ToPort=7881,IpRanges=[{CidrIp=0.0.0.0/0}]' \
+       'IpProtocol=udp,FromPort=7882,ToPort=7882,IpRanges=[{CidrIp=0.0.0.0/0}]'
+     ```
    - User data: the contents of [`bootstrap-ec2.sh`](bootstrap-ec2.sh).
    - Advanced details → Metadata response hop limit: **2**. The apps run in containers, one network hop further from the instance metadata service than the host; with the default of 1 they can't get the instance role's credentials. For an existing instance:
      ```bash
@@ -168,7 +173,7 @@ Test with each provider's test-mode keys first; a test card payment should move 
    aws logs put-retention-policy --region ap-south-1 --log-group-name /tessel/prod --retention-in-days 30
    ```
    Each container gets its own stream named after it, such as `tessel-api-1`. Read them under **CloudWatch → Log groups**, or with `aws logs tail /tessel/prod --follow`.
-5. Point DNS `A` records at the Elastic IP: `app.`, `api.`, `mcp.`, and `admin.` on your domain. Caddy requests HTTPS certificates for them on first start.
+5. Point DNS `A` records at the Elastic IP: `app.`, `api.`, `mcp.`, and `admin.` on your domain, and `rtc.` with the `voice` profile. Caddy requests HTTPS certificates for them on first start.
 
 ## 5. Secrets
 
@@ -185,6 +190,11 @@ put MAIL_FROM "Tessel <no-reply@example.com>"
 put S3_BUCKET "BUCKET_NAME"
 put SQS_UPLOADS_QUEUE_URL "https://sqs.ap-south-1.amazonaws.com/ACCOUNT_ID/tessel-uploads"
 put AI_GATEWAY_API_KEY "<your Vercel AI Gateway key>"
+# Voice (the voice profile): one key pair for LiveKit, the API, and the agent.
+put LIVEKIT_API_KEY "API$(openssl rand -hex 6)"
+put LIVEKIT_API_SECRET "$(openssl rand -base64 32)"
+put LIVEKIT_URL "http://livekit:7880"
+put LIVEKIT_PUBLIC_URL "wss://rtc.example.com"
 # ...and the rest from secrets.example
 ```
 
@@ -206,21 +216,22 @@ put AI_GATEWAY_API_KEY "<your Vercel AI Gateway key>"
 
 In the repository, open **Settings → Secrets and variables → Actions → Variables** and add:
 
-| Variable              | Example                                                                                                       |
-| --------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `AWS_REGION`          | `ap-south-1`                                                                                                  |
-| `AWS_DEPLOY_ROLE_ARN` | `arn:aws:iam::123456789012:role/tessel-github-deploy`                                                         |
-| `ECR_REGISTRY`        | `123456789012.dkr.ecr.ap-south-1.amazonaws.com`                                                               |
-| `EC2_INSTANCE_ID`     | `i-0abc123def4567890`                                                                                         |
-| `WEB_DOMAIN`          | `app.example.com` (the web app, served by Vercel)                                                             |
-| `API_DOMAIN`          | `api.example.com`                                                                                             |
-| `MCP_DOMAIN`          | `mcp.example.com`                                                                                             |
-| `ADMIN_DOMAIN`        | `admin.example.com`                                                                                           |
-| `ACME_EMAIL`          | `you@example.com` (Let's Encrypt expiry notices)                                                              |
-| `COMPOSE_PROFILES`    | `edge,data` (drop `data` with RDS and ElastiCache; add `web` to serve the web app from EC2 instead of Vercel) |
-| `IMAGE_PLATFORM`      | optional: `linux/arm64` for Graviton instances such as `t4g`                                                  |
-| `BACKUP_BUCKET`       | optional: `BACKUP_BUCKET_NAME` for nightly backups                                                            |
-| `LOG_GROUP`           | optional: `/tessel/prod` to send logs to CloudWatch                                                           |
+| Variable              | Example                                                                                                                                             |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AWS_REGION`          | `ap-south-1`                                                                                                                                        |
+| `AWS_DEPLOY_ROLE_ARN` | `arn:aws:iam::123456789012:role/tessel-github-deploy`                                                                                               |
+| `ECR_REGISTRY`        | `123456789012.dkr.ecr.ap-south-1.amazonaws.com`                                                                                                     |
+| `EC2_INSTANCE_ID`     | `i-0abc123def4567890`                                                                                                                               |
+| `WEB_DOMAIN`          | `app.example.com` (the web app, served by Vercel)                                                                                                   |
+| `API_DOMAIN`          | `api.example.com`                                                                                                                                   |
+| `MCP_DOMAIN`          | `mcp.example.com`                                                                                                                                   |
+| `ADMIN_DOMAIN`        | `admin.example.com`                                                                                                                                 |
+| `ACME_EMAIL`          | `you@example.com` (Let's Encrypt expiry notices)                                                                                                    |
+| `RTC_DOMAIN`          | `rtc.example.com` (LiveKit, for voice; needed with the `voice` profile)                                                                             |
+| `COMPOSE_PROFILES`    | `edge,data,voice` (drop `data` with RDS and ElastiCache; add `web` to serve the web app from EC2 instead of Vercel; drop `voice` to turn voice off) |
+| `IMAGE_PLATFORM`      | optional: `linux/arm64` for Graviton instances such as `t4g`                                                                                        |
+| `BACKUP_BUCKET`       | optional: `BACKUP_BUCKET_NAME` for nightly backups                                                                                                  |
+| `LOG_GROUP`           | optional: `/tessel/prod` to send logs to CloudWatch                                                                                                 |
 
 None of these are secret. Deploys stay off until `AWS_DEPLOY_ROLE_ARN` is set.
 
@@ -229,7 +240,7 @@ None of these are secret. Deploys stay off until `AWS_DEPLOY_ROLE_ARN` is set.
 Run the **Deploy** workflow from the Actions tab (or push to `main`). It:
 
 1. builds and pushes the images, tagged with the commit (the web app's image only with the `web` profile),
-2. writes `docker-compose.prod.yml`, `Caddyfile`, `deploy.sh`, `backup.sh`, `restore.sh`, and `deploy.env` to `/opt/tessel` over SSM,
+2. writes `docker-compose.prod.yml`, `Caddyfile`, `livekit.yaml`, `deploy.sh`, `backup.sh`, `restore.sh`, and `deploy.env` to `/opt/tessel` over SSM,
 3. runs `deploy.sh`: loads secrets, pulls images, starts databases, runs migrations, starts the apps, and waits for every health check,
 4. rolls back to the previous image tag if the new version fails its health checks,
 5. checks the live site over HTTPS.

@@ -58,3 +58,18 @@ ALTER TABLE voice_turns ENABLE ROW LEVEL SECURITY;
 CREATE POLICY voice_turns_owner ON voice_turns FOR ALL TO tessel_app
   USING (user_id = app.current_user_id() AND app.workspace_role(workspace_id) IS NOT NULL)
   WITH CHECK (user_id = app.current_user_id() AND app.workspace_role(workspace_id) IS NOT NULL);
+--> statement-breakpoint
+
+-- The voice agent knows only a session's ID, which the API signed into the room
+-- token. This says whose session it is, so the agent can act as that user (and
+-- row-level security applies to everything it does after). Open sessions only.
+CREATE OR REPLACE FUNCTION app.voice_session_owner(target uuid)
+RETURNS TABLE (user_id uuid, workspace_id uuid)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$
+  SELECT user_id, workspace_id FROM voice_sessions
+  WHERE id = target AND status IN ('starting', 'active');
+$$;
+--> statement-breakpoint
+REVOKE ALL ON FUNCTION app.voice_session_owner(uuid) FROM PUBLIC;
+--> statement-breakpoint
+GRANT EXECUTE ON FUNCTION app.voice_session_owner(uuid) TO tessel_app;
