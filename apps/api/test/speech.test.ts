@@ -116,6 +116,11 @@ describe("speakable text", () => {
     expect(speakableText("# Title\n> quoted [1]\n| a | b |\nSee https://x.dev now")).toBe(
       "Title\nquoted\nSee a link now",
     );
+    expect(
+      speakableText(
+        'Here it is.\n<artifact id="p" type="html" title="Landing page"><h1>x</h1></artifact>',
+      ),
+    ).toBe("Here it is.\nLanding page is open beside the chat.");
     const long = "This is a sentence. ".repeat(300);
     const text = speakableText(long, 200);
     expect(text.length).toBeLessThan(260);

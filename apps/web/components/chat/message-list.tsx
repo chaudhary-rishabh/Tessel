@@ -1,10 +1,11 @@
 "use client";
 
-import type { ChatMessage } from "@tessel/contracts";
+import { parseMessageSegments, type ChatMessage } from "@tessel/contracts";
+import { ArtifactCard } from "@/components/artifacts/artifact-card";
 import { useModels } from "@tessel/api-client/react";
 import { Button } from "@tessel/ui";
 import { AudioLines, CircleAlert, Pencil, RotateCcw } from "lucide-react";
-import { useId, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { chatErrorMessage } from "@/lib/chat-errors";
 import type { LiveReply } from "@/lib/chat-store";
 import { AttachmentChip } from "./attachment-chip";
@@ -151,6 +152,46 @@ function Thinking({ searching = false }: { searching?: boolean }) {
   );
 }
 
+/** Where a reply's artifacts open: the chat, and which version each one is. */
+export interface ArtifactContext {
+  threadKey: string;
+  versionOf(messageId: string, identifier: string): number;
+}
+
+/** A reply's text, with any artifacts as cards that open beside the chat. */
+function ReplyBody({
+  content,
+  sources,
+  messageId,
+  artifacts,
+}: {
+  content: string;
+  sources: ChatMessage["sources"];
+  messageId: string;
+  artifacts?: ArtifactContext | undefined;
+}) {
+  const segments = useMemo(() => parseMessageSegments(content), [content]);
+  if (!artifacts || !segments.some((segment) => segment.kind === "artifact")) {
+    return <Markdown text={content} sources={sources} />;
+  }
+  return (
+    <div>
+      {segments.map((segment, index) =>
+        segment.kind === "text" ? (
+          <Markdown key={index} text={segment.text} sources={sources} />
+        ) : (
+          <ArtifactCard
+            key={index}
+            threadKey={artifacts.threadKey}
+            artifact={segment}
+            version={artifacts.versionOf(messageId, segment.identifier)}
+          />
+        ),
+      )}
+    </div>
+  );
+}
+
 export type DecideHandler = (
   message: ChatMessage,
   callId: string,
@@ -159,6 +200,8 @@ export type DecideHandler = (
 
 function AssistantMessage({
   message,
+  messageId,
+  artifacts,
   readAloud,
   streaming,
   searching,
@@ -170,6 +213,9 @@ function AssistantMessage({
     ChatMessage,
     "content" | "status" | "errorCode" | "sources" | "toolCalls" | "activity" | "agentMode"
   > & { voiceSessionId?: string | null };
+  /** The reply's ID ("live" while it streams), for its artifacts' versions. */
+  messageId: string;
+  artifacts?: ArtifactContext | undefined;
   /** Where the saved reply lives, so it can be read aloud. */
   readAloud?: { workspaceId: string; messageId: string } | undefined;
   streaming?: boolean;
@@ -197,7 +243,12 @@ function AssistantMessage({
       />
       <ToolCallList calls={message.toolCalls} />
       {hasText ? (
-        <Markdown text={message.content} sources={message.sources} />
+        <ReplyBody
+          content={message.content}
+          sources={message.sources}
+          messageId={messageId}
+          artifacts={artifacts}
+        />
       ) : streaming && !busy ? (
         <Thinking searching={searching ?? false} />
       ) : null}
@@ -242,12 +293,15 @@ export function MessageList({
   workspaceId,
   messages,
   live,
+  artifacts,
   onDecide,
   onEdit,
 }: {
   workspaceId: string;
   messages: ChatMessage[];
   live?: LiveReply | undefined;
+  /** Opens replies' artifacts beside the chat; without it they show inline as text. */
+  artifacts?: ArtifactContext | undefined;
   /** Approves or declines the action a reply is waiting on. */
   onDecide?: DecideHandler | undefined;
   /** Rewrites the chat from a user message; the same text regenerates the reply. */
@@ -277,6 +331,8 @@ export function MessageList({
           ) : (
             <AssistantMessage
               message={message}
+              messageId={message.id}
+              artifacts={artifacts}
               readAloud={{ workspaceId, messageId: message.id }}
               modelLabel={labelFor(message.modelId)}
               onRetry={
@@ -302,6 +358,8 @@ export function MessageList({
       {live ? (
         <li>
           <AssistantMessage
+            messageId="live"
+            artifacts={artifacts}
             message={{
               content: live.text,
               status: "streaming",

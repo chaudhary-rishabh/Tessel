@@ -16,3 +16,4 @@ export * from "./admin";
 export * from "./billing";
 export * from "./paging";
 export * from "./voice";
+export * from "./artifacts";

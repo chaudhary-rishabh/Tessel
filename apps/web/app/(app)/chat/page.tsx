@@ -59,7 +59,13 @@ export default function NewChatPage() {
       }
     >
       {pending ? (
-        <MessageList workspaceId={current.id} messages={[]} live={pending} />
+        <MessageList
+          workspaceId={current.id}
+          messages={[]}
+          live={pending}
+          // The chat opens on its own page as soon as it exists; artifacts open there.
+          artifacts={{ threadKey: "new", versionOf: () => 1 }}
+        />
       ) : (
         <h1 className="text-center text-3xl font-medium tracking-tight sm:text-4xl">
           {greeting}, {firstName}

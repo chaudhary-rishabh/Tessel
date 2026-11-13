@@ -24,6 +24,8 @@ import type { AddressInfo } from "node:net";
  * relationship, and quoted names in a question are routed to the graph.
  * Memory: "MOCK_REMEMBER: <fact>" in a user turn is saved, MOCK_FORGET clears
  * memories, and chat summaries say how many turns they cover.
+ * Artifacts: MOCK_ARTIFACT writes an HTML page, MOCK_ARTIFACT_V2 a second
+ * version of it, and MOCK_ARTIFACT_REACT a React component.
  */
 export interface MockReply {
   text?: string;
@@ -242,6 +244,32 @@ function defaultReply(body: Record<string, unknown>): MockReply {
     return { text: Array.from({ length: 200 }, (_, i) => `word${i}`).join(" "), chunkDelayMs: 50 };
   }
   if (lastUser.includes("MOCK_FAIL")) return { status: 400 };
+  // Artifacts: a page, then a second version of it, and a React component.
+  if (lastUser.includes("MOCK_ARTIFACT_REACT")) {
+    return {
+      text:
+        'Here is a counter.\n\n<artifact id="counter" type="react" title="Counter">\n' +
+        'import { useState } from "react";\n\nexport default function Counter() {\n' +
+        "  const [count, setCount] = useState(0);\n" +
+        '  return <button className="rounded bg-teal-700 px-4 py-2 text-white" onClick={() => setCount(count + 1)}>Clicked {count} times</button>;\n' +
+        "}\n</artifact>",
+    };
+  }
+  if (lastUser.includes("MOCK_ARTIFACT_V2")) {
+    return {
+      text:
+        'Updated the page.\n\n<artifact id="greeting" type="html" title="Greeting page">\n' +
+        "<!doctype html><html><body><h1>Hello again, version two</h1></body></html>\n</artifact>",
+    };
+  }
+  if (lastUser.includes("MOCK_ARTIFACT")) {
+    return {
+      text:
+        'Here is the page.\n\n<artifact id="greeting" type="html" title="Greeting page">\n' +
+        "<!doctype html><html><body><h1>Hello from the artifact</h1>" +
+        "<script>document.body.dataset.ran = 'yes';</script></body></html>\n</artifact>\n\nWant any changes?",
+    };
+  }
   // Images arrive as content parts; say how many so tests can check they were sent.
   const lastContent = messages.findLast((message) => message.role === "user")?.content;
   const images = Array.isArray(lastContent)

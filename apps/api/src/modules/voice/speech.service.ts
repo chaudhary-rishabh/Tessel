@@ -26,6 +26,12 @@ export const speakRequestSchema = z.object({ messageId: z.uuid() });
  */
 export function speakableText(markdown: string, max = READ_ALOUD_MAX_CHARACTERS): string {
   const text = markdown
+    // An artifact is in the panel beside the chat; say so rather than reading its source.
+    .replace(
+      /<artifact\b[^>]*?title="([^"]*)"[^>]*>[\s\S]*?(?:<\/artifact>|$)/g,
+      " $1 is open beside the chat. ",
+    )
+    .replace(/<artifact\b[^>]*>[\s\S]*?(?:<\/artifact>|$)/g, " It's open beside the chat. ")
     .replace(/```[\s\S]*?```/g, " There's a code block here. ")
     .replace(/^\s*\|.*\|\s*$/gm, " ")
     .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
