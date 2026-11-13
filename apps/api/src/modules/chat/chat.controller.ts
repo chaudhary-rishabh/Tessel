@@ -4,6 +4,7 @@ import {
   toolDecisionRequestSchema,
   threadListQuerySchema,
   threadParamsSchema,
+  versionParamsSchema,
   updateThreadRequestSchema,
   workspaceParamsSchema,
 } from "@tessel/contracts";
@@ -37,6 +38,11 @@ export function createChatController(deps: ReplyDependencies & { service: ChatSe
   const getThread: RequestHandler = async (req, res) => {
     const { threadId } = threadParamsSchema.parse(req.params);
     res.json(await service.getThread(actorFor(req), threadId));
+  };
+
+  const restoreVersion: RequestHandler = async (req, res) => {
+    const { threadId, messageId, position } = versionParamsSchema.parse(req.params);
+    res.json(await service.restoreVersion(actorFor(req), threadId, messageId, position));
   };
 
   const renameThread: RequestHandler = async (req, res) => {
@@ -107,5 +113,6 @@ export function createChatController(deps: ReplyDependencies & { service: ChatSe
     decide,
     uploadAttachment,
     attachmentContent,
+    restoreVersion,
   };
 }

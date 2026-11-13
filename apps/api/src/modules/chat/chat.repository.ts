@@ -3,6 +3,8 @@ import {
   type AgentRunRow,
   agentRuns,
   type AttachmentRow,
+  messageVersions,
+  type MessageVersionRow,
   attachments,
   documents,
   escapeLike,
@@ -54,6 +56,10 @@ export function toMessage(row: MessageRow, files: AttachmentMeta[] = []): ChatMe
     activity: row.activity,
     agentMode: (row.agentMode as ChatMessage["agentMode"]) ?? null,
     voiceSessionId: row.voiceSessionId ?? null,
+    versions:
+      row.versionCount && row.versionCount > 1
+        ? { index: row.versionIndex ?? row.versionCount, count: row.versionCount }
+        : null,
   };
 }
 
@@ -325,6 +331,69 @@ export const chatRepository = {
   },
 
   /** Removes every message in a thread written after `after`. */
+  async messagesAfter(tx: Transaction, threadId: string, after: Date): Promise<MessageRow[]> {
+    return tx
+      .select()
+      .from(messages)
+      .where(and(eq(messages.threadId, threadId), gt(messages.createdAt, after)))
+      .orderBy(asc(messages.createdAt));
+  },
+
+  /** Keeps the chat from `anchor` on as one of the message's versions. */
+  async saveVersion(tx: Transaction, anchor: MessageRow, position: number): Promise<void> {
+    const tail = await chatRepository.messagesAfter(tx, anchor.threadId, anchor.createdAt);
+    await tx.insert(messageVersions).values({
+      threadId: anchor.threadId,
+      userId: anchor.userId,
+      messageId: anchor.id,
+      position,
+      content: anchor.content,
+      messages: tail.map((row) => ({
+        ...row,
+        createdAt: row.createdAt.toISOString(),
+      })) as unknown as Record<string, unknown>[],
+    });
+  },
+
+  async findVersion(
+    tx: Transaction,
+    messageId: string,
+    position: number,
+  ): Promise<MessageVersionRow | undefined> {
+    const [row] = await tx
+      .select()
+      .from(messageVersions)
+      .where(and(eq(messageVersions.messageId, messageId), eq(messageVersions.position, position)));
+    return row;
+  },
+
+  /** Puts a kept version's messages back after its anchor, and forgets the copy. */
+  async restoreVersion(tx: Transaction, version: MessageVersionRow): Promise<void> {
+    const rows = version.messages as unknown as (MessageRow & { createdAt: string })[];
+    if (rows.length > 0) {
+      await tx.insert(messages).values(
+        rows.map((row) => ({
+          ...row,
+          // Waiting and streaming replies can't be continued later.
+          status: row.status === "waiting" || row.status === "streaming" ? "stopped" : row.status,
+          createdAt: new Date(row.createdAt),
+        })),
+      );
+    }
+    await tx.delete(messageVersions).where(eq(messageVersions.id, version.id));
+  },
+
+  async setVersions(
+    tx: Transaction,
+    messageId: string,
+    versions: { count: number; index: number },
+  ): Promise<void> {
+    await tx
+      .update(messages)
+      .set({ versionCount: versions.count, versionIndex: versions.index })
+      .where(eq(messages.id, messageId));
+  },
+
   async deleteMessagesAfter(tx: Transaction, threadId: string, after: Date): Promise<void> {
     await tx
       .delete(messages)

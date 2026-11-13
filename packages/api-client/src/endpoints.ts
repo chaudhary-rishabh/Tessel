@@ -444,6 +444,21 @@ export function createApi(client: ApiClient) {
       remove: async (workspaceId: string, threadId: string): Promise<void> => {
         await http.delete(`/workspaces/${workspaceId}/threads/${threadId}`);
       },
+      /** Switches a user message to one of its earlier versions; returns the chat as it is now. */
+      restoreVersion: async (
+        workspaceId: string,
+        threadId: string,
+        messageId: string,
+        position: number,
+      ): Promise<ThreadResponse> =>
+        parse(
+          threadResponseSchema,
+          (
+            await http.post(
+              `/workspaces/${workspaceId}/threads/${threadId}/messages/${messageId}/versions/${position}/restore`,
+            )
+          ).data,
+        ),
       upload: async (
         workspaceId: string,
         file: Blob,

@@ -41,6 +41,26 @@ test.describe("memory", () => {
     );
   });
 
+  test("a reply that saves a memory says so, and can undo it", async ({ page }) => {
+    await signUp(page);
+    await page
+      .getByRole("textbox", { name: "Message" })
+      .fill(
+        `MOCK_TOOLS ${JSON.stringify([{ name: "remember", args: { content: "Uses metric units." } }])}`,
+      );
+    await page.getByRole("button", { name: "Send message" }).click();
+    const messages = page.getByRole("list", { name: "Messages" });
+    const note = messages.getByRole("status").filter({ hasText: "Memory updated" });
+    await expect(note).toContainText("Memory updated: Uses metric units.");
+    await note.getByRole("button", { name: "Undo" }).click();
+    await expect(messages.getByText("Removed from memory.")).toBeVisible();
+
+    await page.goto("/settings");
+    await expect(page.getByRole("region", { name: "Memory" })).not.toContainText(
+      "Uses metric units.",
+    );
+  });
+
   test("memory and chat search can be switched off", async ({ page }) => {
     await signUp(page);
     await page.goto("/settings");

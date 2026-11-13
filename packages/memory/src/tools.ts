@@ -19,7 +19,8 @@ export function memoryTools({
   remember,
   searchPastChats,
 }: {
-  remember?: (content: string) => Promise<void>;
+  /** Saves a memory and returns its ID, so the reply can offer to undo it. */
+  remember?: (content: string) => Promise<string | void>;
   searchPastChats?: (query: string) => Promise<PastChat[]>;
 }): ToolDefinition[] {
   const tools: ToolDefinition[] = [];
@@ -33,8 +34,12 @@ export function memoryTools({
         schema: z.object({ content: z.string().trim().min(1).max(MAX_MEMORY_CHARACTERS) }),
         risk: "read",
         async run({ content }) {
-          await remember(content);
-          return { content: `Saved to memory: ${content}`, summary: content };
+          const id = await remember(content);
+          return {
+            content: `Saved to memory: ${content}`,
+            summary: content,
+            ...(id ? { undo: { kind: "memory" as const, id } } : {}),
+          };
         },
       }),
     );

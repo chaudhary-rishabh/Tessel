@@ -8,6 +8,7 @@ import {
   loadSkillTool,
   resumeOrchestrator,
   runOrchestrator,
+  pickedSkillPrompt,
   skillsPrompt,
   sourcesPrompt,
   toOrchestratorCheckpoint,
@@ -182,9 +183,8 @@ async function drive(run: Drive): Promise<void> {
             memoryTools({
               ...(run.memorySettings.memoryEnabled
                 ? {
-                    remember: async (content: string) => {
-                      await deps.memory.add(actor, { content }, "tool", run.threadId);
-                    },
+                    remember: async (content: string) =>
+                      (await deps.memory.add(actor, { content }, "tool", run.threadId)).id,
                   }
                 : {}),
               ...(run.memorySettings.chatSearchEnabled
@@ -470,6 +470,13 @@ async function replyOnStream({
   const canUseTools = prepared.model.capabilities.includes("tools");
   const skills = canUseTools ? await loadSkills(deps, actor) : [];
   if (skills.length) history = withSources(history, skillsPrompt(skills));
+  if (prepared.skill) {
+    // A skill picked in the composer is followed even by models without tools.
+    const picked = (skills.length ? skills : await loadSkills(deps, actor)).find(
+      (skill) => skill.name === prepared.skill,
+    );
+    if (picked) history = withSources(history, pickedSkillPrompt(picked));
+  }
   const finalHistory = history;
   // The other modes plan and delegate with tool calls, so they need a model that can make them.
   const mode: AgentMode = canUseTools ? prepared.mode : "auto";

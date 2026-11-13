@@ -26,6 +26,8 @@ export interface MessageToolCall {
   error?: string;
   /** Media the tool made (rows in `media`), shown under the reply. */
   media?: { kind: "image" | "video"; id: string; width?: number; height?: number; alt?: string }[];
+  /** Something the tool saved that the reply offers to undo. */
+  undo?: { kind: "memory"; id: string };
 }
 
 /** A visible stage of an orchestrated reply (see ActivityItem in @tessel/ai). */
@@ -118,9 +120,45 @@ export const messages = pgTable(
     agentMode: text("agent_mode"),
     inputTokens: integer("input_tokens"),
     outputTokens: integer("output_tokens"),
+    /**
+     * For a user message that was edited or retried: how many versions of it
+     * (with what followed) there are, and which one is in the chat. The
+     * others are in message_versions.
+     */
+    versionCount: integer("version_count"),
+    versionIndex: integer("version_index"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [index("messages_thread_created_idx").on(table.threadId, table.createdAt)],
+);
+
+/**
+ * An earlier version of the chat from a user message on: what the message
+ * said then and every message after it, kept when it was edited or its
+ * reply retried, so the user can flip back. Private to the chat's owner.
+ */
+export const messageVersions = pgTable(
+  "message_versions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    threadId: uuid("thread_id")
+      .notNull()
+      .references(() => threads.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** The user message the version starts from. */
+    messageId: uuid("message_id")
+      .notNull()
+      .references(() => messages.id, { onDelete: "cascade" }),
+    /** Its number among the message's versions, from 1. */
+    position: integer("position").notNull(),
+    content: text("content").notNull(),
+    /** The messages that followed, as they were. */
+    messages: jsonb("messages").$type<Record<string, unknown>[]>().notNull().default([]),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("message_versions_message_idx").on(table.messageId, table.position)],
 );
 
 /**
@@ -192,4 +230,5 @@ export type AgentRunRow = typeof agentRuns.$inferSelect;
 export type ThreadRow = typeof threads.$inferSelect;
 export type MessageRow = typeof messages.$inferSelect;
 export type AttachmentRow = typeof attachments.$inferSelect;
+export type MessageVersionRow = typeof messageVersions.$inferSelect;
 export type MessageStatus = (typeof messageStatus.enumValues)[number];

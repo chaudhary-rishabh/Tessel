@@ -149,6 +149,21 @@ describe("skills", () => {
     expect(system).not.toContain("RELEASE-NOTES-OK");
   });
 
+  it("follows a skill the user picked for the message, without the agent loading it", async () => {
+    const { user, workspaceId, base } = await setup();
+    await create(user, base);
+    await readEvents(
+      request(app)
+        .post(`/workspaces/${workspaceId}/chat`)
+        .set("Authorization", bearer(user))
+        .send({ content: "Notes for v2", skill: "release-notes", knowledge: "off" }),
+    );
+    const reply = gateway.requests.find((r) => r.body.stream === true)!;
+    const system = (reply.body.messages as { role: string; content: string }[])[0]!.content;
+    expect(system).toContain('The user picked the "Release notes" skill for this message.');
+    expect(system).toContain("RELEASE-NOTES-OK");
+  });
+
   it("hides disabled skills from the agent", async () => {
     const { user, workspaceId, base } = await setup();
     const skill = (await create(user, base)).body as Skill;

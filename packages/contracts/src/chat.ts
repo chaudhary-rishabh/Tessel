@@ -49,6 +49,8 @@ export const toolCallSchema = z.object({
       }),
     )
     .optional(),
+  /** Something the tool saved that the reply offers to undo. */
+  undo: z.object({ kind: z.literal("memory"), id: z.string() }).optional(),
 });
 
 export const knowledgeModeSchema = z.enum(["auto", "always", "off"]);
@@ -87,6 +89,8 @@ export const messageSchema = z.object({
   agentMode: agentModeSchema.nullable().default(null),
   /** Set when the message was spoken in a voice conversation. */
   voiceSessionId: z.uuid().nullable().default(null),
+  /** For an edited or retried user message: which of its versions this is, of how many. */
+  versions: z.object({ index: z.number().int(), count: z.number().int() }).nullable().default(null),
 });
 
 export const threadSummarySchema = z.object({
@@ -129,6 +133,13 @@ export const updateThreadRequestSchema = z.object({
   title: z.string().trim().min(1, "Title is required").max(120),
 });
 
+export const versionParamsSchema = z.object({
+  workspaceId: z.uuid(),
+  threadId: z.uuid(),
+  messageId: z.uuid(),
+  position: z.coerce.number().int().min(1),
+});
+
 export const sendMessageRequestSchema = z.object({
   /** Omit to start a new thread. */
   threadId: z.uuid().optional(),
@@ -140,6 +151,11 @@ export const sendMessageRequestSchema = z.object({
   /** Search only these documents (and always search them). */
   documentIds: z.array(z.uuid()).max(50).optional(),
   mode: agentModeSchema.default("auto"),
+  /** A skill the user picked for this message (by name); its instructions are followed. */
+  skill: z
+    .string()
+    .regex(/^[a-z0-9][a-z0-9-]{0,79}$/)
+    .optional(),
   /** For models that reason; others ignore it. Omitted means the model's own default. */
   effort: reasoningEffortSchema.optional(),
   /**

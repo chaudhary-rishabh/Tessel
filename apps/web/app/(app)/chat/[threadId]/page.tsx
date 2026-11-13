@@ -1,6 +1,7 @@
 "use client";
 
-import { useThread } from "@tessel/api-client/react";
+import { queryKeys, useApi, useThread } from "@tessel/api-client/react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   collectArtifacts,
   parseMessageSegments,
@@ -29,6 +30,8 @@ export default function ThreadPage() {
   const { current } = useCurrentWorkspace();
   const workspaceId = current?.id;
   const thread = useThread(workspaceId, threadId);
+  const api = useApi();
+  const queryClient = useQueryClient();
   const live = useChatStore((state) => state.replies[threadId]);
   const knowledge = useChatPreferences((state) => state.knowledge);
   const mode = useChatPreferences((state) => state.mode);
@@ -178,6 +181,14 @@ export default function ThreadPage() {
               live={live}
               artifacts={artifactContext}
               onEdit={onEdit}
+              onSwitchVersion={(message, position) => {
+                void api.chat
+                  .restoreVersion(workspaceId, threadId, message.id, position)
+                  .then((thread) =>
+                    queryClient.setQueryData(queryKeys.thread(workspaceId, threadId), thread),
+                  )
+                  .catch(() => setDecisionError("That version couldn't be shown. Try again."));
+              }}
               onDecide={async (message, callId, approved) => {
                 setDecisionError(undefined);
                 pin();

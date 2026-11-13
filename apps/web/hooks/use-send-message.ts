@@ -16,6 +16,7 @@ import { useCallback } from "react";
 import { replyControllers, useChatStore } from "@/lib/chat-store";
 import { useChatPreferences } from "@/lib/chat-preferences";
 import { useDocumentScope } from "@/lib/document-scope-store";
+import { useSkillPick } from "@/lib/skill-pick-store";
 
 export interface SendInput {
   threadId?: string;
@@ -146,6 +147,7 @@ export function useReplyStream(workspaceId: string | undefined) {
       ),
       agentMode: live?.agentMode ?? null,
       voiceSessionId: null,
+      versions: null,
     };
   };
 
@@ -197,6 +199,9 @@ export function useReplyStream(workspaceId: string | undefined) {
               return picked.length ? { documentIds: picked } : {};
             })(),
             ...(mode ? { mode } : {}),
+            ...(useSkillPick.getState().skill
+              ? { skill: useSkillPick.getState().skill!.name }
+              : {}),
             // The server applies it only when the model reasons.
             effort: useChatPreferences.getState().effort,
             ...(threadId ? { threadId } : {}),

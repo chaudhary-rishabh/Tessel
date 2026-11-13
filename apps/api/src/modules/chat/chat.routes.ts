@@ -39,6 +39,10 @@ export function createChatRouter({
   router.patch("/threads/:threadId", controller.renameThread);
   router.delete("/threads/:threadId", controller.deleteThread);
   router.post(
+    "/threads/:threadId/messages/:messageId/versions/:position/restore",
+    controller.restoreVersion,
+  );
+  router.post(
     "/attachments",
     perUser("attachments"),
     upload.single("file"),
