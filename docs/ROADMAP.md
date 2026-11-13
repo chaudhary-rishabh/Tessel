@@ -23,9 +23,32 @@ Phase 1 is built in 20 steps. Each step ends tested, merged, and (from step 4) d
 | 17   | Accounts, admin, billing | Email verification, password reset, OAuth, 2FA, mobile OTP, MCP server OAuth   | Each login method passes end-to-end tests            | Done   |
 | 18   | Accounts, admin, billing | Admin app: users, model registry, usage, audit log                             | Only admins can open it, checked on the backend      | Done   |
 | 19   | Accounts, admin, billing | Billing: plans, payments, usage limits, extra usage, team seats                | Upgrade, limit, and reset flows pass                 | Done   |
-| 20   | Accounts, admin, billing | Full end-to-end test run, fixes, final deploy                                  | All tests pass and it's live                         | Ready  |
+| 20   | Accounts, admin, billing | Full end-to-end test run, fixes, final deploy                                  | All tests pass and it's live                         | Done   |
+
+## Phase 2
+
+Phase 2 adds voice, generated media, and generated apps, then clears the Phase 2 backlog. Voice comes first. Each step ends tested and merged; the EC2 host stays stopped until the whole phase is done, then everything deploys together.
+
+| Step | Area      | Delivers                                                                                                     | Done when                                                                      | Status      |
+| ---- | --------- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------ | ----------- |
+| 21   | Voice     | LiveKit server, voice agent (speech to text, model, text to speech), voice sessions, transcripts in the chat | A spoken turn round-trips through the agent in CI and is saved to the chat     | In progress |
+| 22   | Voice     | Voice mode: full-screen talk view, live captions, mute, interrupt, mobile                                    | A browser with a fake microphone holds a conversation end to end               | Not started |
+| 23   | Voice     | Your own voice: record with consent and a spoken check, clone, choose, delete                                | A verified recording becomes a voice the agent speaks with                     | Not started |
+| 24   | Voice     | Read aloud, dictation in the composer, documents and memory in voice, latency dashboard in admin             | Every reply can be heard; p50 and p95 voice latency show in admin              | Not started |
+| 25   | Artifacts | Code, HTML, React, SVG, Mermaid, and documents open in a side panel with versions                            | A generated page renders in a sandboxed frame and keeps its versions           | Not started |
+| 26   | Apps      | Multi-file website and app generation with a live preview, export, and download                              | A generated app runs in the preview and downloads as a project                 | Not started |
+| 27   | Media     | Image generation and editing in chat, with a gallery                                                         | An image is generated, edited, and saved to the gallery                        | Not started |
+| 28   | Media     | Video generation as a background job, with progress                                                          | A video job finishes in the worker and plays in the chat                       | Not started |
+| 29   | Media     | Transcription of audio and video uploads into searchable documents                                           | An uploaded recording is transcribed and answers questions with citations      | Not started |
+| 30   | Backlog   | The Phase 2 items in BACKLOG.md                                                                              | Each item ships with its tests                                                 | Not started |
+| 31   | Release   | Full end-to-end run, fixes, deploy, live checks                                                              | All tests pass, it's live, and voice latency meets the target on the live host | Not started |
+
+### Voice targets
+
+- **Latency:** under 600 ms from the end of the user's speech to the first audio of the reply, at the median, measured per turn (end-of-turn delay + time to the model's first token + time to the first audio) and shown in admin. 95th percentile under 900 ms.
+- **Feels like a conversation:** the user can interrupt at any point, the agent stops within a few hundred milliseconds, and a pause mid-sentence doesn't end the turn.
+- **Kept like a chat:** every voice conversation is a chat, with its transcript, usage, and limits, and can be continued by text.
 
 ## Later phases
 
-- **Phase 2:** Website and app generation with live preview, artifacts, image and video generation, text to speech, transcription, voice.
 - **Phase 3:** Load testing, deep security testing, red teaming, evals, polish.
