@@ -1,6 +1,6 @@
 import { inference, llm, voice, type JobContext, type metrics, type VAD } from "@livekit/agents";
 import { CostCapExceededError } from "@tessel/ai";
-import { voiceDispatchMetadataSchema } from "@tessel/contracts";
+import { VOICE_INTERRUPT_RPC, voiceDispatchMetadataSchema } from "@tessel/contracts";
 import { turnTimings, type StageMetrics } from "./latency";
 import { GatewayLLM } from "./model";
 import { voiceInstructions } from "./prompt";
@@ -205,6 +205,16 @@ export async function runVoiceSession(
   } else {
     await session.start({ agent, ...(ctx.room ? { room: ctx.room } : {}) });
     await ctx.connect();
+    // Tapping the visual stops the agent mid-sentence, like talking over it does.
+    ctx.room?.localParticipant?.registerRpcMethod(VOICE_INTERRUPT_RPC, async () => {
+      try {
+        await session.interrupt().await;
+        return "interrupted";
+      } catch {
+        // Nothing playing, or a closing line that can't be cut off.
+        return "not_interrupted";
+      }
+    });
   }
   await store.markActive(saved, { speechProvider: speech.provider, voiceId: speech.voiceId });
   log.info({ modelId: model.id, speech: speech.provider }, "Voice session live");

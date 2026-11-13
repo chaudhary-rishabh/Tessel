@@ -123,6 +123,27 @@
   }
 }
 
+/* Voice mode: tiles lifting off the mark while Tessel thinks, and pulsing while it connects. */
+@keyframes voice-lift {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+  45% {
+    translate: var(--dx) var(--dy);
+  }
+}
+
+@keyframes voice-shimmer {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
 :root {
   color-scheme: light dark;
 }

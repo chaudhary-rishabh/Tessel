@@ -11,6 +11,8 @@ const MOCK_GITHUB_MCP_URL = "http://127.0.0.1:4400/mcp";
 const MOCK_OAUTH_URL = "http://127.0.0.1:4500";
 // A mock Stripe and Razorpay that send signed webhooks back to the API.
 const MOCK_PAYMENTS_URL = "http://127.0.0.1:4600";
+// Voice tests need LiveKit running (pnpm infra:up has it; CI starts one) and the voice agent.
+const VOICE = Boolean(process.env.E2E_VOICE);
 
 /**
  * End-to-end tests run the real web app against the real API, on a desktop
@@ -125,6 +127,26 @@ export default defineConfig({
       env: { AI_GATEWAY_API_KEY: "mock", AI_GATEWAY_URL: MOCK_GATEWAY_URL },
       timeout: 60_000,
     },
+    ...(VOICE
+      ? [
+          {
+            // The voice agent, with offline speech and the mock gateway for replies.
+            command: "pnpm exec tsx src/main.ts start",
+            cwd: "../voice",
+            // Healthy only once it's registered with LiveKit.
+            url: "http://127.0.0.1:4700/",
+            reuseExistingServer: !isCI,
+            stdout: isCI ? ("pipe" as const) : ("ignore" as const),
+            env: {
+              AI_GATEWAY_API_KEY: "mock",
+              AI_GATEWAY_URL: MOCK_GATEWAY_URL,
+              VOICE_SPEECH_PROVIDER: "mock",
+              VOICE_IDLE_PROCESSES: "2",
+            },
+            timeout: 90_000,
+          },
+        ]
+      : []),
     {
       command: isCI ? "pnpm start" : "pnpm dev",
       url: WEB_URL,

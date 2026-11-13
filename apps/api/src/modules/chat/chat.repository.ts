@@ -53,6 +53,7 @@ export function toMessage(row: MessageRow, files: AttachmentMeta[] = []): ChatMe
     toolCalls: row.toolCalls,
     activity: row.activity,
     agentMode: (row.agentMode as ChatMessage["agentMode"]) ?? null,
+    voiceSessionId: row.voiceSessionId ?? null,
   };
 }
 

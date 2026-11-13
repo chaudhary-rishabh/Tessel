@@ -7,6 +7,7 @@ import {
 } from "@livekit/agents";
 import { getRuntime } from "./runtime";
 import { runVoiceSession } from "./session";
+import { createMockSpeech } from "./speech/mock";
 
 /**
  * The job each LiveKit dispatch runs, in a process LiveKit keeps warm:
@@ -25,6 +26,11 @@ export default defineAgent({
   },
   entry: async (ctx: JobContext) => {
     const runtime = await getRuntime();
+    if (runtime.env.VOICE_SPEECH_PROVIDER === "mock") {
+      // Scripted speech ends turns itself, so the test microphone's tone can't.
+      await runVoiceSession(ctx, runtime, { speech: createMockSpeech(), turnDetection: "stt" });
+      return;
+    }
     await runVoiceSession(ctx, runtime, { vad: ctx.proc.userData.vad as VAD });
   },
 });

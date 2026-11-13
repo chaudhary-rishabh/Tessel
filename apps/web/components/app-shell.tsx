@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { Button, cn, Sheet, Tooltip, TooltipProvider } from "@tessel/ui";
 import {
   FileText,
@@ -22,6 +23,12 @@ import { ThreadList } from "./chat/thread-list";
 import { EmailReminder } from "./email-reminder";
 import { UserMenu } from "./user-menu";
 import { WorkspaceSwitcher } from "./workspace-switcher";
+import { useVoiceStore } from "@/lib/voice-store";
+
+// Voice mode loads only when a conversation starts: the LiveKit SDK is large.
+const VoiceMode = dynamic(() => import("./voice/voice-mode").then((module) => module.VoiceMode), {
+  ssr: false,
+});
 
 const NAV: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/documents", label: "Documents", icon: FileText },
@@ -179,6 +186,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const toggleCollapsed = useSidebarStore((state) => state.toggle);
   const { current } = useCurrentWorkspace();
   const sidebarId = useId();
+  const voiceOpen = useVoiceStore((state) => state.request !== null);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -239,6 +247,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </main>
         </div>
       </div>
+      {voiceOpen ? <VoiceMode /> : null}
     </TooltipProvider>
   );
 }

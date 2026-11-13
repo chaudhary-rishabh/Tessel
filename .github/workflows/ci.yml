@@ -131,6 +131,10 @@ jobs:
       - name: Start S3, SQS, Qdrant, and Neo4j
         run: infra/scripts/start-test-services.sh
 
+      # Voice conversations: LiveKit in dev mode (keys devkey / secret, as in .env.example).
+      - name: Start LiveKit
+        run: docker run -d --name livekit --network host livekit/livekit-server:v1.13.11 --dev --bind 0.0.0.0
+
       - name: Migrate database
         run: pnpm db:migrate
 
@@ -142,6 +146,8 @@ jobs:
 
       - name: Run end-to-end tests
         run: pnpm test:e2e
+        env:
+          E2E_VOICE: "1"
 
       - name: Upload test report
         if: failure()
@@ -150,6 +156,10 @@ jobs:
           name: playwright-report
           path: apps/web/playwright-report
           retention-days: 7
+
+      - name: LiveKit logs
+        if: failure()
+        run: docker logs livekit 2>&1 | tail -100
 
   images:
     name: Production images (build and smoke test)

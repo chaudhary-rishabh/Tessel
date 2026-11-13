@@ -14,6 +14,7 @@ import { useCurrentWorkspace } from "@/hooks/use-current-workspace";
 import { useReplyStream } from "@/hooks/use-send-message";
 import { chatErrorMessage } from "@/lib/chat-errors";
 import { useStickToBottom } from "@/hooks/use-stick-to-bottom";
+import { useStartVoice } from "@/hooks/use-voice";
 import { replyControllers, useChatStore } from "@/lib/chat-store";
 
 export default function ThreadPage() {
@@ -30,6 +31,7 @@ export default function ThreadPage() {
   // A pick made in this chat applies to its next messages.
   const [picked, setPicked] = useState<string>();
   const modelId = picked ?? defaultModel;
+  const startVoice = useStartVoice(workspaceId);
   const messages = thread.data?.messages ?? [];
   const {
     ref: scrollRef,
@@ -121,6 +123,11 @@ export default function ThreadPage() {
           onModelChange={setPicked}
           onSend={onSend}
           onStop={() => replyControllers.stop(threadId)}
+          onVoice={
+            startVoice
+              ? () => startVoice({ threadId, ...(modelId ? { model: modelId } : {}) })
+              : undefined
+          }
           streaming={Boolean(live)}
           placeholder="Reply to Tessel"
         />
