@@ -33,12 +33,12 @@ export const teamWorkers: WorkerSpec[] = [
   },
 ];
 
-/** Makes and edits images, when image generation is set up. */
+/** Makes and edits images (and videos), when generation is set up. */
 export const designerWorker: WorkerSpec = {
   name: "designer",
   title: "Designer",
-  description: "Makes new images and edits existing ones.",
-  tools: ["generate_image", "edit_image"],
+  description: "Makes new images, edits existing ones, and makes short videos.",
+  tools: ["generate_image", "edit_image", "generate_video"],
 };
 
 const escapeAttribute = (value: string) => value.replace(/[<>"&]/g, " ");

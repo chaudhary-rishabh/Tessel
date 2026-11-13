@@ -1,7 +1,8 @@
-import { aiEnvSchema, createImageGenerator } from "@tessel/ai";
+import { aiEnvSchema, createImageGenerator, createVideoGenerator } from "@tessel/ai";
 import { solidPng, startMockGateway, type MockGateway } from "@tessel/ai/testing";
 import type { ChatEvent, MediaItem } from "@tessel/contracts";
-import { media, usageEvents } from "@tessel/db";
+import { billingAccounts, media, usageEvents } from "@tessel/db";
+import type { VideoJobData } from "@tessel/queue";
 import { memoryObjectStore, memoryUploadQueue } from "@tessel/storage/testing";
 import { and, eq } from "drizzle-orm";
 import type { Express } from "express";
@@ -13,6 +14,7 @@ import { bearer, connect, createTestAi, createTestApp, signUp, type SignedUpUser
 let gateway: MockGateway;
 let app: Express;
 let appWithoutImages: Express;
+const videoJobs: { job: VideoJobData; delay: number | undefined }[] = [];
 const objects = memoryObjectStore();
 const ownerDb = () => connect(inject("testDatabaseOwnerUrl")).db;
 
@@ -28,9 +30,17 @@ beforeAll(async () => {
       AI_GATEWAY_SDK_URL: gateway.url.replace(/\/v1$/, "/v3/ai"),
     }),
   );
+  const sdkEnv = aiEnvSchema.parse({
+    AI_GATEWAY_API_KEY: "test",
+    AI_GATEWAY_SDK_URL: gateway.url.replace(/\/v1$/, "/v3/ai"),
+  });
   app = createTestApp({
     ai,
     images,
+    videos: {
+      generator: createVideoGenerator(sdkEnv)!,
+      queue: { enqueueVideo: async (job, delay) => void videoJobs.push({ job, delay }) },
+    },
     storage: { objects, uploads: memoryUploadQueue(), uploadEvents: "api" },
   });
   appWithoutImages = createTestApp({ ai });
@@ -309,5 +319,109 @@ describe("the gallery", () => {
       .send({ prompt: "MOCK_IMAGE_FAIL" });
     expect(res.status).toBe(502);
     expect(res.body.error.code).toBe("image_failed");
+  });
+});
+
+async function decide(user: SignedUpUser, base: string, threadId: string, callId: string) {
+  const res = await readEvents(
+    request(app)
+      .post(`${base}/threads/${threadId}/tool-calls/${encodeURIComponent(callId)}/decision`)
+      .set("Authorization", bearer(user))
+      .send({ approved: true }),
+  );
+  return parse(res.body as string);
+}
+
+describe("videos", () => {
+  async function paid() {
+    const ctx = await setup();
+    await ownerDb().insert(billingAccounts).values({ workspaceId: ctx.workspaceId, plan: "pro" });
+    return ctx;
+  }
+
+  it("asks before making a video, then starts it in the background", async () => {
+    const { user, base } = await paid();
+    const events = await chat(user, base, {
+      content: tools({
+        name: "generate_video",
+        args: { prompt: "Waves at dusk", aspect_ratio: "9:16", duration_seconds: 6 },
+      }),
+      knowledge: "off",
+    });
+    const waiting = done(events);
+    expect(waiting.status).toBe("waiting");
+    const call = waiting.message.toolCalls[0]!;
+    expect(call).toMatchObject({
+      name: "generate_video",
+      status: "waiting",
+      description: "Make a 6-second video: Waves at dusk",
+    });
+
+    const resumed = await decide(user, base, threadOf(events), call.id);
+    const finished = done(resumed).message.toolCalls[0]!;
+    expect(finished.status).toBe("completed");
+    const video = finished.media![0]!;
+    expect(video).toMatchObject({ kind: "video", width: 720, height: 1280 });
+
+    const item = await request(app)
+      .get(`${base}/media/${video.id}`)
+      .set("Authorization", bearer(user));
+    expect(item.body).toMatchObject({
+      kind: "video",
+      status: "pending",
+      progress: 0,
+      durationMs: 6000,
+      modelId: "google/veo-3.1-fast-generate-001",
+      threadId: threadOf(events),
+    });
+    // The worker is asked to check on it.
+    expect(videoJobs.at(-1)).toEqual({
+      job: { workspaceId: expect.any(String), userId: user.auth.user.id, mediaId: video.id },
+      delay: 2000,
+    });
+    const [row] = await ownerDb().select().from(media).where(eq(media.id, video.id));
+    expect(row?.operation).toEqual({ id: expect.stringMatching(/^mock-video-/) });
+    // Not playable until it's done.
+    const content = await request(app)
+      .get(`${base}/media/${video.id}/content`)
+      .set("Authorization", bearer(user));
+    expect(content.status).toBe(404);
+  });
+
+  it("starts a video from the gallery, from an image", async () => {
+    const { user, base } = await paid();
+    const still = await request(app)
+      .post(`${base}/media/images`)
+      .set("Authorization", bearer(user))
+      .send({ prompt: "A lighthouse" });
+    const res = await request(app)
+      .post(`${base}/media/videos`)
+      .set("Authorization", bearer(user))
+      .send({ prompt: "The light turns on", sourceId: still.body.id });
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({
+      kind: "video",
+      status: "pending",
+      sourceIds: [still.body.id],
+    });
+    const started = gateway.requests
+      .filter((entry) => entry.path.endsWith("/video-model/start"))
+      .at(-1)!;
+    expect(started.body).toMatchObject({
+      prompt: "The light turns on",
+      duration: 8,
+      aspectRatio: "16:9",
+    });
+    expect((started.body as { image?: unknown }).image).toBeDefined();
+  });
+
+  it("needs a paid plan", async () => {
+    const { user, base } = await setup();
+    const res = await request(app)
+      .post(`${base}/media/videos`)
+      .set("Authorization", bearer(user))
+      .send({ prompt: "Waves" });
+    expect(res.status).toBe(403);
+    expect(res.body.error.code).toBe("video_requires_plan");
   });
 });

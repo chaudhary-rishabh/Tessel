@@ -20,6 +20,9 @@ export const aiEnvShape = {
   AI_IMAGE_INPUT_USD_PER_M: z.coerce.number().nonnegative().default(5),
   AI_IMAGE_OUTPUT_USD_PER_M: z.coerce.number().nonnegative().default(30),
   AI_IMAGE_USD_PER_IMAGE: z.coerce.number().nonnegative().default(0.05),
+  /** The video model, and what a second of video costs (with sound, at 720p), for the ledger. */
+  AI_VIDEO_MODEL: z.string().min(1).default("google/veo-3.1-fast-generate-001"),
+  AI_VIDEO_USD_PER_SECOND: z.coerce.number().nonnegative().default(0.15),
   /** Emergency fallback straight to OpenAI when the gateway is down. */
   AI_FALLBACK_OPENAI_API_KEY: optional(z.string().min(1)),
   AI_FALLBACK_OPENAI_URL: optional(z.url()),

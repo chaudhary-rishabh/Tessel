@@ -1,17 +1,25 @@
 "use client";
 
 import { useGallery, useMediaActions, useMediaStatus } from "@tessel/api-client/react";
-import { IMAGE_ASPECT_RATIOS, type ImageAspectRatio, type MediaItem } from "@tessel/contracts";
+import {
+  IMAGE_ASPECT_RATIOS,
+  VIDEO_DURATIONS,
+  type ImageAspectRatio,
+  type MediaItem,
+} from "@tessel/contracts";
 import { Button, Spinner, cn } from "@tessel/ui";
-import { ImagePlus } from "lucide-react";
+import { Clapperboard, ImagePlus } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useId, useState } from "react";
 import { ImageViewer, type ViewedImage } from "@/components/media/image-viewer";
 import { MediaImage } from "@/components/media/media-image";
+import { VideoCard } from "@/components/media/video-card";
 import { useCurrentWorkspace } from "@/hooks/use-current-workspace";
 import { useImageReference } from "@/lib/image-reference-store";
 
-const SHAPES: Record<ImageAspectRatio, string> = {
+type Kind = "image" | "video";
+
+const IMAGE_SHAPES: Record<ImageAspectRatio, string> = {
   "1:1": "Square",
   "3:2": "Landscape 3:2",
   "2:3": "Portrait 2:3",
@@ -20,39 +28,60 @@ const SHAPES: Record<ImageAspectRatio, string> = {
   "4:3": "Landscape 4:3",
   "3:4": "Portrait 3:4",
 };
+const VIDEO_SHAPES = { "16:9": "Landscape 16:9", "9:16": "Portrait 9:16" } as const;
 
-function CreateImage({
-  generateImage,
-  onMade,
+const SELECT = "border-line bg-paper h-9 rounded-lg border px-2 text-sm";
+
+function CreateForm({
+  kind,
+  workspaceId,
+  onImage,
 }: {
-  generateImage: ReturnType<typeof useMediaActions>["generateImage"];
-  onMade: (item: MediaItem) => void;
+  kind: Kind;
+  workspaceId: string;
+  onImage: (item: MediaItem) => void;
 }) {
   const promptId = useId();
-  const shapeId = useId();
   const [prompt, setPrompt] = useState("");
-  const [shape, setShape] = useState<ImageAspectRatio>("1:1");
+  const [imageShape, setImageShape] = useState<ImageAspectRatio>("1:1");
+  const [videoShape, setVideoShape] = useState<keyof typeof VIDEO_SHAPES>("16:9");
+  const [seconds, setSeconds] = useState<(typeof VIDEO_DURATIONS)[number]>(8);
+  const { generateImage, startVideo } = useMediaActions(workspaceId);
+  const mutation = kind === "image" ? generateImage : startVideo;
+  const busy = mutation.isPending;
+
+  function submit() {
+    const text = prompt.trim();
+    if (!text || busy) return;
+    const done = () => setPrompt("");
+    if (kind === "image") {
+      generateImage.mutate(
+        { prompt: text, aspectRatio: imageShape },
+        {
+          onSuccess: (item) => {
+            done();
+            onImage(item);
+          },
+        },
+      );
+    } else {
+      startVideo.mutate(
+        { prompt: text, aspectRatio: videoShape, durationSeconds: seconds },
+        { onSuccess: done },
+      );
+    }
+  }
 
   return (
     <form
       className="border-line bg-surface rounded-2xl border p-3 shadow-sm"
       onSubmit={(event) => {
         event.preventDefault();
-        const text = prompt.trim();
-        if (!text || generateImage.isPending) return;
-        generateImage.mutate(
-          { prompt: text, aspectRatio: shape },
-          {
-            onSuccess: (item) => {
-              setPrompt("");
-              onMade(item);
-            },
-          },
-        );
+        submit();
       }}
     >
       <label htmlFor={promptId} className="sr-only">
-        Describe an image
+        {kind === "image" ? "Describe an image" : "Describe a video"}
       </label>
       <textarea
         id={promptId}
@@ -61,42 +90,74 @@ function CreateImage({
         onKeyDown={(event) => {
           if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
             event.preventDefault();
-            event.currentTarget.form?.requestSubmit();
+            submit();
           }
         }}
         rows={2}
         maxLength={4000}
-        placeholder="Describe an image: the subject, the style, the light…"
+        placeholder={
+          kind === "image"
+            ? "Describe an image: the subject, the style, the light…"
+            : "Describe a clip: the scene, the motion, the camera, the sound…"
+        }
         className="placeholder:text-muted/80 block w-full resize-none bg-transparent px-2 py-1.5 text-base focus:outline-none"
       />
-      {generateImage.error ? (
+      {mutation.error ? (
         <p role="alert" className="text-danger px-2 pb-1 text-sm">
-          {generateImage.error.message}
+          {mutation.error.message}
         </p>
       ) : null}
-      <div className="flex items-center gap-2 pt-1">
-        <label htmlFor={shapeId} className="sr-only">
-          Shape
-        </label>
-        <select
-          id={shapeId}
-          value={shape}
-          onChange={(event) => setShape(event.target.value as ImageAspectRatio)}
-          className="border-line bg-paper h-9 rounded-lg border px-2 text-sm"
-        >
-          {IMAGE_ASPECT_RATIOS.map((ratio) => (
-            <option key={ratio} value={ratio}>
-              {SHAPES[ratio]}
-            </option>
-          ))}
-        </select>
-        <Button
-          type="submit"
-          className="ml-auto"
-          disabled={!prompt.trim() || generateImage.isPending}
-        >
-          <ImagePlus className="size-4" aria-hidden="true" />
-          {generateImage.isPending ? "Creating…" : "Create"}
+      <div className="flex flex-wrap items-center gap-2 pt-1">
+        {kind === "image" ? (
+          <select
+            aria-label="Shape"
+            value={imageShape}
+            onChange={(event) => setImageShape(event.target.value as ImageAspectRatio)}
+            className={SELECT}
+          >
+            {IMAGE_ASPECT_RATIOS.map((ratio) => (
+              <option key={ratio} value={ratio}>
+                {IMAGE_SHAPES[ratio]}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <>
+            <select
+              aria-label="Shape"
+              value={videoShape}
+              onChange={(event) => setVideoShape(event.target.value as keyof typeof VIDEO_SHAPES)}
+              className={SELECT}
+            >
+              {Object.entries(VIDEO_SHAPES).map(([ratio, label]) => (
+                <option key={ratio} value={ratio}>
+                  {label}
+                </option>
+              ))}
+            </select>
+            <select
+              aria-label="Length"
+              value={seconds}
+              onChange={(event) =>
+                setSeconds(Number(event.target.value) as (typeof VIDEO_DURATIONS)[number])
+              }
+              className={SELECT}
+            >
+              {VIDEO_DURATIONS.map((value) => (
+                <option key={value} value={value}>
+                  {value} seconds
+                </option>
+              ))}
+            </select>
+          </>
+        )}
+        <Button type="submit" size="sm" className="ml-auto" disabled={!prompt.trim() || busy}>
+          {kind === "image" ? (
+            <ImagePlus className="size-4" aria-hidden="true" />
+          ) : (
+            <Clapperboard className="size-4" aria-hidden="true" />
+          )}
+          {kind === "image" ? (busy ? "Creating…" : "Create") : busy ? "Starting…" : "Make video"}
         </Button>
       </div>
     </form>
@@ -107,13 +168,15 @@ export default function GalleryPage() {
   const router = useRouter();
   const { current } = useCurrentWorkspace();
   const status = useMediaStatus(current?.id);
-  const gallery = useGallery(current?.id, "image");
+  const [kind, setKind] = useState<Kind>("image");
+  const gallery = useGallery(current?.id, kind);
   const { generateImage } = useMediaActions(current?.id ?? "");
   const pointAt = useImageReference((state) => state.set);
   const [open, setOpen] = useState<(ViewedImage & { threadId?: string | null }) | null>(null);
   if (!current) return null;
 
   const items = gallery.data?.pages.flatMap((page) => page.items) ?? [];
+  const available = kind === "image" ? status.data?.images : status.data?.videos;
   const show = (item: MediaItem) =>
     setOpen({
       id: item.id,
@@ -125,34 +188,51 @@ export default function GalleryPage() {
 
   return (
     <div className="mx-auto w-full max-w-5xl px-4 py-8 sm:px-8 md:py-12">
-      <h1 className="text-3xl font-semibold tracking-tight">Images</h1>
+      <h1 className="text-3xl font-semibold tracking-tight">Gallery</h1>
       <p className="text-muted mt-2 max-w-prose">
-        Images you make here or ask for in a chat. Only you can see them.
+        Images and videos you make here or ask for in a chat. Only you can see them.
       </p>
 
-      <section aria-label="Create an image" className="mt-8">
-        {status.data?.images === false ? (
+      <div role="tablist" aria-label="Show" className="bg-paper mt-8 inline-flex rounded-lg p-0.5">
+        {(["image", "video"] as const).map((option) => (
+          <button
+            key={option}
+            type="button"
+            role="tab"
+            aria-selected={kind === option}
+            onClick={() => setKind(option)}
+            className={cn(
+              "focus-visible:outline-accent rounded-md px-4 py-1.5 text-sm font-medium focus-visible:outline-2",
+              kind === option ? "bg-surface text-ink shadow-sm" : "text-muted hover:text-ink",
+            )}
+          >
+            {option === "image" ? "Images" : "Videos"}
+          </button>
+        ))}
+      </div>
+
+      <section aria-label={kind === "image" ? "Create an image" : "Make a video"} className="mt-4">
+        {available === false ? (
           <p className="border-line text-muted rounded-xl border px-4 py-3 text-sm">
-            Image generation isn&apos;t set up on this server yet.
+            {kind === "image" ? "Image" : "Video"} generation isn&apos;t set up on this server yet.
           </p>
         ) : (
-          <CreateImage generateImage={generateImage} onMade={show} />
+          <CreateForm key={kind} kind={kind} workspaceId={current.id} onImage={show} />
         )}
       </section>
 
-      <section aria-labelledby="gallery-heading" className="mt-10">
-        <h2 id="gallery-heading" className="sr-only">
-          Your images
-        </h2>
+      <section aria-label={kind === "image" ? "Your images" : "Your videos"} className="mt-10">
         {gallery.isLoading ? (
           <div className="flex justify-center py-12">
             <Spinner />
           </div>
         ) : items.length === 0 && !generateImage.isPending ? (
           <p className="text-muted py-12 text-center">
-            No images yet. Describe one above, or ask for one in any chat.
+            {kind === "image"
+              ? "No images yet. Describe one above, or ask for one in any chat."
+              : "No videos yet. Describe one above, or ask for one in any chat."}
           </p>
-        ) : (
+        ) : kind === "image" ? (
           <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
             {generateImage.isPending ? (
               <li
@@ -177,11 +257,23 @@ export default function GalleryPage() {
                     alt={item.prompt}
                     width={1}
                     height={1}
-                    className={cn(
-                      "rounded-xl transition-transform duration-300 group-hover:scale-[1.02] motion-reduce:transition-none",
-                    )}
+                    className="rounded-xl transition-transform duration-300 group-hover:scale-[1.02] motion-reduce:transition-none"
                   />
                 </button>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <ul className="grid gap-4 sm:grid-cols-2">
+            {items.map((item) => (
+              <li key={item.id}>
+                <VideoCard
+                  workspaceId={current.id}
+                  mediaId={item.id}
+                  width={item.width}
+                  height={item.height}
+                  alt={item.prompt}
+                />
               </li>
             ))}
           </ul>

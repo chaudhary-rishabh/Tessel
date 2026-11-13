@@ -8,6 +8,7 @@ import {
   redisKeyValueCache,
   withSearchCache,
   createSpendGuard,
+  createVideoGenerator,
   redisSpendStore,
   spendLimitsFromEnv,
 } from "@tessel/ai";
@@ -17,6 +18,7 @@ import { graphStoreFromEnv } from "@tessel/graph";
 import { createLogger } from "@tessel/logger";
 import { createMemoryStore, createQdrantEpisodeIndex, processThreadMemory } from "@tessel/memory";
 import {
+  createMediaQueue,
   createQueueConnection,
   jobSchemas,
   MAINTENANCE_SCHEDULE,
@@ -30,6 +32,7 @@ import { startHealthServer } from "./health";
 import { startUploadConsumer } from "./ingest/consumer";
 import { ingestDocument } from "./ingest/ingest";
 import { createDocumentStore } from "./ingest/store";
+import { createVideoStore, processVideoJob } from "./media/video";
 import { processSystemJob } from "./processors/system";
 
 const SERVICE = "worker";
@@ -139,6 +142,32 @@ const memoryWorker = new Worker(
   },
   { connection, concurrency: env.MEMORY_CONCURRENCY },
 );
+// Videos: each job checks one video and queues itself again until it's done.
+const mediaQueue = createMediaQueue(connection);
+const videoStore = createVideoStore(database.db);
+const videos = createVideoGenerator(env);
+const mediaWorker = new Worker(
+  QUEUE_NAMES.media,
+  async (job) => {
+    const parsed = jobSchemas.media.video.safeParse(job.data);
+    if (!parsed.success)
+      throw new UnrecoverableError(`Invalid video payload: ${parsed.error.message}`);
+    return processVideoJob(
+      {
+        store: videoStore,
+        objects,
+        videos,
+        ai,
+        queue: mediaQueue,
+        logger,
+        pollMs: env.VIDEO_POLL_MS,
+      },
+      parsed.data,
+    );
+  },
+  // Saving a finished video downloads it; give that time.
+  { connection, concurrency: env.WORKER_CONCURRENCY, lockDuration: 180_000 },
+);
 const documentsQueue = new Queue(QUEUE_NAMES.documents, { connection });
 const consumer = startUploadConsumer({
   uploads,
@@ -151,6 +180,7 @@ for (const [name, worker] of [
   [QUEUE_NAMES.system, systemWorker],
   [QUEUE_NAMES.documents, documentsWorker],
   [QUEUE_NAMES.memory, memoryWorker],
+  [QUEUE_NAMES.media, mediaWorker],
 ] as const) {
   worker.on("ready", () => logger.info({ queue: name }, "Worker ready"));
   worker.on("failed", (job, error) =>
@@ -164,6 +194,7 @@ const healthServer = startHealthServer(env.WORKER_HEALTH_PORT, {
     systemWorker.isRunning() &&
     documentsWorker.isRunning() &&
     memoryWorker.isRunning() &&
+    mediaWorker.isRunning() &&
     consumer.isHealthy(),
   isConnected: () => connection.status === "ready",
 });
@@ -182,8 +213,13 @@ async function shutdown(signal: string): Promise<void> {
 
   healthServer.close();
   await consumer.stop();
-  await Promise.all([systemWorker.close(), documentsWorker.close(), memoryWorker.close()]);
-  await Promise.all([documentsQueue.close(), systemQueue.close()]);
+  await Promise.all([
+    systemWorker.close(),
+    documentsWorker.close(),
+    memoryWorker.close(),
+    mediaWorker.close(),
+  ]);
+  await Promise.all([documentsQueue.close(), systemQueue.close(), mediaQueue.close()]);
   await Promise.allSettled([
     connection.quit(),
     redisCache.quit(),

@@ -49,6 +49,13 @@ export function createMediaRouter({
         .json(await service.generateImage(actorFor(req), req.body, { moderate: true }));
     },
   );
+  router.post(
+    "/videos",
+    createRateLimiter({ name: "videos", ...rateLimit, storeFactory, key: userKey }),
+    async (req, res) => {
+      res.status(201).json(await service.startVideo(actorFor(req), req.body, { moderate: true }));
+    },
+  );
   router.get("/:mediaId", async (req, res) => {
     const { mediaId } = mediaParamsSchema.parse(req.params);
     res.json(await service.get(actorFor(req), mediaId));

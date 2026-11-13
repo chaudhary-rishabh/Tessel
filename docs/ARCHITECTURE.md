@@ -455,10 +455,17 @@ sequenceDiagram
 
 - Chat has two tools when an image model is set up (`AI_IMAGE_MODEL`, through the gateway's AI SDK endpoint `AI_GATEWAY_SDK_URL`): `generate_image` (a prompt and an aspect ratio) and `edit_image` (a change, and the images to change: by ID, or by default the newest image in the chat). Team mode gets a designer worker with both. Image tools may run for up to three minutes.
 - The model knows images by ID: attached images appear in the user's turn as `<attached_image id>`, images a reply made as `<generated_image id>` after it, and "Edit in chat" sends `[image:ID]` at the start of the message (shown as a thumbnail, not text).
-- `media` holds every generated image (and, from step 28, video): owner-only under row-level security, with the prompt, model, source images, size, and cost. The file is in S3 at `workspaces/{workspaceId}/media/{mediaId}/original`, with a 512 px WebP preview beside it (`sharp`). Sources are re-encoded as PNG (at most 2048 px) before they go to the model, and an edit keeps the source's shape unless asked otherwise.
+- `media` holds every generated image and video: owner-only under row-level security, with the prompt, model, source images, size, and cost. The file is in S3 at `workspaces/{workspaceId}/media/{mediaId}/original`, with a 512 px WebP preview beside it (`sharp`). Sources are re-encoded as PNG (at most 2048 px) before they go to the model, and an edit keeps the source's shape unless asked otherwise.
 - Tool calls carry `media` (kind, ID, size, alt text); the reply shows those images under its text, with a placeholder of the right shape while one is made. Images open full screen with download and "Edit in chat".
 - Each generation checks the plan's limits and the daily caps, and is recorded as feature `image` at the gateway's reported cost (or by tokens, or a flat price per image). The gallery's prompts are moderated; in chat the user's message already was.
 - The gallery (`/gallery`, "Images") lists them newest first, makes new ones, edits one into a new image, downloads, and deletes. Endpoints under `/workspaces/:workspaceId/media`: `GET /status`, `GET /`, `POST /images`, `GET /:mediaId`, `GET /:mediaId/content?variant=original|preview`, `DELETE /:mediaId`. Files are served with the user's token and cached as immutable.
+
+## Videos
+
+- `generate_video` (when `AI_VIDEO_MODEL` is set up) makes a 4, 6, or 8 second clip with sound, landscape or portrait, optionally from an image in the chat. It costs about a dollar, so it's a paid-plan feature and the user approves each one, like a write tool. The gallery's Videos tab starts them too (`POST /workspaces/:workspaceId/media/videos`).
+- Starting a video calls the gateway's asynchronous video API (`experimental_startVideo`) and saves a `pending` row in `media` with the provider's operation handle, then queues a `video` job on the `media` queue.
+- The worker checks the operation (`experimental_getVideoStatus`) every `VIDEO_POLL_MS`. While it's running, the row's progress moves toward 95% (providers don't report progress) and the job queues itself again. When it's done, the clip is saved to S3 and the row marked `ready`, with its cost recorded as feature `video`. Errors and anything over 15 minutes are marked `failed`.
+- The reply and the gallery show the video's progress (they poll the item while it's pending), then a player with download.
 
 ## Caching
 
