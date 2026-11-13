@@ -485,3 +485,46 @@ describe("workspace policies", () => {
     expect(workspaceId).toBeTruthy();
   });
 });
+
+describe("connector resources and prompts", () => {
+  it("lets the agent read a connector's resources and use its prompts", async () => {
+    const { user, base } = await setup();
+    const connected = await connectGitHub(user, base);
+    expect(connected.body.connection).toMatchObject({
+      resources: true,
+      prompts: ["Triage an issue"],
+    });
+
+    const read = await chat(
+      user,
+      base,
+      `MOCK_TOOLS ${JSON.stringify([{ name: "github_read_resource", args: { uri: "repo://mock/README.md" } }])}`,
+    );
+    const readDone = read.find((event) => event.type === "done") as Extract<
+      ChatEvent,
+      { type: "done" }
+    >;
+    expect(readDone.message.toolCalls[0]).toMatchObject({ status: "completed" });
+    expect(readDone.message.content).toContain("README-OK");
+
+    gateway.reset();
+    const prompt = await chat(
+      user,
+      base,
+      `MOCK_TOOLS ${JSON.stringify([{ name: "github_prompt_triage", args: { number: "7" } }])}`,
+    );
+    const promptDone = prompt.find((event) => event.type === "done") as Extract<
+      ChatEvent,
+      { type: "done" }
+    >;
+    expect(promptDone.message.content).toContain("TRIAGE-OK: label issue #7");
+    const offered = (
+      gateway.requests.find((entry) => entry.body.stream === true)!.body.tools as {
+        function: { name: string };
+      }[]
+    ).map((tool) => tool.function.name);
+    expect(offered).toEqual(
+      expect.arrayContaining(["github_list_resources", "github_read_resource"]),
+    );
+  });
+});

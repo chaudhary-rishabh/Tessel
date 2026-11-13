@@ -42,8 +42,30 @@ export interface ConnectorEndpoint {
   timeoutMs?: number;
 }
 
+/** A resource a server offers, like a file or a record, read by URI. */
+export interface RemoteResource {
+  uri: string;
+  name: string;
+  description?: string;
+  mimeType?: string;
+}
+
+/** A prompt template a server offers. */
+export interface RemotePrompt {
+  name: string;
+  title?: string;
+  description?: string;
+  arguments?: { name: string; description?: string; required?: boolean }[];
+}
+
 export interface ConnectorClient {
   listTools(): Promise<RemoteTool[]>;
+  /** Empty when the server doesn't offer resources. */
+  listResources(): Promise<RemoteResource[]>;
+  readResource(uri: string, signal?: AbortSignal): Promise<string>;
+  /** Empty when the server doesn't offer prompts. */
+  listPrompts(): Promise<RemotePrompt[]>;
+  getPrompt(name: string, args: Record<string, string>, signal?: AbortSignal): Promise<string>;
   callTool(
     name: string,
     args: Record<string, unknown>,
@@ -171,6 +193,53 @@ export async function connectToServer(endpoint: ConnectorEndpoint): Promise<Conn
           }),
         ),
       ),
+    listResources: () =>
+      wrap(async () => {
+        if (!client.getServerCapabilities()?.resources) return [];
+        const resources: RemoteResource[] = [];
+        let cursor: string | undefined;
+        do {
+          const page = await client.listResources(cursor ? { cursor } : {}, { timeout });
+          resources.push(...(page.resources as RemoteResource[]));
+          cursor = page.nextCursor;
+        } while (cursor && resources.length < 200);
+        return resources;
+      }),
+    readResource: (uri, signal) =>
+      wrap(async () => {
+        const result = await client.readResource(
+          { uri },
+          { timeout, ...(signal ? { signal } : {}) },
+        );
+        const text = result.contents
+          .map((item) =>
+            "text" in item && typeof item.text === "string"
+              ? item.text
+              : `[${item.mimeType ?? "binary"} content at ${item.uri}]`,
+          )
+          .join("\n\n");
+        return text.length > MAX_TEXT ? `${text.slice(0, MAX_TEXT)}\n[cut short]` : text;
+      }),
+    listPrompts: () =>
+      wrap(async () => {
+        if (!client.getServerCapabilities()?.prompts) return [];
+        const page = await client.listPrompts({}, { timeout });
+        return page.prompts as RemotePrompt[];
+      }),
+    getPrompt: (name, args, signal) =>
+      wrap(async () => {
+        const result = await client.getPrompt(
+          { name, arguments: args },
+          { timeout, ...(signal ? { signal } : {}) },
+        );
+        return result.messages
+          .map((message) =>
+            message.content.type === "text"
+              ? `${message.role}: ${message.content.text}`
+              : `${message.role}: [${message.content.type}]`,
+          )
+          .join("\n\n");
+      }),
     close: () => client.close(),
   };
 }

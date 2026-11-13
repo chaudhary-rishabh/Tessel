@@ -38,6 +38,10 @@ export const connectorConnectionSchema = z.object({
   shared: z.boolean().default(false),
   /** Whether the signed-in user set it up (and so can change it). */
   mine: z.boolean().default(true),
+  /** Whether the server offers resources (files, records) to read. */
+  resources: z.boolean().default(false),
+  /** The server's prompt templates, by title. */
+  prompts: z.array(z.string()).default([]),
   createdAt: z.iso.datetime(),
 });
 

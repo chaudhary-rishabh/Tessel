@@ -26,6 +26,8 @@ test.describe("access tokens and the MCP server", () => {
     const dialog = page.getByRole("dialog", { name: "New access token" });
     await dialog.getByLabel("Name").fill("Claude Desktop");
     await dialog.getByLabel("Expires after").selectOption("30");
+    await expect(dialog.getByLabel("Search and read the workspace's documents")).toBeChecked();
+    await dialog.getByLabel("Add notes and text documents to the workspace").check();
     await dialog.getByRole("button", { name: "Create token" }).click();
 
     const shown = page.getByRole("dialog", { name: "Copy your token" });
@@ -34,6 +36,9 @@ test.describe("access tokens and the MCP server", () => {
     await expect(shown).toContainText('"Authorization": "Bearer tsl_pat_');
     await shown.getByRole("button", { name: "Done" }).click();
     await expect(page.getByRole("list", { name: "Access tokens" })).toContainText("Claude Desktop");
+    await expect(page.getByRole("list", { name: "Access tokens" })).toContainText(
+      "Can read documents and add documents.",
+    );
 
     const client = await connectClient(token);
     const { tools } = await client.listTools();
@@ -41,6 +46,7 @@ test.describe("access tokens and the MCP server", () => {
       "search_documents",
       "list_documents",
       "read_document",
+      "add_document",
     ]);
     const listed = await client.callTool({ name: "list_documents", arguments: {} });
     expect(listed.content).toEqual([{ type: "text", text: "The workspace has no documents." }]);

@@ -167,6 +167,18 @@ function ConnectionRow({
             ) : null}
           </p>
           <p className="text-muted truncate text-xs">{host}</p>
+          {connection.resources || connection.prompts.length > 0 ? (
+            <p className="text-muted text-xs">
+              {[
+                connection.resources ? "Resources to read" : null,
+                connection.prompts.length
+                  ? `Prompts: ${connection.prompts.slice(0, 3).join(", ")}${connection.prompts.length > 3 ? "…" : ""}`
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </p>
+          ) : null}
           <p className={cn("mt-0.5 text-sm", status.tone)}>
             {refresh.isPending ? "Checking…" : status.label}
             {connection.lastError && connection.status !== "connected" ? (

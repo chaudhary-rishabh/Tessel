@@ -59,6 +59,19 @@ export const connectorConnections = pgTable(
       .notNull()
       .default({}),
     enabled: boolean("enabled").notNull().default(true),
+    /** What else the server offers besides tools: resources to read, and prompt templates. */
+    extras: jsonb("extras")
+      .$type<{
+        resources?: boolean;
+        prompts?: {
+          name: string;
+          title?: string;
+          description?: string;
+          arguments?: { name: string; description?: string; required?: boolean }[];
+        }[];
+      }>()
+      .notNull()
+      .default({}),
     /** Set up by an owner or admin for everyone in the workspace, with its credentials shared. */
     shared: boolean("shared").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

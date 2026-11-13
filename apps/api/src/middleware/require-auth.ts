@@ -33,6 +33,12 @@ export const TOKEN_ROUTES: TokenRoute[] = [
     scope: "documents:read",
   },
   { method: "POST", path: new RegExp(`^/workspaces/(${UUID})/search$`), scope: "documents:read" },
+  {
+    method: "POST",
+    path: new RegExp(`^/workspaces/(${UUID})/documents/text$`),
+    scope: "documents:write",
+  },
+  { method: "POST", path: new RegExp(`^/workspaces/(${UUID})/chat$`), scope: "chat:write" },
 ];
 
 export type ResolveToken = (token: string) => Promise<TokenIdentity | null>;

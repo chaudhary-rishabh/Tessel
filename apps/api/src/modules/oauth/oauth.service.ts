@@ -44,7 +44,7 @@ import { workspacesRepository } from "../workspaces/workspaces.repository";
 const AUTHORIZATION_TTL_MS = 10 * 60_000;
 const CODE_TTL_MS = 5 * 60_000;
 const ACCESS_TOKEN_TTL_SECONDS = 3600;
-/** What a client may ask for; today the same read-only access as a personal token. */
+/** What a client may ask for: the same scopes as a personal token. */
 const SUPPORTED_SCOPES: readonly string[] = ACCESS_TOKEN_SCOPES;
 
 const random = (bytes: number) => randomBytes(bytes).toString("base64url");
@@ -398,8 +398,20 @@ export function createOAuthService({
     },
 
     /** The user allows the client into a workspace they belong to; returns where to send the browser. */
-    async approve(userId: string, authorizationId: string, workspaceId: string): Promise<string> {
+    async approve(
+      userId: string,
+      authorizationId: string,
+      workspaceId: string,
+      chosenScopes?: string[],
+    ): Promise<string> {
       const { authorization } = await pending(authorizationId);
+      // The user can allow less than the client asked for, never more.
+      const scopes = chosenScopes
+        ? authorization.scopes.filter((scope) => chosenScopes.includes(scope))
+        : authorization.scopes;
+      if (scopes.length === 0) {
+        throw errors.badRequest("no_scopes", "Allow at least one thing, or deny the request");
+      }
       const member = await withUserContext(db, userId, (tx) =>
         workspacesRepository.findForUser(tx, workspaceId, userId),
       );
@@ -411,6 +423,7 @@ export function createOAuthService({
           status: "approved",
           userId,
           workspaceId,
+          scopes,
           codeHash: hashToken(code),
           expiresAt: new Date(now().getTime() + CODE_TTL_MS),
         })

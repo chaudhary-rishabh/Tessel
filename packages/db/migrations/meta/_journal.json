@@ -218,6 +218,13 @@
       "when": 1794610348302,
       "tag": "0030_skill_files",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1794610964521,
+      "tag": "0031_connector_extras",
+      "breakpoints": true
     }
   ]
 }

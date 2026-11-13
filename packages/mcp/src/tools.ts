@@ -1,6 +1,6 @@
 import { defineTool, ToolError, type ToolDefinition, type ToolRisk } from "@tessel/ai";
 import { z } from "zod";
-import type { ConnectorClient, RemoteTool } from "./client";
+import type { ConnectorClient, RemotePrompt, RemoteTool } from "./client";
 
 /** What the user chose for one tool: follow the server's hint, always ask, never ask, or hide it. */
 export type ToolPolicy = "auto" | "ask" | "allow" | "off";
@@ -66,6 +66,10 @@ export interface ConnectorToolSource {
   policies: Record<string, ToolPolicy>;
   /** Opens (or reuses) a client for this connection. */
   client: () => Promise<ConnectorClient>;
+  /** Whether the server offers resources to read. */
+  resources?: boolean;
+  /** The server's prompt templates. */
+  prompts?: RemotePrompt[];
 }
 
 /**
@@ -77,6 +81,82 @@ export function connectorTools(
   taken = new Set<string>(),
 ): ToolDefinition[] {
   const tools: ToolDefinition[] = [];
+  const unique = (base: string) => {
+    let name = base;
+    for (let n = 2; taken.has(name); n += 1) name = `${base.slice(0, 60)}_${n}`;
+    taken.add(name);
+    return name;
+  };
+  // Resources (files, records) and prompt templates, when the server offers them.
+  if (source.resources) {
+    tools.push(
+      defineTool({
+        name: unique(toolName(source.prefix, "list_resources")),
+        title: `${source.name}: List resources`,
+        description: `[${source.name}] List the files and records ${source.name} offers to read, with their URIs.`,
+        schema: z.object({}),
+        risk: "read",
+        async run() {
+          const client = await source.client();
+          const resources = await client.listResources();
+          if (resources.length === 0) return { content: "No resources.", summary: "No resources" };
+          return {
+            content: resources
+              .slice(0, 100)
+              .map(
+                (item) =>
+                  `- ${item.name} (${item.uri})${item.description ? `: ${item.description}` : ""}`,
+              )
+              .join("\n"),
+            summary: `${resources.length} resource${resources.length === 1 ? "" : "s"}`,
+          };
+        },
+      }),
+      defineTool({
+        name: unique(toolName(source.prefix, "read_resource")),
+        title: `${source.name}: Read a resource`,
+        description: `[${source.name}] Read one of ${source.name}'s resources by its URI.`,
+        schema: z.object({ uri: z.string().min(1).max(2_000) }),
+        risk: "read",
+        async run({ uri }, { signal }) {
+          const client = await source.client();
+          const text = await client.readResource(uri, signal);
+          return { content: text || "(empty)", summary: `Read ${uri}`.slice(0, 120) };
+        },
+      }),
+    );
+  }
+  for (const prompt of source.prompts ?? []) {
+    const args = prompt.arguments ?? [];
+    tools.push(
+      defineTool({
+        name: unique(toolName(source.prefix, `prompt_${prompt.name}`)),
+        title: `${source.name}: ${prompt.title ?? prompt.name}`,
+        description:
+          `[${source.name}] Get the "${prompt.title ?? prompt.name}" instructions${prompt.description ? `: ${prompt.description}` : ""}. Follow them for the user's request.`.slice(
+            0,
+            MAX_DESCRIPTION,
+          ),
+        schema: z.record(z.string(), z.string()),
+        parameters: {
+          type: "object",
+          properties: Object.fromEntries(
+            args.map((arg) => [arg.name, { type: "string", description: arg.description ?? "" }]),
+          ),
+          required: args.filter((arg) => arg.required).map((arg) => arg.name),
+        },
+        risk: "read",
+        async run(values, { signal }) {
+          const client = await source.client();
+          const text = await client.getPrompt(prompt.name, values, signal);
+          return {
+            content: `<connector_prompt connector="${source.name}" name="${prompt.name}">\n${text}\n</connector_prompt>`,
+            summary: prompt.title ?? prompt.name,
+          };
+        },
+      }),
+    );
+  }
   for (const remote of source.tools) {
     const risk = toolRisk(remote, source.policies[remote.name] ?? "auto");
     if (!risk) continue;

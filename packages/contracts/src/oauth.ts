@@ -15,7 +15,11 @@ export const oauthAuthorizationSchema = z.object({
 });
 
 export const oauthAuthorizationParamsSchema = z.object({ authorizationId: z.uuid() });
-export const approveOAuthRequestSchema = z.object({ workspaceId: z.uuid() });
+export const approveOAuthRequestSchema = z.object({
+  workspaceId: z.uuid(),
+  /** Narrows what the client asked for; omitted allows all of it. */
+  scopes: z.array(z.string().max(40)).min(1).max(10).optional(),
+});
 /** Where to send the browser next: back to the client, with a code or an error. */
 export const oauthRedirectResponseSchema = z.object({ redirectUrl: z.url() });
 

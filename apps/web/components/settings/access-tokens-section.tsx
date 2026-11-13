@@ -5,13 +5,19 @@ import {
   useCreateAccessToken,
   useRevokeAccessToken,
 } from "@tessel/api-client/react";
-import type { AccessToken, CreateAccessTokenResponse } from "@tessel/contracts";
+import {
+  ACCESS_TOKEN_SCOPES,
+  type AccessToken,
+  type AccessTokenScope,
+  type CreateAccessTokenResponse,
+} from "@tessel/contracts";
 import { Button, cn, Dialog, DialogClose, DialogContent, Spinner, TextField } from "@tessel/ui";
 import { KeyRound, Plus } from "lucide-react";
 import { useId, useState, type FormEvent } from "react";
 import { CopyButton } from "@/components/chat/markdown";
 import { FormError } from "@/components/form-error";
 import { env } from "@/lib/env";
+import { ScopeChoices, scopeSummary } from "./scope-choices";
 
 const EXPIRY = [
   { value: "7", label: "7 days" },
@@ -45,6 +51,7 @@ function CreateTokenDialog({ workspaceId, onClose }: { workspaceId: string; onCl
   const [name, setName] = useState("");
   const [expiry, setExpiry] = useState<(typeof EXPIRY)[number]["value"]>("90");
   const [created, setCreated] = useState<CreateAccessTokenResponse>();
+  const [scopes, setScopes] = useState<string[]>(["documents:read"]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -52,6 +59,7 @@ function CreateTokenDialog({ workspaceId, onClose }: { workspaceId: string; onCl
       const result = await create.mutateAsync({
         name,
         expiresInDays: expiry === "never" ? null : (Number(expiry) as 7 | 30 | 90 | 365),
+        scopes: scopes as AccessTokenScope[],
       });
       setCreated(result);
     } catch {
@@ -66,7 +74,7 @@ function CreateTokenDialog({ workspaceId, onClose }: { workspaceId: string; onCl
         description={
           created
             ? "This is the only time it's shown. Store it somewhere safe, like your MCP client's settings."
-            : "Lets an outside tool, such as Claude Desktop or Cursor, search and read this workspace's documents as you."
+            : "Lets an outside tool, such as Claude Desktop or Cursor, use this workspace as you."
         }
         className="max-h-[calc(100dvh-2rem)] max-w-lg overflow-y-auto"
       >
@@ -131,8 +139,9 @@ function CreateTokenDialog({ workspaceId, onClose }: { workspaceId: string; onCl
                 ))}
               </select>
             </div>
+            <ScopeChoices scopes={ACCESS_TOKEN_SCOPES} selected={scopes} onChange={setScopes} />
             <p className="text-muted text-sm">
-              It can search and read documents. It can&apos;t chat, change, or delete anything.
+              It can&apos;t change or delete anything that&apos;s already here.
             </p>
             <div className="flex justify-end gap-2">
               <DialogClose asChild>
@@ -140,7 +149,11 @@ function CreateTokenDialog({ workspaceId, onClose }: { workspaceId: string; onCl
                   Cancel
                 </Button>
               </DialogClose>
-              <Button type="submit" loading={create.isPending} disabled={!name.trim()}>
+              <Button
+                type="submit"
+                loading={create.isPending}
+                disabled={!name.trim() || scopes.length === 0}
+              >
                 Create token
               </Button>
             </div>
@@ -158,6 +171,7 @@ function TokenRow({ token, onRevoke }: { token: AccessToken; onRevoke: () => voi
       <div className="min-w-0 flex-1 text-sm">
         <p className="font-medium">{token.name}</p>
         <p className="text-muted font-mono text-xs">{token.prefix}…</p>
+        <p className="text-muted mt-0.5 text-xs">{scopeSummary(token.scopes)}</p>
         <p className="text-muted mt-0.5 text-xs">
           Last used {formatDate(token.lastUsedAt, "never")}. Expires{" "}
           {formatDate(token.expiresAt, "never")}.

@@ -8,6 +8,7 @@ import { AudioLines, BarChart3, Boxes, Gauge, Menu, ScrollText, Users, X } from 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
+import { ThemeSwitch } from "@/components/theme-switch";
 import { env } from "@/lib/env";
 import { useSessionStore } from "@/lib/session-store";
 
@@ -114,7 +115,8 @@ export default function ConsoleLayout({ children }: { children: ReactNode }) {
 
   const account = (
     <div className="border-line border-t pt-4 text-sm">
-      <p className="truncate px-2 font-medium">{user?.name}</p>
+      <ThemeSwitch />
+      <p className="mt-4 truncate px-2 font-medium">{user?.name}</p>
       <p className="text-muted truncate px-2 text-xs">{user?.email}</p>
       <div className="mt-3 flex flex-col gap-1">
         <a href={env.webUrl} className="text-muted hover:text-ink rounded-lg px-2 py-1.5">

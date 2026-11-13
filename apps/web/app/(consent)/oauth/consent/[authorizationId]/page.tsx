@@ -8,11 +8,8 @@ import { useQuery } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
 import { useId, useState } from "react";
 import { FormError } from "@/components/form-error";
+import { ScopeChoices } from "@/components/settings/scope-choices";
 import { useCurrentWorkspace } from "@/hooks/use-current-workspace";
-
-const SCOPE_TEXT: Record<string, string> = {
-  "documents:read": "Search and read the workspace's documents",
-};
 
 /**
  * An outside MCP client (Claude, Cursor, …) asks to use Tessel. The user picks
@@ -31,6 +28,8 @@ export default function ConsentPage() {
     staleTime: Infinity,
   });
   const [workspaceId, setWorkspaceId] = useState<string>();
+  // Everything the client asked for, until the user unticks some of it.
+  const [allowed, setAllowed] = useState<string[]>();
   const [busy, setBusy] = useState<"approve" | "deny">();
   const [error, setError] = useState<string>();
   const chosen = workspaceId ?? current?.id ?? workspaces.data?.[0]?.id;
@@ -47,6 +46,7 @@ export default function ConsentPage() {
     );
   }
   const { client, scopes, redirectHost } = request.data;
+  const chosenScopes = allowed ?? scopes;
 
   async function decide(decision: "approve" | "deny") {
     setBusy(decision);
@@ -54,7 +54,7 @@ export default function ConsentPage() {
     try {
       const redirectUrl =
         decision === "approve"
-          ? await api.oauth.approve(authorizationId, chosen!)
+          ? await api.oauth.approve(authorizationId, chosen!, chosenScopes)
           : await api.oauth.deny(authorizationId);
       window.location.assign(redirectUrl);
     } catch (caught) {
@@ -90,13 +90,17 @@ export default function ConsentPage() {
         </select>
       </div>
 
-      <h2 className="mt-6 text-sm font-medium">It will be able to</h2>
-      <ul className="mt-2 list-disc pl-5 text-sm">
-        {scopes.map((scope) => (
-          <li key={scope}>{SCOPE_TEXT[scope] ?? scope}</li>
-        ))}
-      </ul>
-      <p className="text-muted mt-2 text-sm">It can&apos;t chat, change, or delete anything.</p>
+      <div className="mt-6">
+        <ScopeChoices
+          legend="It will be able to"
+          scopes={scopes}
+          selected={chosenScopes}
+          onChange={setAllowed}
+        />
+      </div>
+      <p className="text-muted mt-2 text-sm">
+        It can&apos;t change or delete anything that&apos;s already here.
+      </p>
 
       <p className="text-muted mt-6 text-xs">
         Afterwards you&apos;ll go back to{" "}
@@ -125,7 +129,7 @@ export default function ConsentPage() {
         </Button>
         <Button
           loading={busy === "approve"}
-          disabled={Boolean(busy) || !chosen}
+          disabled={Boolean(busy) || !chosen || chosenScopes.length === 0}
           onClick={() => decide("approve")}
         >
           Allow

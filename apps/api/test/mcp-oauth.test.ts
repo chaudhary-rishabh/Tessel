@@ -69,7 +69,12 @@ async function workspaceOf(user: SignedUpUser) {
 }
 
 /** The consent page's part: what the user sees after the client sends them to Tessel. */
-async function consent(user: SignedUpUser, consentUrl: string, decision: "approve" | "deny") {
+async function consent(
+  user: SignedUpUser,
+  consentUrl: string,
+  decision: "approve" | "deny",
+  scopes?: string[],
+) {
   const id = new URL(consentUrl).pathname.split("/").at(-1)!;
   const described = await request(api)
     .get(`/oauth/authorizations/${id}`)
@@ -79,7 +84,7 @@ async function consent(user: SignedUpUser, consentUrl: string, decision: "approv
   const res = await request(api)
     .post(`/oauth/authorizations/${id}/${decision}`)
     .set("Authorization", bearer(user))
-    .send({ workspaceId: workspace.id });
+    .send({ workspaceId: workspace.id, scopes });
   expect(res.status).toBe(200);
   return { described: described.body, redirectUrl: new URL(res.body.redirectUrl as string) };
 }
@@ -174,11 +179,15 @@ describe("signing MCP clients in with OAuth", () => {
     const consentUrl = authorize.headers.get("location")!;
     expect(consentUrl).toMatch(/^http:\/\/localhost:3000\/oauth\/consent\/[0-9a-f-]{36}$/);
 
-    const { described, redirectUrl } = await consent(user, consentUrl, "approve");
+    // The user allows reading and asking, but not adding documents.
+    const { described, redirectUrl } = await consent(user, consentUrl, "approve", [
+      "documents:read",
+      "chat:write",
+    ]);
     expect(described).toMatchObject({
       client: { name: "Test Desktop" },
       redirectHost: "127.0.0.1:33418",
-      scopes: ["documents:read"],
+      scopes: ["documents:read", "documents:write", "chat:write"],
     });
     expect(`${redirectUrl.origin}${redirectUrl.pathname}`).toBe(REDIRECT_URI);
     expect(redirectUrl.searchParams.get("state")).toBe(
@@ -193,7 +202,12 @@ describe("signing MCP clients in with OAuth", () => {
 
     const client = await connectWith(state.tokens!.access_token);
     const tools = await client.listTools();
-    expect(tools.tools.map((tool) => tool.name)).toContain("search_documents");
+    expect(tools.tools.map((tool) => tool.name)).toEqual([
+      "search_documents",
+      "list_documents",
+      "read_document",
+      "ask_tessel",
+    ]);
     const listed = await client.callTool({ name: "list_documents", arguments: {} });
     expect(listed.isError).toBeFalsy();
     await client.close();
@@ -212,7 +226,7 @@ describe("signing MCP clients in with OAuth", () => {
       expect.objectContaining({
         name: "Test Desktop",
         workspace: { id: workspace.id, name: workspace.name },
-        scopes: ["documents:read"],
+        scopes: ["documents:read", "chat:write"],
       }),
     ]);
   });

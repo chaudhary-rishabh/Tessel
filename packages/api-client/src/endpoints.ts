@@ -372,11 +372,19 @@ export function createApi(client: ApiClient) {
           (await http.get(`/oauth/authorizations/${authorizationId}`)).data,
         ),
       /** Returns where to send the browser: back to the client with a code. */
-      approve: async (authorizationId: string, workspaceId: string): Promise<string> =>
+      approve: async (
+        authorizationId: string,
+        workspaceId: string,
+        scopes?: string[],
+      ): Promise<string> =>
         parse(
           oauthRedirectResponseSchema,
-          (await http.post(`/oauth/authorizations/${authorizationId}/approve`, { workspaceId }))
-            .data,
+          (
+            await http.post(`/oauth/authorizations/${authorizationId}/approve`, {
+              workspaceId,
+              scopes,
+            })
+          ).data,
         ).redirectUrl,
       deny: async (authorizationId: string): Promise<string> =>
         parse(
