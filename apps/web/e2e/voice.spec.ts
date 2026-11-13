@@ -65,3 +65,21 @@ test.describe("voice", () => {
     await expect(messages.getByText(`Echo: ${HEARD}`)).toBeVisible();
   });
 });
+
+test.describe("voice settings", () => {
+  test("picks the voice Tessel speaks with, and keeps the choice", async ({ page }) => {
+    await signUp(page);
+    await page.goto("/settings#voice");
+    const section = page.getByRole("region", { name: "Voice" });
+    await expect(section.getByRole("radio", { name: /Matilda/ })).toBeChecked();
+    await section.getByRole("radio", { name: /Brian/ }).check();
+    await expect(section.getByRole("radio", { name: /Brian/ })).toBeChecked();
+
+    await page.reload();
+    await expect(
+      page.getByRole("region", { name: "Voice" }).getByRole("radio", { name: /Brian/ }),
+    ).toBeChecked();
+    // Without ElevenLabs on this server, there's no own voice to add.
+    await expect(page.getByRole("button", { name: "Add your voice" })).toHaveCount(0);
+  });
+});

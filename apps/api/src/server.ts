@@ -22,6 +22,8 @@ import { createLogger } from "@tessel/logger";
 import { RedisStore } from "rate-limit-redis";
 import { createApp } from "./app";
 import { createLiveKitRooms } from "./modules/voice/livekit";
+import { createElevenLabs } from "./modules/voice/elevenlabs";
+import { createGateway, experimental_generateSpeech as generateSpeech } from "ai";
 import { createOutboxMailer, createSesMailer } from "./lib/mailer";
 import { createOutboxSms, createSnsSms } from "./lib/sms";
 import { createSocialProviders } from "./modules/auth/social-providers";
@@ -177,9 +179,35 @@ const voiceRooms =
       })
     : undefined;
 
+// Users' own voices need ElevenLabs; previews use it too, or else the AI gateway's speech.
+const voiceCloning = env.ELEVENLABS_API_KEY
+  ? createElevenLabs({ apiKey: env.ELEVENLABS_API_KEY })
+  : undefined;
+const gatewaySpeech = env.AI_GATEWAY_API_KEY
+  ? createGateway({ apiKey: env.AI_GATEWAY_API_KEY }).speech(env.VOICE_GATEWAY_TTS_MODEL)
+  : undefined;
+const speakPreview = voiceCloning
+  ? voiceCloning.speak
+  : gatewaySpeech
+    ? async (voice: string, text: string) => {
+        const result = await generateSpeech({
+          model: gatewaySpeech,
+          text,
+          voice,
+          outputFormat: "mp3",
+        });
+        return Buffer.from(result.audio.uint8Array);
+      }
+    : undefined;
+
 const app = createApp({
   models: registry,
-  voice: { rooms: voiceRooms, maxSessionMinutes: env.VOICE_MAX_SESSION_MINUTES },
+  voice: {
+    rooms: voiceRooms,
+    maxSessionMinutes: env.VOICE_MAX_SESSION_MINUTES,
+    cloning: voiceCloning,
+    speak: speakPreview,
+  },
   payments: paymentsFromEnv(),
   config,
   logger,

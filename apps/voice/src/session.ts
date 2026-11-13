@@ -107,7 +107,7 @@ export async function runVoiceSession(
   const log = logger.child({ voiceSessionId: saved.id, threadId: saved.threadId });
 
   const model = registry.get(saved.modelId);
-  const speech = parts.speech ?? createSpeechProviders(env);
+  const speech = parts.speech ?? createSpeechProviders(env, { voiceId: saved.voiceId });
   const chatModel =
     parts.model ??
     new GatewayLLM({

@@ -8,6 +8,7 @@ import { modelTier, type UsageLimits } from "../billing/usage-limits";
 import { chatRepository } from "../chat/chat.repository";
 import { workspacesRepository } from "../workspaces/workspaces.repository";
 import type { VoiceRooms } from "./livekit";
+import type { VoicesService } from "./voices.service";
 
 export interface Actor {
   userId: string;
@@ -26,11 +27,14 @@ export function createVoiceService({
   ai,
   rooms,
   limits,
+  voices,
   logger,
   maxSessionMinutes,
 }: {
   db: Database;
   ai: Ai;
+  /** Picks the voice each conversation speaks with; the default voice without it. */
+  voices?: Pick<VoicesService, "voiceForSession"> | undefined;
   /** Without it, voice is off and every route answers 503 voice_unavailable. */
   rooms: VoiceRooms | undefined;
   limits?: UsageLimits | undefined;
@@ -111,6 +115,7 @@ export function createVoiceService({
             )
             .returning({ roomName: voiceSessions.roomName });
 
+          const voiceId = voices ? await voices.voiceForSession(tx, actor) : null;
           const id = crypto.randomUUID();
           const [row] = await tx
             .insert(voiceSessions)
@@ -121,6 +126,7 @@ export function createVoiceService({
               threadId: thread.id,
               roomName: `voice-${id}`,
               modelId: model.id,
+              voiceId,
             })
             .returning();
           const [user] = await tx

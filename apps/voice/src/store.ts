@@ -18,6 +18,8 @@ export interface VoiceSessionContext {
   userId: string;
   threadId: string;
   modelId: string;
+  /** The provider voice the API picked for this conversation; null for the default. */
+  voiceId: string | null;
   userName: string;
 }
 
@@ -69,6 +71,7 @@ export function createVoiceStore(db: Database) {
             userId: voiceSessions.userId,
             threadId: voiceSessions.threadId,
             modelId: voiceSessions.modelId,
+            voiceId: voiceSessions.voiceId,
             userName: users.name,
           })
           .from(voiceSessions)

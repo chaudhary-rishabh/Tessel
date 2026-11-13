@@ -68,8 +68,14 @@ import {
   searchResponseSchema,
   skillListResponseSchema,
   memoryResponseSchema,
+  voiceChallengeSchema,
+  voiceListSchema,
+  voiceOptionSchema,
   voiceSessionSchema,
   voiceStatusSchema,
+  type VoiceChallenge,
+  type VoiceList,
+  type VoiceOption,
   type CreateVoiceSessionRequest,
   type VoiceSession,
   type VoiceStatus,
@@ -618,6 +624,47 @@ export function createApi(client: ApiClient) {
       end: async (workspaceId: string, sessionId: string): Promise<void> => {
         await http.post(`/workspaces/${workspaceId}/voice/sessions/${sessionId}/end`);
       },
+      /** The voices Tessel can speak with, and which one is chosen. */
+      voices: async (workspaceId: string): Promise<VoiceList> =>
+        parse(voiceListSchema, (await http.get(`/workspaces/${workspaceId}/voice/voices`)).data),
+      selectVoice: async (workspaceId: string, voiceId: string): Promise<void> => {
+        await http.put(`/workspaces/${workspaceId}/voice/voices/selected`, { voiceId });
+      },
+      /** A passage and one-time code to read aloud before adding a voice. */
+      voiceChallenge: async (workspaceId: string): Promise<VoiceChallenge> =>
+        parse(
+          voiceChallengeSchema,
+          (await http.post(`/workspaces/${workspaceId}/voice/voices/challenge`)).data,
+        ),
+      /** Adds the user's own voice from their recording of the passage and code. */
+      addVoice: async (
+        workspaceId: string,
+        input: { token: string; name: string; recording: Blob },
+      ): Promise<VoiceOption> =>
+        parse(
+          voiceOptionSchema,
+          (
+            await http.post(`/workspaces/${workspaceId}/voice/voices`, input.recording, {
+              params: { name: input.name },
+              headers: {
+                "Content-Type": input.recording.type.split(";")[0] || "audio/webm",
+                "X-Voice-Challenge": input.token,
+              },
+              timeout: 120_000,
+            })
+          ).data,
+        ),
+      removeVoice: async (workspaceId: string, ownVoiceId: string): Promise<void> => {
+        await http.delete(`/workspaces/${workspaceId}/voice/voices/${ownVoiceId}`);
+      },
+      /** A few seconds of a voice, as an MP3. */
+      voicePreview: async (workspaceId: string, voiceId: string): Promise<Blob> =>
+        (
+          await http.get(
+            `/workspaces/${workspaceId}/voice/voices/${encodeURIComponent(voiceId)}/preview`,
+            { responseType: "blob" },
+          )
+        ).data as Blob,
     },
     usage: {
       summary: async (workspaceId: string, days = 30): Promise<UsageSummary> =>
