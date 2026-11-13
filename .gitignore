@@ -33,3 +33,6 @@ test-results/
 # Files some tools generate for coding assistants
 AGENTS.md
 CLAUDE.md
+
+# Redis snapshots from local runs
+dump.rdb
