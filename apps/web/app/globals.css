@@ -111,6 +111,18 @@
   }
 }
 
+@keyframes fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes slide-out {
+  to {
+    transform: translateX(-100%);
+  }
+}
+
 :root {
   color-scheme: light dark;
 }
@@ -121,6 +133,26 @@
 
 :root[data-theme="dark"] {
   color-scheme: dark;
+}
+
+/* Anything that does something on click shows the hand, the way links do. */
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  [role="tab"],
+  [role="switch"],
+  [role="option"],
+  [role="menuitem"],
+  [role="menuitemradio"],
+  [role="menuitemcheckbox"],
+  select:not(:disabled),
+  summary,
+  input[type="checkbox"]:not(:disabled),
+  input[type="radio"]:not(:disabled),
+  input[type="file"]:not(:disabled)::file-selector-button,
+  label:has(> input[type="checkbox"]:not(:disabled), > input[type="radio"]:not(:disabled)) {
+    cursor: pointer;
+  }
 }
 
 body {

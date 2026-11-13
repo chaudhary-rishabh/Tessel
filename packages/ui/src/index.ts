@@ -6,4 +6,5 @@ export * from "./popover";
 export * from "./spinner";
 export * from "./tessel-mark";
 export * from "./text-field";
+export * from "./tooltip";
 export * from "./safe-next-path";
