@@ -1,0 +1,19 @@
+# LiveKit server for voice conversations (the voice profile). Browsers reach
+# it at RTC_DOMAIN through Caddy for signalling; audio goes straight to this
+# host over WebRTC, on UDP 7882 (one port for every call) or TCP 7881 where
+# UDP is blocked. Both must be open in the instance's security group.
+#
+# API keys come from LIVEKIT_KEYS, which deploy.sh writes to livekit.env from
+# LIVEKIT_API_KEY and LIVEKIT_API_SECRET in SSM.
+port: 7880
+log_level: info
+rtc:
+  tcp_port: 7881
+  udp_port: 7882
+  # The host's public address (the Elastic IP), found over STUN and offered to browsers.
+  use_external_ip: true
+room:
+  # The API creates each room with its own limits; these cover anything else.
+  empty_timeout: 60
+  departure_timeout: 10
+# Only the API creates rooms (with the agent dispatched), so a token can't make one.

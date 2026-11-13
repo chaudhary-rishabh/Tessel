@@ -430,7 +430,7 @@ Voice mode uses LiveKit: a LiveKit server carries audio over WebRTC, and a voice
 
 Getting under 600 ms is mostly about not waiting:
 
-- **Turn detection** combines voice activity detection with LiveKit's end-of-turn model, so a short pause after a finished sentence ends the turn quickly, while "um, and then…" doesn't.
+- **Turn detection** combines voice activity detection with LiveKit's audio end-of-turn model, so a short pause after a finished sentence ends the turn quickly, while "um, and then…" doesn't. Both run on-device in the agent through LiveKit's native inference (weights included, no download, no extra service). The audio model judges how the user is speaking, not only the transcript, so it doesn't have to wait for speech to text to finish; LiveKit has deprecated its text-based turn detector in its favor.
 - **Preemptive generation** starts the model on the transcript before the turn is confirmed; if the user keeps talking, the draft is dropped.
 - **Text to speech starts on the first clause** of the reply, over a connection opened when the session starts.
 - **Voice uses a fast model** by default (the registry's `voice` role), with a short system prompt that asks for spoken-style answers.
@@ -438,4 +438,4 @@ Getting under 600 ms is mostly about not waiting:
 
 Speech providers sit behind one interface with two implementations. **ElevenLabs** (speech to text with Scribe Realtime, text to speech with Flash v2.5) is used when `ELEVENLABS_API_KEY` is set; it is the fastest option and the only one that can speak with a cloned voice. Without it, the **AI gateway** streams the same kinds of models through the AI SDK, so voice works with only the gateway key, using stock voices.
 
-The LiveKit server is self-hosted on the EC2 host behind Caddy (`rtc.tessel.chat`), with media over UDP and a TURN fallback on port 3478 for networks that block it. Pointing `LIVEKIT_URL` and its keys at LiveKit Cloud moves it there with no code change. The API is the only thing that issues room tokens: it checks the user's plan and limits, creates the voice session, and dispatches the agent with the session's ID in the token, so the agent never trusts anything the browser sends.
+The LiveKit server is self-hosted on the EC2 host behind Caddy (`rtc.tessel.chat`), with media on one UDP port (7882) and ICE over TCP (7881) for networks that block UDP. Pointing `LIVEKIT_URL` and its keys at LiveKit Cloud moves it there with no code change. The API is the only thing that issues room tokens: it checks the user's plan and limits, creates the voice session, and dispatches the agent with the session's ID in the token, so the agent never trusts anything the browser sends.

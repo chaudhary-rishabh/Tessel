@@ -4,6 +4,7 @@
 #   (none)  admin, api, worker, mcp-server: always on
 #   web     the web app on this host (leave off when it runs on Vercel)
 #   edge    Caddy on ports 80/443 with automatic HTTPS
+#   voice   LiveKit (WebRTC on 7881/tcp and 7882/udp) and the voice agent
 #   data    Postgres, Redis x2, Qdrant, Neo4j on the same host
 #           (leave this off when using RDS, ElastiCache, or managed services)
 #   tools   the one-off migrate job (deploy.sh runs it before starting apps)
@@ -81,6 +82,61 @@ services:
       retries: 6
       start_period: 10s
 
+  # Voice conversations: LiveKit carries the audio, the agent listens and talks.
+  livekit:
+    image: livekit/livekit-server:v1.13.11
+    restart: unless-stopped
+    profiles: [voice]
+    command: ["--config", "/etc/livekit.yaml"]
+    # Only LIVEKIT_KEYS, written by deploy.sh from the API key and secret.
+    env_file:
+      - path: livekit.env
+        required: false
+    ports:
+      - "7881:7881/tcp"
+      - "7882:7882/udp"
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:7880/"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 10s
+
+  voice:
+    <<: *app
+    image: ${ECR_REGISTRY}/tessel-voice:${IMAGE_TAG}
+    profiles: [voice]
+    environment:
+      NODE_ENV: production
+      LIVEKIT_URL: ws://livekit:7880
+      VOICE_HEALTH_PORT: "4700"
+    depends_on:
+      livekit: { condition: service_healthy }
+      postgres: { condition: service_healthy, required: false }
+      redis-cache: { condition: service_healthy, required: false }
+      redis-queue: { condition: service_healthy, required: false }
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:4700/').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 20s
+    # Conversations in progress finish (or hit their limit) before the agent stops.
+    stop_grace_period: 60s
+
   web:
     image: ${ECR_REGISTRY}/tessel-web:${IMAGE_TAG}
     restart: unless-stopped
@@ -125,6 +181,7 @@ services:
       API_DOMAIN: ${API_DOMAIN:-}
       MCP_DOMAIN: ${MCP_DOMAIN:-}
       ADMIN_DOMAIN: ${ADMIN_DOMAIN:-}
+      RTC_DOMAIN: ${RTC_DOMAIN:-}
       ACME_EMAIL: ${ACME_EMAIL:-}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
@@ -133,6 +190,7 @@ services:
       - caddy-config:/config
     depends_on:
       web: { condition: service_healthy, required: false }
+      livekit: { condition: service_healthy, required: false }
       admin: { condition: service_healthy }
       api: { condition: service_healthy }
       mcp-server: { condition: service_healthy }

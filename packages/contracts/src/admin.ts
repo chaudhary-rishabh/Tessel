@@ -93,6 +93,8 @@ export const adminModelsSchema = z.object({
     utility: z.string(),
     moderation: z.string(),
     embedding: z.string(),
+    /** Fast model for voice conversations; the chat model when unset. */
+    voice: z.string().optional(),
   }),
   models: z.array(adminModelSchema),
 });

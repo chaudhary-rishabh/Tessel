@@ -122,6 +122,22 @@ services:
     ports:
       - "127.0.0.1:9324:9324"
 
+  # LiveKit for voice conversations, in dev mode (keys devkey / secret). The
+  # voice agent (`pnpm --filter @tessel/voice dev`) and the API connect to it;
+  # browsers on this machine reach it at ws://localhost:7880.
+  livekit:
+    image: livekit/livekit-server:v1.13.11
+    command: ["--dev", "--bind", "0.0.0.0"]
+    ports:
+      - "127.0.0.1:7880:7880"
+      - "127.0.0.1:7881:7881"
+      - "127.0.0.1:7882:7882/udp"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:7880/"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
 volumes:
   objectstore-data:
   postgres-data:

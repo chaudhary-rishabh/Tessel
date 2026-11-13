@@ -45,6 +45,8 @@ export const modelsConfigSchema = z
       utility: z.string(),
       moderation: z.string(),
       embedding: z.string(),
+      /** Fast chat model for voice conversations. Falls back to the chat model. */
+      voice: z.string().optional(),
     }),
     models: z.array(modelSchema).min(1),
   })
@@ -57,6 +59,7 @@ export const modelsConfigSchema = z
       byId.set(model.id, model);
     });
     for (const [role, id] of Object.entries(config.defaults)) {
+      if (id === undefined) continue;
       const model = byId.get(id);
       const kind = role === "embedding" ? "embedding" : "chat";
       if (!model || !model.enabled || model.kind !== kind) {
@@ -84,6 +87,11 @@ export interface ModelRegistry {
   resolve(id: string | undefined, role: ModelRole): ModelInfo;
 }
 
+/** The model ID set for a role; voice falls back to chat when it isn't set. */
+function defaultFor(config: ModelsConfig, role: ModelRole): string {
+  return config.defaults[role] ?? config.defaults.chat;
+}
+
 export function createModelRegistry(input: unknown): ModelRegistry {
   const config = modelsConfigSchema.parse(input);
   const enabled = config.models.filter((model) => model.enabled);
@@ -103,8 +111,8 @@ export function createModelRegistry(input: unknown): ModelRegistry {
           (selectable === undefined || model.selectable === selectable),
       ),
     get,
-    forRole: (role) => get(config.defaults[role]),
-    resolve: (id, role) => (id ? get(id) : get(config.defaults[role])),
+    forRole: (role) => get(defaultFor(config, role)),
+    resolve: (id, role) => (id ? get(id) : get(defaultFor(config, role))),
   };
 }
 

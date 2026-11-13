@@ -110,6 +110,8 @@ export const messages = pgTable(
     toolCalls: jsonb("tool_calls").$type<MessageToolCall[]>().notNull().default([]),
     /** For assistant messages: how the reply was worked out (plan steps, team hand-offs, reviews). */
     activity: jsonb("activity").$type<MessageActivity[]>().notNull().default([]),
+    /** Set when the message was spoken in a voice conversation. */
+    voiceSessionId: uuid("voice_session_id"),
     /** For assistant messages: the agent mode the user picked. */
     agentMode: text("agent_mode"),
     inputTokens: integer("input_tokens"),

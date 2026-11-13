@@ -34,6 +34,7 @@ flowchart TB
 | `apps/worker`     | Background jobs (BullMQ) and S3 upload events (SQS)         |
 | `apps/mcp-server` | Exposes workspace search and actions to outside MCP clients |
 | `apps/admin`      | Admin app for users, models, usage, and the audit log       |
+| `apps/voice`      | Voice agent: listens and talks in LiveKit rooms             |
 
 ## Packages
 
@@ -397,6 +398,43 @@ flowchart LR
 - Replies include up to 60 memories and the thread summary in the system prompt, and offer `remember` and `search_past_chats` when the user's settings allow.
 - Endpoints: `GET /workspaces/:workspaceId/memory`, `PUT …/memory/settings`, `POST|DELETE …/memory/memories`, `PATCH|DELETE …/memory/memories/:memoryId`. Settings has a Memory section for all of it.
 
+## Voice
+
+```mermaid
+sequenceDiagram
+  participant B as Browser
+  participant A as API
+  participant L as LiveKit (rtc.)
+  participant V as Voice agent
+  B->>A: POST /workspaces/:id/voice/sessions
+  A->>A: plan, spend cap, model; voice_sessions row
+  A-->>B: room URL + token (agent dispatch in the room config)
+  B->>L: join, publish microphone
+  L->>V: dispatch job {voiceSessionId}
+  V->>V: open session as its owner (RLS), load the chat
+  loop each turn
+    B-->>L: speech
+    L-->>V: audio (16 kHz)
+    V->>V: STT, end of turn, model, TTS
+    V-->>L: speech (24 kHz)
+    L-->>B: speech
+  end
+  V->>V: messages, turn timings, usage saved as they happen
+```
+
+- `apps/voice` is a LiveKit Agents server (`@livekit/agents`). LiveKit dispatches each room the API creates to it; it keeps warm job processes, so a call starts without spinning one up. The pipeline is speech to text, the chat model through the gateway, and text to speech, all streaming.
+- Latency (target: under 600 ms from the end of speech to the first sound, p95 under 900 ms):
+  - End of turn: voice activity detection plus LiveKit's audio end-of-turn model, both on-device (`inference.VAD`, `inference.TurnDetector`, native, weights included). Endpointing is dynamic (`VOICE_ENDPOINTING_MIN_MS`, 250 by default, to `VOICE_ENDPOINTING_MAX_MS`), so a confident end of turn commits fast and a trailing "um" waits.
+  - The model starts on the transcript before the turn is confirmed (preemptive generation) and the draft is dropped if the user keeps talking.
+  - Prompt caching is on, reasoning models run at the lowest effort, replies are short by instruction, and speech starts on the first sentence.
+  - Every reply's end-of-turn, model first token, first audio, and total delay are saved in `voice_turns`, and p50 and p95 per session in `voice_sessions`.
+- Speech: ElevenLabs directly when `ELEVENLABS_API_KEY` is set (Scribe v2 Realtime and Flash v2.5; also the only path for users' own voices), otherwise the same models through the AI gateway (`apps/voice/src/speech/gateway-*.ts`, the AI SDK's streaming speech).
+- The model is the session's (the picker's choice, or the registry's `voice` default), with the same plan check as chat. The spend cap is checked before every reply; a capped user hears why and the call ends. Calls end at `VOICE_MAX_SESSION_MINUTES`.
+- What's said goes into the chat (`messages.voice_session_id` marks it), the first thing said names a new chat, and the memory job runs when the call ends. Usage rows (feature `voice`) cover model tokens, transcribed minutes, and spoken characters.
+- The agent finds a session's owner through `app.voice_session_owner` (security definer, open sessions only) and does everything else as that user, so row-level security applies to it like to the API.
+- Endpoints: `GET /workspaces/:workspaceId/voice/status`, `POST …/voice/sessions`, `POST …/voice/sessions/:sessionId/end`. Starting a session ends the user's other open ones.
+- Tests: `apps/voice/test/conversation.test.ts` runs whole conversations through the real session, speech classes, gateway model client, and database, with scripted speech models and the mock gateway.
+
 ## Caching
 
 | Layer          | Where                     | Key                                                  | Lifetime                        |
@@ -444,17 +482,17 @@ flowchart LR
 
 ## Deployment
 
-| Piece            | Where                                                                                                                                                                                        |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Images           | `infra/docker/node.Dockerfile` (api, worker, mcp-server, migrate) and `infra/docker/web.Dockerfile`, built by `infra/scripts/build-images.sh`                                                |
-| Web app          | Vercel, from `apps/web` on every push to `main` (previews for pull requests). It shares a site with the API so the `SameSite=Strict` sign-in cookie works                                    |
-| Production stack | `infra/deploy/docker-compose.prod.yml` with profiles: apps (always), `web` (the web app, when not on Vercel), `edge` (Caddy + HTTPS), `data` (databases on the host), `tools` (migrate job)  |
-| Deploy           | `.github/workflows/deploy.yml` runs after CI passes on `main`: build, push to ECR, run `infra/deploy/deploy.sh` on EC2 through SSM                                                           |
-| Secrets          | SSM Parameter Store under `/tessel/prod`, written to a root-only `.env` on each deploy                                                                                                       |
-| Health           | Every service has a health check; deploys wait for all of them and roll back on failure                                                                                                      |
-| Backups          | Nightly `pg_dump` and a Qdrant snapshot to S3 from a systemd timer when the databases run on the host (`infra/deploy/backup.sh`, `restore.sh`)                                               |
-| Logs             | With `LOG_GROUP` set, every container logs to CloudWatch through a Compose override written by `deploy.sh`; otherwise rotated local files                                                    |
-| CI safety net    | Every pull request builds all production images and boots the full production stack (`infra/scripts/smoke-test.sh`) with S3 and SQS emulators, including a signup through the real API image |
+| Piece            | Where                                                                                                                                                                                                                              |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Images           | `infra/docker/node.Dockerfile` (api, worker, mcp-server, migrate, voice) and `infra/docker/web.Dockerfile`, built by `infra/scripts/build-images.sh`                                                                               |
+| Web app          | Vercel, from `apps/web` on every push to `main` (previews for pull requests). It shares a site with the API so the `SameSite=Strict` sign-in cookie works                                                                          |
+| Production stack | `infra/deploy/docker-compose.prod.yml` with profiles: apps (always), `web` (the web app, when not on Vercel), `edge` (Caddy + HTTPS), `data` (databases on the host), `voice` (LiveKit and the voice agent), `tools` (migrate job) |
+| Deploy           | `.github/workflows/deploy.yml` runs after CI passes on `main`: build, push to ECR, run `infra/deploy/deploy.sh` on EC2 through SSM                                                                                                 |
+| Secrets          | SSM Parameter Store under `/tessel/prod`, written to a root-only `.env` on each deploy                                                                                                                                             |
+| Health           | Every service has a health check; deploys wait for all of them and roll back on failure                                                                                                                                            |
+| Backups          | Nightly `pg_dump` and a Qdrant snapshot to S3 from a systemd timer when the databases run on the host (`infra/deploy/backup.sh`, `restore.sh`)                                                                                     |
+| Logs             | With `LOG_GROUP` set, every container logs to CloudWatch through a Compose override written by `deploy.sh`; otherwise rotated local files                                                                                          |
+| CI safety net    | Every pull request builds all production images and boots the full production stack (`infra/scripts/smoke-test.sh`) with S3 and SQS emulators, including a signup through the real API image                                       |
 
 Setup steps: [infra/aws/README.md](../infra/aws/README.md).
 

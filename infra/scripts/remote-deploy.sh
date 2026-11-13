@@ -6,7 +6,7 @@
 #
 # Environment: AWS_REGION, ECR_REGISTRY, EC2_INSTANCE_ID, COMPOSE_PROFILES,
 # SSM_PATH, WEB_DOMAIN, API_DOMAIN, MCP_DOMAIN, ADMIN_DOMAIN, ACME_EMAIL, and the
-# optional BACKUP_BUCKET and LOG_GROUP.
+# optional RTC_DOMAIN (voice), BACKUP_BUCKET, and LOG_GROUP.
 set -euo pipefail
 
 TAG=${1:?usage: remote-deploy.sh <image-tag>}
@@ -29,6 +29,7 @@ WEB_DOMAIN=$WEB_DOMAIN
 API_DOMAIN=$API_DOMAIN
 MCP_DOMAIN=$MCP_DOMAIN
 ADMIN_DOMAIN=$ADMIN_DOMAIN
+RTC_DOMAIN=${RTC_DOMAIN:-}
 ACME_EMAIL=$ACME_EMAIL
 BACKUP_BUCKET=${BACKUP_BUCKET:-}
 LOG_GROUP=${LOG_GROUP:-}
@@ -42,6 +43,7 @@ commands=$(
   jq -n \
     --arg compose "$(b64 docker-compose.prod.yml)" \
     --arg caddy "$(b64 Caddyfile)" \
+    --arg livekit "$(b64 livekit.yaml)" \
     --arg script "$(b64 deploy.sh)" \
     --arg backup "$(b64 backup.sh)" \
     --arg restore "$(b64 restore.sh)" \
@@ -52,6 +54,7 @@ commands=$(
       "mkdir -p /opt/tessel && cd /opt/tessel",
       "echo \($compose) | base64 -d > docker-compose.prod.yml",
       "echo \($caddy) | base64 -d > Caddyfile",
+      "echo \($livekit) | base64 -d > livekit.yaml",
       "echo \($script) | base64 -d > deploy.sh && chmod +x deploy.sh",
       "echo \($backup) | base64 -d > backup.sh && chmod +x backup.sh",
       "echo \($restore) | base64 -d > restore.sh && chmod +x restore.sh",

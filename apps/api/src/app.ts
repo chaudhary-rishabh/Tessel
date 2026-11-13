@@ -53,6 +53,9 @@ import {
 } from "./modules/access-tokens/access-tokens.routes";
 import { createAccessTokensService } from "./modules/access-tokens/access-tokens.service";
 import { createMemoryRouter } from "./modules/memory/memory.routes";
+import type { VoiceRooms } from "./modules/voice/livekit";
+import { createVoiceRouter } from "./modules/voice/voice.routes";
+import { createVoiceService } from "./modules/voice/voice.service";
 import { createMemoryService, type MemoryQueue } from "./modules/memory/memory.service";
 import { createGraphRouter } from "./modules/graph/graph.routes";
 import { createGraphService } from "./modules/graph/graph.service";
@@ -126,6 +129,8 @@ export interface AppDependencies {
   };
   /** MCP connectors: the catalog, credential encryption, and OAuth redirects. */
   connectors: ConnectorsSettings;
+  /** Voice mode: LiveKit rooms, and the longest one conversation can run. Off without rooms. */
+  voice?: { rooms?: VoiceRooms | undefined; maxSessionMinutes: number };
   /** Rate limit storage per limiter. Defaults to in-memory (single instance only). */
   rateLimitStoreFactory?: RateLimitStoreFactory;
   /** Override for tests, which use cheaper hashing settings. */
@@ -148,6 +153,7 @@ export function createApp({
   mailer,
   models = createLiveModelRegistry(readModelsConfig()),
   payments = {},
+  voice = { maxSessionMinutes: 30 },
   signIn = { apiPublicUrl: "http://localhost:4000" },
   rateLimitStoreFactory,
   passwordHasher = createPasswordHasher(),
@@ -487,6 +493,22 @@ export function createApp({
   app.use(
     "/workspaces/:workspaceId/memory",
     createMemoryRouter({ service: memoryService, authenticate }),
+  );
+  app.use(
+    "/workspaces/:workspaceId/voice",
+    createVoiceRouter({
+      service: createVoiceService({
+        db,
+        ai,
+        rooms: voice.rooms,
+        limits: usageLimits,
+        logger,
+        maxSessionMinutes: voice.maxSessionMinutes,
+      }),
+      authenticate,
+      rateLimit: config.rateLimits.ai,
+      storeFactory: rateLimitStoreFactory,
+    }),
   );
   app.use(
     "/workspaces/:workspaceId/access-tokens",

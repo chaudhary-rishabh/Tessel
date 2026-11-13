@@ -48,15 +48,19 @@ build() {
 
 node_service() {
   local name=$1 package=$2 entry=$3
+  shift 3
   build "$name" infra/docker/node.Dockerfile \
     --build-arg "PACKAGE=$package" \
-    --build-arg "ENTRY=$entry"
+    --build-arg "ENTRY=$entry" "$@"
 }
 
 node_service api @tessel/api dist/server.mjs
 node_service worker @tessel/worker dist/worker.mjs
 node_service mcp-server @tessel/mcp-server dist/server.mjs
 node_service migrate @tessel/db dist/migrate.mjs
+# The voice agent's native audio libraries (WebRTC, on-device turn detection) need glibc.
+node_service voice @tessel/voice "dist/main.mjs start" \
+  --build-arg NODE_IMAGE=node:24-bookworm-slim
 if [[ "${BUILD_WEB:-true}" != "false" ]]; then
   build web infra/docker/web.Dockerfile \
     --build-arg APP=web \

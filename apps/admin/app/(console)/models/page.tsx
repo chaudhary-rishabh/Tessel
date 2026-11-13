@@ -18,7 +18,7 @@ function DefaultSelect({
   draft,
   onChange,
 }: {
-  role: "chat" | "utility" | "moderation";
+  role: "chat" | "utility" | "moderation" | "voice";
   label: string;
   draft: AdminModels;
   onChange: (id: string) => void;
@@ -31,7 +31,7 @@ function DefaultSelect({
       </label>
       <select
         id={id}
-        value={draft.defaults[role]}
+        value={draft.defaults[role] ?? draft.defaults.chat}
         onChange={(event) => onChange(event.target.value)}
         className={inputClass}
       >
@@ -180,7 +180,7 @@ function ModelsEditor({ current }: { current: AdminModelsResponse }) {
         <h2 id="defaults-heading" className="text-lg font-semibold">
           Defaults
         </h2>
-        <div className="mt-3 grid gap-4 sm:grid-cols-3">
+        <div className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <DefaultSelect
             role="chat"
             label="Chat"
@@ -198,6 +198,12 @@ function ModelsEditor({ current }: { current: AdminModelsResponse }) {
             label="Moderation"
             draft={draft}
             onChange={(id) => update({ ...draft, defaults: { ...draft.defaults, moderation: id } })}
+          />
+          <DefaultSelect
+            role="voice"
+            label="Voice"
+            draft={draft}
+            onChange={(id) => update({ ...draft, defaults: { ...draft.defaults, voice: id } })}
           />
         </div>
         <p className="text-muted mt-3 text-xs">

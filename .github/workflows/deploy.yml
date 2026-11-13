@@ -84,6 +84,7 @@ jobs:
           API_DOMAIN: ${{ vars.API_DOMAIN }}
           MCP_DOMAIN: ${{ vars.MCP_DOMAIN }}
           ADMIN_DOMAIN: ${{ vars.ADMIN_DOMAIN }}
+          RTC_DOMAIN: ${{ vars.RTC_DOMAIN }}
           ACME_EMAIL: ${{ vars.ACME_EMAIL }}
           BACKUP_BUCKET: ${{ vars.BACKUP_BUCKET }}
           LOG_GROUP: ${{ vars.LOG_GROUP }}

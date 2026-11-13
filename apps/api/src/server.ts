@@ -21,6 +21,7 @@ import { createS3ObjectStore, createSqsUploadQueue } from "@tessel/storage";
 import { createLogger } from "@tessel/logger";
 import { RedisStore } from "rate-limit-redis";
 import { createApp } from "./app";
+import { createLiveKitRooms } from "./modules/voice/livekit";
 import { createOutboxMailer, createSesMailer } from "./lib/mailer";
 import { createOutboxSms, createSnsSms } from "./lib/sms";
 import { createSocialProviders } from "./modules/auth/social-providers";
@@ -165,8 +166,20 @@ function paymentsFromEnv() {
   };
 }
 
+// Voice mode needs a LiveKit server; without its key and secret the routes answer 503.
+const voiceRooms =
+  env.LIVEKIT_API_KEY && env.LIVEKIT_API_SECRET && env.LIVEKIT_URL
+    ? createLiveKitRooms({
+        url: env.LIVEKIT_URL,
+        publicUrl: env.LIVEKIT_PUBLIC_URL ?? env.LIVEKIT_URL,
+        apiKey: env.LIVEKIT_API_KEY,
+        apiSecret: env.LIVEKIT_API_SECRET,
+      })
+    : undefined;
+
 const app = createApp({
   models: registry,
+  voice: { rooms: voiceRooms, maxSessionMinutes: env.VOICE_MAX_SESSION_MINUTES },
   payments: paymentsFromEnv(),
   config,
   logger,
