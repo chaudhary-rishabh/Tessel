@@ -22,7 +22,9 @@ test.describe("workspace policies", () => {
     const section = page.getByRole("region", { name: "Workspace policies" });
     await section.getByLabel("Policy for Calculate").selectOption("block");
     await expect(section.getByLabel("Policy for Calculate")).toHaveValue("block");
-    await section.getByRole("checkbox", { name: "Block GitHub" }).check();
+    // Clicked, not check(): the box turns on when the change is saved, not on the click itself.
+    await section.getByRole("checkbox", { name: "Block GitHub" }).click();
+    await expect(section.getByRole("checkbox", { name: "Block GitHub" })).toBeChecked();
     await page.reload();
     await expect(section.getByLabel("Policy for Calculate")).toHaveValue("block");
     await expect(section.getByRole("checkbox", { name: "Block GitHub" })).toBeChecked();
