@@ -109,12 +109,12 @@ describe("model registry", () => {
   const registry = loadModelRegistry();
 
   it("loads the bundled models and their defaults", () => {
-    expect(registry.forRole("chat").id).toBe("anthropic/claude-sonnet-5");
+    expect(registry.forRole("chat").id).toBe("anthropic/claude-sonnet-5.5");
     expect(registry.forRole("embedding").kind).toBe("embedding");
     const picker = registry.list({ kind: "chat", selectable: true });
     expect(picker.length).toBeGreaterThan(3);
     expect(picker.every((model) => model.enabled && model.selectable)).toBe(true);
-    expect(picker.map((model) => model.id)).not.toContain("openai/gpt-5.4-nano");
+    expect(picker.map((model) => model.id)).not.toContain("openai/text-embedding-3-small");
   });
 
   it("rejects invalid configuration", () => {
@@ -152,8 +152,8 @@ describe("model registry", () => {
         cachedInputTokens: 0,
         reasoningTokens: 0,
       }),
-    ).toBe(3 * USD);
-    // 800k fresh at $3 + 200k cached at $0.30 + 100k output at $15.
+    ).toBe(2 * USD);
+    // 800k fresh at $2 + 200k cached at $0.20 + 100k output at $10.
     expect(
       costNanoUsd(sonnet, {
         inputTokens: 1_000_000,
@@ -161,6 +161,6 @@ describe("model registry", () => {
         cachedInputTokens: 200_000,
         reasoningTokens: 0,
       }),
-    ).toBe(2.4 * USD + 0.06 * USD + 1.5 * USD);
+    ).toBe(1.6 * USD + 0.04 * USD + 1 * USD);
   });
 });

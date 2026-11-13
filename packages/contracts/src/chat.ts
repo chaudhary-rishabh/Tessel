@@ -48,6 +48,9 @@ export const knowledgeModeSchema = z.enum(["auto", "always", "off"]);
  */
 export const agentModeSchema = z.enum(["auto", "plan", "reflect", "team"]);
 
+/** How hard a reasoning model thinks before it answers. */
+export const reasoningEffortSchema = z.enum(["low", "medium", "high"]);
+
 /** A visible stage of the work behind a reply: a plan step, a hand-off, a review. */
 export const activityItemSchema = z.object({
   id: z.string(),
@@ -121,6 +124,8 @@ export const sendMessageRequestSchema = z.object({
   /** Whether to search the workspace's documents: the router decides, always, or never. */
   knowledge: knowledgeModeSchema.default("auto"),
   mode: agentModeSchema.default("auto"),
+  /** For models that reason; others ignore it. Omitted means the model's own default. */
+  effort: reasoningEffortSchema.optional(),
   /**
    * Rewrites a chat from one of its user messages: the message gets `content`
    * (the same text regenerates the reply), keeps its attachments, everything
@@ -186,6 +191,7 @@ export type ToolDecisionRequest = z.infer<typeof toolDecisionRequestSchema>;
 export type MessageSource = z.infer<typeof messageSourceSchema>;
 export type KnowledgeMode = z.infer<typeof knowledgeModeSchema>;
 export type AgentModeName = z.infer<typeof agentModeSchema>;
+export type ReasoningEffort = z.infer<typeof reasoningEffortSchema>;
 export type ActivityItemView = z.infer<typeof activityItemSchema>;
 export type ThreadSummary = z.infer<typeof threadSummarySchema>;
 export type ThreadListResponse = z.infer<typeof threadListResponseSchema>;

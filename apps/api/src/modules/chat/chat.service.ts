@@ -5,6 +5,7 @@ import type {
   AgentModeName,
   Attachment,
   ChatMessage,
+  ReasoningEffort,
   SendMessageRequest,
   ThreadListResponse,
   ThreadResponse,
@@ -49,6 +50,8 @@ export interface PreparedReply {
   history: BaseMessage[];
   /** How the reply is worked out, as picked in the chat box. */
   mode: AgentModeName;
+  /** How hard a reasoning model thinks, as picked in the chat box. */
+  effort?: ReasoningEffort;
   /** The user's memory settings, which decide the memory tools. */
   memorySettings: MemorySettingsValue;
   /** What the RAG router needs: recent turns as text, and the search settings. */
@@ -371,6 +374,7 @@ export function createChatService({
           summaryThrough: saved.thread.summaryThrough,
         }),
         mode: request.mode,
+        ...(request.effort ? { effort: request.effort } : {}),
         memorySettings,
         knowledge: {
           mode: request.knowledge,

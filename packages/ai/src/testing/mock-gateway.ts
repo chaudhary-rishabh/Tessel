@@ -32,6 +32,8 @@ export interface MockReply {
   toolCalls?: { name: string; args: unknown }[];
   /** Respond with this HTTP status and an error body. */
   status?: number;
+  /** The error body's message, with `status` (defaults to "Mock <status>"). */
+  errorMessage?: string;
   /** Drop the connection without responding. */
   networkError?: boolean;
   usage?: {
@@ -399,7 +401,7 @@ export async function startMockGateway({ port = 0 }: { port?: number } = {}): Pr
       if (reply.networkError) return req.socket.destroy();
       if (reply.status) {
         return sendJson(res, reply.status, {
-          error: { message: `Mock ${reply.status}`, type: "mock_error" },
+          error: { message: reply.errorMessage ?? `Mock ${reply.status}`, type: "mock_error" },
         });
       }
 

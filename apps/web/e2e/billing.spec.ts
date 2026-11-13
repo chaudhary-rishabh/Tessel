@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { signUp } from "./helpers";
+import { pickModel, signUp } from "./helpers";
 
 function plan(page: Page) {
   return page.getByRole("region", { name: "Plan and usage" });
@@ -77,8 +77,8 @@ test.describe("plans and billing", () => {
 
   test("explains that a Pro model needs a paid plan", async ({ page }) => {
     await signUp(page);
-    await page.getByRole("button", { name: /^Model:/ }).click();
-    await page.getByRole("menuitem", { name: /Claude Opus 5/ }).click();
+    // "Claude Opus 5", not "Claude Opus 5.5".
+    await pickModel(page, "Claude", /^Claude Opus 5(?!\.)/);
     await page.getByRole("textbox", { name: "Message" }).fill("Hello there");
     await page.getByRole("button", { name: "Send message" }).click();
     await expect(page.getByRole("alert").filter({ hasText: "needs a paid plan" })).toBeVisible();
