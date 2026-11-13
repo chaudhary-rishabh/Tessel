@@ -3,6 +3,7 @@ import {
   createRagPipeline,
   readModelsConfig,
   type Ai,
+  type ImageGenerator,
   type LiveModelRegistry,
   type VectorIndex,
 } from "@tessel/ai";
@@ -55,6 +56,8 @@ import { createAccessTokensService } from "./modules/access-tokens/access-tokens
 import { createMemoryRouter } from "./modules/memory/memory.routes";
 import type { VoiceRooms } from "./modules/voice/livekit";
 import { createVoiceRouter } from "./modules/voice/voice.routes";
+import { createMediaRouter } from "./modules/media/media.routes";
+import { createMediaService } from "./modules/media/media.service";
 import { createVoiceService } from "./modules/voice/voice.service";
 import type { VoiceCloning } from "./modules/voice/elevenlabs";
 import { createVoicesService } from "./modules/voice/voices.service";
@@ -147,6 +150,8 @@ export interface AppDependencies {
       | undefined;
     rates?: { sttUsdPerMinute: number; ttsUsdPer1kChars: number } | undefined;
   };
+  /** The gateway's image model, for generating and editing images. Off when missing. */
+  images?: ImageGenerator | undefined;
   /** Rate limit storage per limiter. Defaults to in-memory (single instance only). */
   rateLimitStoreFactory?: RateLimitStoreFactory;
   /** Override for tests, which use cheaper hashing settings. */
@@ -170,6 +175,7 @@ export function createApp({
   models = createLiveModelRegistry(readModelsConfig()),
   payments = {},
   voice = { maxSessionMinutes: 30 },
+  images,
   signIn = { apiPublicUrl: "http://localhost:4000" },
   rateLimitStoreFactory,
   passwordHasher = createPasswordHasher(),
@@ -352,8 +358,17 @@ export function createApp({
     logger,
     memory: { store: memoryStore, ...memory },
   });
+  const mediaService = createMediaService({
+    db,
+    ai,
+    objects: storage.objects,
+    images,
+    limits: usageLimits,
+    logger,
+  });
   const chatController = createChatController({
     documents: documentsService,
+    media: mediaService,
     skills: skillsService,
     connectors: connectorsService,
     memory: memoryService,
@@ -505,6 +520,15 @@ export function createApp({
   app.use(
     "/workspaces/:workspaceId/graph",
     createGraphRouter({ service: graphService, authenticate }),
+  );
+  app.use(
+    "/workspaces/:workspaceId/media",
+    createMediaRouter({
+      service: mediaService,
+      authenticate,
+      rateLimit: config.rateLimits.ai,
+      storeFactory: rateLimitStoreFactory,
+    }),
   );
   app.use(
     "/workspaces/:workspaceId/memory",

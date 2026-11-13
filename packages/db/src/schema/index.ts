@@ -14,3 +14,4 @@ export * from "./settings";
 export * from "./billing";
 export * from "./voice";
 export * from "./voice-own";
+export * from "./media";

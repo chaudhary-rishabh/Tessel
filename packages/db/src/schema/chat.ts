@@ -24,6 +24,8 @@ export interface MessageToolCall {
   description?: string;
   summary?: string;
   error?: string;
+  /** Media the tool made (rows in `media`), shown under the reply. */
+  media?: { kind: "image" | "video"; id: string; width?: number; height?: number; alt?: string }[];
 }
 
 /** A visible stage of an orchestrated reply (see ActivityItem in @tessel/ai). */

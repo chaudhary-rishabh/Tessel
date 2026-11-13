@@ -9,6 +9,17 @@ export const aiEnvShape = {
   /** Vercel AI Gateway key. Without it (and without a fallback key) AI features are off. */
   AI_GATEWAY_API_KEY: optional(z.string().min(1)),
   AI_GATEWAY_URL: z.url().default("https://ai-gateway.vercel.sh/v1"),
+  /** The gateway's AI SDK endpoint, for image and video models. */
+  AI_GATEWAY_SDK_URL: z.url().default("https://ai-gateway.vercel.sh/v3/ai"),
+  /** The image model for generating and editing images. */
+  AI_IMAGE_MODEL: z.string().min(1).default("openai/gpt-image-2"),
+  /**
+   * What an image costs when the gateway doesn't say: US dollars per million
+   * input and output tokens, or per image for models without token usage.
+   */
+  AI_IMAGE_INPUT_USD_PER_M: z.coerce.number().nonnegative().default(5),
+  AI_IMAGE_OUTPUT_USD_PER_M: z.coerce.number().nonnegative().default(30),
+  AI_IMAGE_USD_PER_IMAGE: z.coerce.number().nonnegative().default(0.05),
   /** Emergency fallback straight to OpenAI when the gateway is down. */
   AI_FALLBACK_OPENAI_API_KEY: optional(z.string().min(1)),
   AI_FALLBACK_OPENAI_URL: optional(z.url()),

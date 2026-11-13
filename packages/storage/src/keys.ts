@@ -5,6 +5,8 @@
  *   workspaces/{workspaceId}/documents/{documentId}/original
  *   workspaces/{workspaceId}/documents/{documentId}/parsed.txt
  *   workspaces/{workspaceId}/attachments/{attachmentId}
+ *   workspaces/{workspaceId}/media/{mediaId}/original
+ *   workspaces/{workspaceId}/media/{mediaId}/preview.webp
  */
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 const DOCUMENT_ORIGINAL = new RegExp(`^workspaces/(${UUID})/documents/(${UUID})/original$`);
@@ -18,6 +20,12 @@ export const storageKeys = {
     `workspaces/${workspaceId}/documents/${documentId}/parsed.txt`,
   attachment: (workspaceId: string, attachmentId: string) =>
     `workspaces/${workspaceId}/attachments/${attachmentId}`,
+  mediaPrefix: (workspaceId: string, mediaId: string) =>
+    `workspaces/${workspaceId}/media/${mediaId}/`,
+  mediaOriginal: (workspaceId: string, mediaId: string) =>
+    `workspaces/${workspaceId}/media/${mediaId}/original`,
+  mediaPreview: (workspaceId: string, mediaId: string) =>
+    `workspaces/${workspaceId}/media/${mediaId}/preview.webp`,
 };
 
 /** The workspace and document an uploaded original belongs to, or null for any other key. */

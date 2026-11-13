@@ -67,7 +67,9 @@ test.describe("chat", () => {
     await page.getByRole("button", { name: "Send message" }).click();
 
     // The mock gateway echoes the message, including the inlined file, and counts images.
-    await expect(messages(page).getByText(/Ship chat\s*<\/attachment> \[1 image\]/)).toBeVisible();
+    await expect(
+      messages(page).getByText(/Ship chat\s*<\/attachment>[\s\S]*\[1 image\]/),
+    ).toBeVisible();
     await expect(messages(page).getByText("notes.md", { exact: true })).toBeVisible();
     await expect(messages(page).getByText("chart.png", { exact: true })).toBeVisible();
   });

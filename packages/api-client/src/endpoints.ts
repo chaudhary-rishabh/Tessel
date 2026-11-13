@@ -130,6 +130,13 @@ import {
   type SignupRequest,
   type UpdateProfileRequest,
   type Workspace,
+  type GenerateImageRequest,
+  type MediaItem,
+  type MediaListResponse,
+  type MediaStatus,
+  mediaItemSchema,
+  mediaListResponseSchema,
+  mediaStatusResponseSchema,
 } from "@tessel/contracts";
 import type { z } from "zod";
 import type { ApiClient } from "./client";
@@ -614,6 +621,53 @@ export function createApi(client: ApiClient) {
           searchResponseSchema,
           (await http.post(`/workspaces/${workspaceId}/search`, input)).data,
         ),
+    },
+    media: {
+      /** Whether this server makes images and videos. */
+      status: async (workspaceId: string): Promise<MediaStatus> =>
+        parse(
+          mediaStatusResponseSchema,
+          (await http.get(`/workspaces/${workspaceId}/media/status`)).data,
+        ),
+      /** The user's gallery, newest first. */
+      list: async (
+        workspaceId: string,
+        query: { kind?: "image" | "video"; before?: string; limit?: number } = {},
+      ): Promise<MediaListResponse> =>
+        parse(
+          mediaListResponseSchema,
+          (await http.get(`/workspaces/${workspaceId}/media`, { params: query })).data,
+        ),
+      get: async (workspaceId: string, mediaId: string): Promise<MediaItem> =>
+        parse(
+          mediaItemSchema,
+          (await http.get(`/workspaces/${workspaceId}/media/${mediaId}`)).data,
+        ),
+      /** Makes an image from a prompt, or edits the source images. */
+      generateImage: async (workspaceId: string, input: GenerateImageRequest): Promise<MediaItem> =>
+        parse(
+          mediaItemSchema,
+          (
+            await http.post(`/workspaces/${workspaceId}/media/images`, input, {
+              timeout: 240_000,
+            })
+          ).data,
+        ),
+      /** The file (or its small preview) as a Blob: img tags can't send the auth header. */
+      blob: async (
+        workspaceId: string,
+        mediaId: string,
+        variant: "original" | "preview" = "original",
+      ): Promise<Blob> =>
+        (
+          await http.get<Blob>(`/workspaces/${workspaceId}/media/${mediaId}/content`, {
+            params: { variant },
+            responseType: "blob",
+          })
+        ).data,
+      remove: async (workspaceId: string, mediaId: string): Promise<void> => {
+        await http.delete(`/workspaces/${workspaceId}/media/${mediaId}`);
+      },
     },
     voice: {
       /** Whether this server offers voice conversations. */

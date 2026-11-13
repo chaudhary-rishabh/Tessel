@@ -1,5 +1,6 @@
 import {
   aiOptionsFromEnv,
+  createImageGenerator,
   createAi,
   createLiveModelRegistry,
   readModelsConfig,
@@ -188,7 +189,9 @@ const voiceCloning = env.ELEVENLABS_API_KEY
   ? createElevenLabs({ apiKey: env.ELEVENLABS_API_KEY })
   : undefined;
 const gatewaySpeech = env.AI_GATEWAY_API_KEY
-  ? createGateway({ apiKey: env.AI_GATEWAY_API_KEY }).speech(env.VOICE_GATEWAY_TTS_MODEL)
+  ? createGateway({ apiKey: env.AI_GATEWAY_API_KEY, baseURL: env.AI_GATEWAY_SDK_URL }).speech(
+      env.VOICE_GATEWAY_TTS_MODEL,
+    )
   : undefined;
 const speakPreview = voiceCloning
   ? voiceCloning.speak
@@ -206,7 +209,10 @@ const speakPreview = voiceCloning
 
 // Dictation: ElevenLabs Scribe directly, or the same model through the gateway.
 const gatewayTranscriber = env.AI_GATEWAY_API_KEY
-  ? createGateway({ apiKey: env.AI_GATEWAY_API_KEY }).transcription("elevenlabs/scribe-v2")
+  ? createGateway({
+      apiKey: env.AI_GATEWAY_API_KEY,
+      baseURL: env.AI_GATEWAY_SDK_URL,
+    }).transcription("elevenlabs/scribe-v2")
   : undefined;
 const transcribe = voiceCloning
   ? voiceCloning.transcribe
@@ -219,6 +225,7 @@ const transcribe = voiceCloning
 
 const app = createApp({
   models: registry,
+  images: createImageGenerator(env),
   voice: {
     rooms: voiceRooms,
     maxSessionMinutes: env.VOICE_MAX_SESSION_MINUTES,

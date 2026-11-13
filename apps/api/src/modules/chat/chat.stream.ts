@@ -34,7 +34,9 @@ import type { MemoryService } from "../memory/memory.service";
 import type { DocumentsService } from "../documents/documents.service";
 import type { SkillsService } from "../skills/skills.service";
 import type { Actor, ChatService, PreparedReply } from "./chat.service";
-import { teamWorkers, workspaceTools } from "./chat.tools";
+import { designerWorker, teamWorkers, workspaceTools } from "./chat.tools";
+import type { MediaService } from "../media/media.service";
+import { imageTools } from "../media/media.tools";
 
 const HEARTBEAT_MS = 15_000;
 
@@ -79,6 +81,7 @@ export interface ReplyDependencies {
   rag: RagPipeline;
   service: ChatService;
   documents: DocumentsService;
+  media: MediaService;
   skills: SkillsService;
   connectors: ConnectorsService;
   memory: MemoryService;
@@ -170,6 +173,7 @@ async function drive(run: Drive): Promise<void> {
           sources: run.sources,
           ...(deps.graph.enabled ? { graph: deps.graph } : {}),
         })
+          .concat(imageTools({ media: deps.media, actor, threadId: run.threadId }))
           .concat(run.skills.length ? [loadSkillTool(run.skills)] : [])
           .concat(
             memoryTools({
@@ -207,6 +211,7 @@ async function drive(run: Drive): Promise<void> {
     workers: connectors?.names.length
       ? [
           ...teamWorkers,
+          ...(deps.media.status().images ? [designerWorker] : []),
           {
             name: "integrations",
             title: "Integrations specialist",
@@ -215,7 +220,7 @@ async function drive(run: Drive): Promise<void> {
             tools: connectors.names,
           },
         ]
-      : teamWorkers,
+      : [...teamWorkers, ...(deps.media.status().images ? [designerWorker] : [])],
     context,
     signal,
     logger: deps.logger,

@@ -4,10 +4,12 @@ import { ApiClientError } from "@tessel/api-client";
 import { useApi, useVoiceStatus } from "@tessel/api-client/react";
 import { MAX_ATTACHMENTS_PER_MESSAGE, type Attachment } from "@tessel/contracts";
 import { cn } from "@tessel/ui";
-import { ArrowUp, AudioLines, Paperclip, Square } from "lucide-react";
+import { ArrowUp, AudioLines, Paperclip, Square, X } from "lucide-react";
 import { useEffect, useId, useRef, useState, type ClipboardEvent, type KeyboardEvent } from "react";
 import type { SendResult } from "@/hooks/use-send-message";
+import { MediaImage } from "@/components/media/media-image";
 import { chatErrorMessage } from "@/lib/chat-errors";
+import { useImageReference } from "@/lib/image-reference-store";
 import { AttachmentChip } from "./attachment-chip";
 import { DictationButton } from "./dictation-button";
 import { useChatPreferences } from "@/lib/chat-preferences";
@@ -68,6 +70,8 @@ export function Composer({
   const mode = useChatPreferences((state) => state.mode);
   const voiceStatus = useVoiceStatus(workspaceId);
   const setMode = useChatPreferences((state) => state.setMode);
+  const imageId = useImageReference((state) => state.imageId);
+  const clearImage = useImageReference((state) => state.clear);
 
   // Grow with the text, up to a limit, then scroll.
   useEffect(() => {
@@ -134,17 +138,21 @@ export function Composer({
     if (!canSend) return;
     const content = text.trim();
     const sentFiles = files;
+    const sentImage = imageId;
     setError(undefined);
     setText("");
     setFiles([]);
+    clearImage();
     const result = await onSend(
-      content,
+      // The image being edited goes with the message, for the model to find.
+      sentImage ? `[image:${sentImage}] ${content}` : content,
       ready.map((file) => file.attachment),
     );
     if (!result.ok) {
       // Put the message back so nothing the user typed is lost.
       setText(content);
       setFiles(sentFiles);
+      if (sentImage) useImageReference.getState().set(sentImage);
       if (result.error) setError(chatErrorMessage(result.error.code, result.error.message));
       textarea.current?.focus();
       return;
@@ -187,6 +195,27 @@ export function Composer({
         </p>
       ) : null}
       <div className="border-line bg-surface focus-within:border-accent/60 rounded-2xl border p-2 shadow-sm transition-colors">
+        {imageId ? (
+          <div className="flex items-center gap-2.5 p-1.5 pb-2">
+            <MediaImage
+              workspaceId={workspaceId}
+              mediaId={imageId}
+              alt="The image to edit"
+              className="border-line size-12 shrink-0 rounded-lg border"
+            />
+            <p className="text-muted min-w-0 flex-1 text-sm">
+              Editing this image. Describe the change.
+            </p>
+            <button
+              type="button"
+              aria-label="Don't edit this image"
+              onClick={clearImage}
+              className="text-muted hover:text-ink hover:bg-ink/6 focus-visible:outline-accent inline-flex size-8 items-center justify-center rounded-md focus-visible:outline-2"
+            >
+              <X className="size-4" aria-hidden="true" />
+            </button>
+          </div>
+        ) : null}
         {files.length > 0 ? (
           <div className="flex flex-wrap gap-2.5 p-1.5 pb-2">
             {files.map((file) => (
@@ -207,6 +236,7 @@ export function Composer({
           Message
         </label>
         <textarea
+          data-composer=""
           ref={textarea}
           id={inputId}
           rows={1}

@@ -17,3 +17,4 @@ export * from "./billing";
 export * from "./paging";
 export * from "./voice";
 export * from "./artifacts";
+export * from "./media";

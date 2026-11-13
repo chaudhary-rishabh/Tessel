@@ -1,6 +1,8 @@
 "use client";
 
-import { parseMessageSegments, type ChatMessage } from "@tessel/contracts";
+import { imageReferences, parseMessageSegments, type ChatMessage } from "@tessel/contracts";
+import { MediaImage } from "@/components/media/media-image";
+import { ReplyImages } from "@/components/media/reply-images";
 import { ArtifactCard } from "@/components/artifacts/artifact-card";
 import { useModels } from "@tessel/api-client/react";
 import { Button } from "@tessel/ui";
@@ -93,8 +95,22 @@ function UserMessage({
       </div>
     );
   }
+  const { ids: referenced, text } = imageReferences(message.content);
   return (
     <div className="group flex flex-col items-end gap-2">
+      {referenced.length > 0 ? (
+        <div className="flex flex-wrap justify-end gap-2" aria-label="Images this message is about">
+          {referenced.map((id) => (
+            <MediaImage
+              key={id}
+              workspaceId={workspaceId}
+              mediaId={id}
+              alt="The image to edit"
+              className="border-line size-16 rounded-lg border"
+            />
+          ))}
+        </div>
+      ) : null}
       {message.attachments.length > 0 ? (
         <div className="flex flex-wrap justify-end gap-2">
           {message.attachments.map((attachment) => (
@@ -103,12 +119,12 @@ function UserMessage({
         </div>
       ) : null}
       <div className="bg-paper border-line max-w-[85%] rounded-2xl rounded-br-md border px-4 py-2.5 [overflow-wrap:anywhere] whitespace-pre-wrap">
-        {message.content}
+        {text}
       </div>
       {message.voiceSessionId ? <Spoken /> : null}
       {onEdit ? (
         <div className="text-muted flex gap-1 transition-opacity pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:focus-within:opacity-100">
-          <CopyButton text={message.content} label="Copy message" />
+          <CopyButton text={text} label="Copy message" />
           <button
             type="button"
             className={ACTION}
@@ -199,6 +215,7 @@ export type DecideHandler = (
 ) => Promise<void> | void;
 
 function AssistantMessage({
+  workspaceId,
   message,
   messageId,
   artifacts,
@@ -213,6 +230,7 @@ function AssistantMessage({
     ChatMessage,
     "content" | "status" | "errorCode" | "sources" | "toolCalls" | "activity" | "agentMode"
   > & { voiceSessionId?: string | null };
+  workspaceId: string;
   /** The reply's ID ("live" while it streams), for its artifacts' versions. */
   messageId: string;
   artifacts?: ArtifactContext | undefined;
@@ -252,6 +270,7 @@ function AssistantMessage({
       ) : streaming && !busy ? (
         <Thinking searching={searching ?? false} />
       ) : null}
+      <ReplyImages workspaceId={workspaceId} calls={message.toolCalls} />
       {pending ? (
         <ApprovalCard
           call={pending}
@@ -330,6 +349,7 @@ export function MessageList({
             />
           ) : (
             <AssistantMessage
+              workspaceId={workspaceId}
               message={message}
               messageId={message.id}
               artifacts={artifacts}
@@ -358,6 +378,7 @@ export function MessageList({
       {live ? (
         <li>
           <AssistantMessage
+            workspaceId={workspaceId}
             messageId="live"
             artifacts={artifacts}
             message={{

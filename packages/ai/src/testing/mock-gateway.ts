@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
+import { deflateSync } from "node:zlib";
 
 /**
  * A local stand-in for the AI Gateway's OpenAI-compatible API (and Anthropic's
@@ -24,6 +25,9 @@ import type { AddressInfo } from "node:net";
  * relationship, and quoted names in a question are routed to the graph.
  * Memory: "MOCK_REMEMBER: <fact>" in a user turn is saved, MOCK_FORGET clears
  * memories, and chat summaries say how many turns they cover.
+ * Images (the AI SDK's /image-model): a solid PNG whose colour comes from
+ * the prompt, sized by the aspect ratio; edits (with source images) come out
+ * inverted. MOCK_IMAGE_FAIL in the prompt fails the request.
  * Artifacts: MOCK_ARTIFACT writes an HTML page, MOCK_ARTIFACT_V2 a second
  * version of it, and MOCK_ARTIFACT_REACT a React component.
  */
@@ -361,6 +365,73 @@ function sendJson(res: ServerResponse, status: number, body: unknown) {
   res.end(JSON.stringify(body));
 }
 
+const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
+  let c = n;
+  for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+  return c >>> 0;
+});
+
+function crc32(bytes: Buffer): number {
+  let crc = 0xffffffff;
+  for (const byte of bytes) crc = CRC_TABLE[(crc ^ byte) & 0xff]! ^ (crc >>> 8);
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+/** A PNG of one colour. */
+export function solidPng(width: number, height: number, [r, g, b]: [number, number, number]) {
+  const chunk = (type: string, data: Buffer) => {
+    const length = Buffer.alloc(4);
+    length.writeUInt32BE(data.length);
+    const typed = Buffer.concat([Buffer.from(type, "ascii"), data]);
+    const crc = Buffer.alloc(4);
+    crc.writeUInt32BE(crc32(typed));
+    return Buffer.concat([length, typed, crc]);
+  };
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header[8] = 8; // bit depth
+  header[9] = 2; // RGB
+  const row = Buffer.concat([Buffer.from([0]), Buffer.from(Array(width).fill([r, g, b]).flat())]);
+  const pixels = Buffer.concat(Array.from({ length: height }, () => row));
+  return Buffer.concat([
+    Buffer.from("89504e470d0a1a0a", "hex"),
+    chunk("IHDR", header),
+    chunk("IDAT", deflateSync(pixels)),
+    chunk("IEND", Buffer.alloc(0)),
+  ]);
+}
+
+function mockImage(body: Record<string, unknown>): { status: number; body: unknown } {
+  const prompt = String(body.prompt ?? "");
+  if (prompt.includes("MOCK_IMAGE_FAIL")) {
+    return {
+      status: 400,
+      body: { error: { message: "Mock image failure", type: "invalid_request_error" } },
+    };
+  }
+  const [w = 1, h = 1] = String(body.aspectRatio ?? "1:1")
+    .split(":")
+    .map(Number);
+  const scale = 96 / Math.max(w, h);
+  const digest = createHash("sha256").update(prompt).digest();
+  const edit = Array.isArray(body.files) && body.files.length > 0;
+  const colour = [digest[0]!, digest[1]!, digest[2]!].map((value) => (edit ? 255 - value : value));
+  const png = solidPng(
+    Math.round(w * scale),
+    Math.round(h * scale),
+    colour as [number, number, number],
+  );
+  return {
+    status: 200,
+    body: {
+      images: [png.toString("base64")],
+      usage: { inputTokens: tokens(prompt), outputTokens: 1_000 },
+      providerMetadata: { gateway: { cost: "0.04" } },
+    },
+  };
+}
+
 export async function startMockGateway({ port = 0 }: { port?: number } = {}): Promise<MockGateway> {
   const queue: MockReply[] = [];
   const requests: RecordedRequest[] = [];
@@ -374,6 +445,11 @@ export async function startMockGateway({ port = 0 }: { port?: number } = {}): Pr
 
       if (req.method === "GET" && path.endsWith("/health"))
         return sendJson(res, 200, { status: "ok" });
+
+      if (path.endsWith("/image-model")) {
+        const image = mockImage(body);
+        return sendJson(res, image.status, image.body);
+      }
 
       if (path.endsWith("/embeddings")) {
         const reply = queue.shift();
