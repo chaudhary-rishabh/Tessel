@@ -4,7 +4,7 @@ import { toApiClientError } from "@tessel/api-client";
 import { useApi } from "@tessel/api-client/react";
 import { Button, cn, Spinner, TesselMark } from "@tessel/ui";
 import { useQuery } from "@tanstack/react-query";
-import { BarChart3, Boxes, Gauge, Menu, ScrollText, Users, X } from "lucide-react";
+import { AudioLines, BarChart3, Boxes, Gauge, Menu, ScrollText, Users, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
@@ -16,6 +16,7 @@ const NAV = [
   { href: "/users", label: "Users", icon: Users },
   { href: "/models", label: "Models", icon: Boxes },
   { href: "/usage", label: "Usage", icon: BarChart3 },
+  { href: "/voice", label: "Voice", icon: AudioLines },
   { href: "/audit", label: "Audit log", icon: ScrollText },
 ] as const;
 

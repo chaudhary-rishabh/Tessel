@@ -85,6 +85,9 @@ export function createAdminRouter({
   router.get("/usage", async (req, res) => {
     res.json(await service.usage(adminUsageQuerySchema.parse(req.query).days));
   });
+  router.get("/voice", async (req, res) => {
+    res.json(await service.voice(adminUsageQuerySchema.parse(req.query).days));
+  });
   router.get("/audit-log", async (req, res) => {
     res.json(await service.auditLog(adminAuditQuerySchema.parse(req.query)));
   });

@@ -3,10 +3,12 @@ import type {
   AdminModelsResponse,
   AdminOverview,
   AdminUsageResponse,
+  AdminVoiceResponse,
   AdminUserDetail,
   AdminUserListResponse,
   AuditLogResponse,
 } from "@tessel/contracts";
+import { VOICE_LATENCY_TARGET_MS } from "@tessel/contracts";
 import type { LiveModelRegistry } from "@tessel/ai";
 import {
   type Database,
@@ -269,6 +271,54 @@ export function createAdminService({
         ipAddress: actor.ipAddress,
       });
       return this.models();
+    },
+
+    /** How fast voice conversations are: percentiles overall, by day, and by stage. */
+    async voice(days: number): Promise<AdminVoiceResponse> {
+      const since = new Date(now().getTime() - days * DAY_MS).toISOString();
+      const [summary, byDay] = await Promise.all([
+        db.execute<Record<string, string | number | null>>(
+          sql`SELECT * FROM app.admin_voice_summary(${since}::timestamptz, ${VOICE_LATENCY_TARGET_MS})`,
+        ),
+        db.execute<{
+          day: string | Date;
+          turns: string;
+          sessions: string;
+          p50_ms: number;
+          p95_ms: number;
+        }>(sql`SELECT * FROM app.admin_voice_by_day(${since}::timestamptz)`),
+      ]);
+      const row = summary.rows[0] ?? {};
+      const int = (value: unknown) =>
+        value === null || value === undefined ? null : Number(value);
+      const turns = Number(row.turns ?? 0);
+      const share = (value: unknown) => (turns > 0 ? Number(value ?? 0) / turns : 0);
+      return {
+        targetMs: VOICE_LATENCY_TARGET_MS,
+        sessions: Number(row.sessions ?? 0),
+        turns,
+        userAudioMinutes: Number(row.user_audio_ms ?? 0) / 60_000,
+        p50Ms: int(row.p50_ms),
+        p95Ms: int(row.p95_ms),
+        withinTarget: share(row.within_target),
+        preemptive: share(row.preemptive),
+        interrupted: share(row.interrupted),
+        stages: {
+          endOfTurnMs: int(row.end_of_turn_p50_ms),
+          modelFirstTokenMs: int(row.model_first_token_p50_ms),
+          firstAudioMs: int(row.first_audio_p50_ms),
+        },
+        days: byDay.rows.map((day) => ({
+          day:
+            day.day instanceof Date
+              ? day.day.toISOString().slice(0, 10)
+              : String(day.day).slice(0, 10),
+          turns: Number(day.turns),
+          sessions: Number(day.sessions),
+          p50Ms: Number(day.p50_ms),
+          p95Ms: Number(day.p95_ms),
+        })),
+      };
     },
 
     async usage(days: number): Promise<AdminUsageResponse> {

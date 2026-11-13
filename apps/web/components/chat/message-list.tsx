@@ -11,6 +11,7 @@ import { AttachmentChip } from "./attachment-chip";
 import { SourceList } from "./citations";
 import { CopyButton, Markdown } from "./markdown";
 import { ActivityPanel } from "./activity";
+import { ReadAloudButton } from "./read-aloud";
 import { ApprovalCard, ToolCallList } from "./tool-calls";
 
 const ACTION =
@@ -158,6 +159,7 @@ export type DecideHandler = (
 
 function AssistantMessage({
   message,
+  readAloud,
   streaming,
   searching,
   modelLabel,
@@ -168,6 +170,8 @@ function AssistantMessage({
     ChatMessage,
     "content" | "status" | "errorCode" | "sources" | "toolCalls" | "activity" | "agentMode"
   > & { voiceSessionId?: string | null };
+  /** Where the saved reply lives, so it can be read aloud. */
+  readAloud?: { workspaceId: string; messageId: string } | undefined;
   streaming?: boolean;
   searching?: boolean;
   modelLabel?: string | undefined;
@@ -213,6 +217,9 @@ function AssistantMessage({
       {!streaming && (hasText || onRetry) ? (
         <div className="text-muted flex items-center gap-2 text-xs">
           {hasText ? <CopyButton text={message.content} label="Copy reply" /> : null}
+          {hasText && readAloud && message.status === "complete" ? (
+            <ReadAloudButton workspaceId={readAloud.workspaceId} messageId={readAloud.messageId} />
+          ) : null}
           {onRetry ? (
             <button type="button" className={ACTION} aria-label="Retry reply" onClick={onRetry}>
               <RotateCcw className="size-4" aria-hidden="true" />
@@ -270,6 +277,7 @@ export function MessageList({
           ) : (
             <AssistantMessage
               message={message}
+              readAloud={{ workspaceId, messageId: message.id }}
               modelLabel={labelFor(message.modelId)}
               onRetry={
                 canRewrite && lastUser && message.id === last?.id

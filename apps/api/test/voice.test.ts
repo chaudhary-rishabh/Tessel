@@ -56,7 +56,7 @@ describe("voice sessions", () => {
     const { user, base } = await setup();
     const res = await request(app).get(`${base}/status`).set("Authorization", bearer(user));
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ available: true });
+    expect(res.body).toEqual({ available: true, readAloud: false, dictation: false });
   });
 
   it("starts a conversation in a new chat with a token for one room and the agent", async () => {
@@ -215,7 +215,7 @@ describe("voice sessions", () => {
     const workspaces = await request(offApp).get("/workspaces").set("Authorization", bearer(user));
     const base = `/workspaces/${workspaces.body.workspaces[0].id}/voice`;
     const status = await request(offApp).get(`${base}/status`).set("Authorization", bearer(user));
-    expect(status.body).toEqual({ available: false });
+    expect(status.body).toEqual({ available: false, readAloud: false, dictation: false });
     const res = await request(offApp)
       .post(`${base}/sessions`)
       .set("Authorization", bearer(user))

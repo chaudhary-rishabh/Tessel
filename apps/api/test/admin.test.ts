@@ -3,13 +3,14 @@ import {
   adminModelsResponseSchema,
   adminOverviewSchema,
   adminUsageResponseSchema,
+  adminVoiceResponseSchema,
   adminUserDetailSchema,
   adminUserListResponseSchema,
 } from "@tessel/contracts";
-import { aiModelConfig, users } from "@tessel/db";
+import { aiModelConfig, threads, users, voiceSessions, voiceTurns } from "@tessel/db";
 import { eq } from "drizzle-orm";
 import request from "supertest";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, inject, it } from "vitest";
 import { totpCode, totpStep } from "../src/modules/auth/totp";
 import {
   bearer,
@@ -298,5 +299,64 @@ describe("admin usage and audit log", () => {
       target: `user:${target.auth.user.id}`,
       actor: { id: me.auth.user.id },
     });
+  });
+});
+
+describe("admin voice latency", () => {
+  it("reports percentiles, the share within target, and the median per stage", async () => {
+    const me = await admin();
+    const speaker = await signUp(app);
+    const owner = connect(inject("testDatabaseOwnerUrl")).db;
+    const workspaces = await request(app).get("/workspaces").set("Authorization", bearer(speaker));
+    const workspaceId = workspaces.body.workspaces[0].id as string;
+    const userId = speaker.auth.user.id;
+    const [thread] = await owner
+      .insert(threads)
+      .values({ workspaceId, userId, modelId: "openai/gpt-5.4-nano" })
+      .returning();
+    const sessionId = crypto.randomUUID();
+    await owner.insert(voiceSessions).values({
+      id: sessionId,
+      workspaceId,
+      userId,
+      threadId: thread!.id,
+      roomName: `voice-${sessionId}`,
+      modelId: "openai/gpt-5.4-nano",
+      status: "ended",
+      userAudioMs: 120_000,
+    });
+    // Ten replies from 300 ms to 1.2 s; the first four are within 600 ms.
+    await owner.insert(voiceTurns).values(
+      Array.from({ length: 10 }, (_, index) => ({
+        sessionId,
+        workspaceId,
+        userId,
+        endOfTurnMs: 200,
+        modelFirstTokenMs: 150 + index * 50,
+        firstAudioMs: 100,
+        totalMs: 300 + index * 100,
+        preemptive: index < 2,
+        interrupted: index === 9,
+      })),
+    );
+
+    const res = await request(app).get("/admin/voice?days=7").set("Authorization", bearer(me));
+    expect(res.status).toBe(200);
+    const voice = adminVoiceResponseSchema.parse(res.body);
+    expect(voice).toMatchObject({
+      targetMs: 600,
+      turns: 10,
+      p50Ms: 750,
+      p95Ms: 1155,
+      withinTarget: 0.4,
+      preemptive: 0.2,
+      interrupted: 0.1,
+      stages: { endOfTurnMs: 200, modelFirstTokenMs: 375, firstAudioMs: 100 },
+    });
+    expect(voice.userAudioMinutes).toBeGreaterThanOrEqual(2);
+    expect(voice.days).toHaveLength(1);
+
+    const refused = await request(app).get("/admin/voice").set("Authorization", bearer(speaker));
+    expect(refused.status).toBe(403);
   });
 });

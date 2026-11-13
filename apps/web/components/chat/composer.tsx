@@ -1,7 +1,7 @@
 "use client";
 
 import { ApiClientError } from "@tessel/api-client";
-import { useApi } from "@tessel/api-client/react";
+import { useApi, useVoiceStatus } from "@tessel/api-client/react";
 import { MAX_ATTACHMENTS_PER_MESSAGE, type Attachment } from "@tessel/contracts";
 import { cn } from "@tessel/ui";
 import { ArrowUp, AudioLines, Paperclip, Square } from "lucide-react";
@@ -9,6 +9,7 @@ import { useEffect, useId, useRef, useState, type ClipboardEvent, type KeyboardE
 import type { SendResult } from "@/hooks/use-send-message";
 import { chatErrorMessage } from "@/lib/chat-errors";
 import { AttachmentChip } from "./attachment-chip";
+import { DictationButton } from "./dictation-button";
 import { useChatPreferences } from "@/lib/chat-preferences";
 import { KnowledgePicker } from "./knowledge-picker";
 import { ModePicker } from "./mode-picker";
@@ -65,6 +66,7 @@ export function Composer({
   const knowledge = useChatPreferences((state) => state.knowledge);
   const setKnowledge = useChatPreferences((state) => state.setKnowledge);
   const mode = useChatPreferences((state) => state.mode);
+  const voiceStatus = useVoiceStatus(workspaceId);
   const setMode = useChatPreferences((state) => state.setMode);
 
   // Grow with the text, up to a limit, then scroll.
@@ -239,6 +241,17 @@ export function Composer({
           >
             <Paperclip className="size-5" aria-hidden="true" />
           </button>
+          {voiceStatus.data?.dictation ? (
+            <DictationButton
+              workspaceId={workspaceId}
+              onError={setError}
+              onText={(spoken) => {
+                setError(undefined);
+                setText((current) => (current.trim() ? `${current.trimEnd()} ${spoken}` : spoken));
+                textarea.current?.focus();
+              }}
+            />
+          ) : null}
           <KnowledgePicker value={knowledge} onChange={setKnowledge} />
           <ModePicker value={mode} onChange={setMode} />
           <div className="ml-auto flex items-center gap-1.5">
