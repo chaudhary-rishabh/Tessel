@@ -331,3 +331,157 @@ describe("connectors", () => {
     }
   });
 });
+
+describe("workspace policies", () => {
+  const tools = (...calls: { name: string; args: Record<string, unknown> }[]) =>
+    `MOCK_TOOLS ${JSON.stringify(calls)}`;
+  const offered = () =>
+    (
+      (gateway.requests.find((entry) => entry.body.stream === true)?.body.tools ?? []) as {
+        function: { name: string };
+      }[]
+    ).map((tool) => tool.function.name);
+
+  async function teamWithMember() {
+    const admin = await setup();
+    const member = await signUp(app);
+    await ownerDb()
+      .insert(workspaceMembers)
+      .values({ workspaceId: admin.workspaceId, userId: member.auth.user.id, role: "member" });
+    return { ...admin, member };
+  }
+
+  it("lets owners block tools, require approval, or skip it, and members only read", async () => {
+    const { user, base, member } = await teamWithMember();
+    const read = await request(app).get(`${base}/policies`).set("Authorization", bearer(member));
+    expect(read.body).toMatchObject({ toolPolicies: {}, canEdit: false });
+    expect(read.body.tools.map((tool: { name: string }) => tool.name)).toContain("create_document");
+    const refused = await request(app)
+      .put(`${base}/policies`)
+      .set("Authorization", bearer(member))
+      .send({ toolPolicies: { calculator: "block" } });
+    expect(refused.status).toBe(403);
+
+    const saved = await request(app)
+      .put(`${base}/policies`)
+      .set("Authorization", bearer(user))
+      .send({
+        toolPolicies: { calculator: "block", current_time: "ask", create_document: "allow" },
+      });
+    expect(saved.status).toBe(200);
+    expect(saved.body.canEdit).toBe(true);
+
+    // Blocked: not offered to the model at all.
+    await chat(member, base, "What's 2 + 2?");
+    expect(offered()).not.toContain("calculator");
+    expect(offered()).toContain("current_time");
+
+    // "ask" makes a read tool wait for approval.
+    gateway.reset();
+    const asked = await chat(member, base, tools({ name: "current_time", args: {} }));
+    const waiting = asked.find((event) => event.type === "done") as Extract<
+      ChatEvent,
+      { type: "done" }
+    >;
+    expect(waiting.status).toBe("waiting");
+
+    // "allow" lets a write tool run without asking.
+    gateway.reset();
+    const allowed = await chat(
+      member,
+      base,
+      tools({ name: "create_document", args: { filename: "notes.md", content: "Hi" } }),
+    );
+    const done = allowed.find((event) => event.type === "done") as Extract<
+      ChatEvent,
+      { type: "done" }
+    >;
+    expect(done.status).toBe("complete");
+    expect(done.message.toolCalls[0]).toMatchObject({
+      name: "create_document",
+      status: "completed",
+    });
+
+    const unknown = await request(app)
+      .put(`${base}/policies`)
+      .set("Authorization", bearer(user))
+      .send({ toolPolicies: { made_up: "block" } });
+    expect(unknown.status).toBe(400);
+  });
+
+  it("blocks connectors for the whole workspace", async () => {
+    const { user, base, member } = await teamWithMember();
+    expect((await connectGitHub(member, base)).status).toBe(201);
+    await request(app)
+      .put(`${base}/policies`)
+      .set("Authorization", bearer(user))
+      .send({ blockedConnectors: ["github"] });
+
+    const list = await request(app).get(`${base}/connectors`).set("Authorization", bearer(member));
+    expect(list.body.blocked).toEqual(["github"]);
+    // An existing connection stops working, and a new one can't be added.
+    await chat(member, base, "List my issues");
+    expect(offered().some((name) => name.startsWith("github"))).toBe(false);
+    const again = await connectGitHub(user, base);
+    expect(again.status).toBe(403);
+    expect(again.body.error.code).toBe("connector_blocked");
+  });
+
+  it("shares an admin's connector with everyone, who can use but not change it", async () => {
+    const { user, base, member } = await teamWithMember();
+    const notAllowed = await request(app)
+      .post(`${base}/connectors`)
+      .set("Authorization", bearer(member))
+      .send({ catalogId: "github", token: "ghp_valid", shared: true });
+    expect(notAllowed.status).toBe(403);
+
+    const shared = await request(app)
+      .post(`${base}/connectors`)
+      .set("Authorization", bearer(user))
+      .send({ catalogId: "github", token: "ghp_valid", shared: true });
+    expect(shared.status).toBe(201);
+    const list = await request(app).get(`${base}/connectors`).set("Authorization", bearer(member));
+    expect(list.body.connections).toEqual([
+      expect.objectContaining({ id: shared.body.connection.id, shared: true, mine: false }),
+    ]);
+    expect(list.body.canShare).toBe(false);
+
+    await chat(member, base, "List my issues");
+    expect(offered().some((name) => name.startsWith("github"))).toBe(true);
+
+    const change = await request(app)
+      .patch(`${base}/connectors/${shared.body.connection.id}`)
+      .set("Authorization", bearer(member))
+      .send({ enabled: false });
+    expect(change.status).toBe(404);
+  });
+
+  it("turns built-in skills off for the workspace", async () => {
+    const { user, workspaceId, base, member } = await teamWithMember();
+    const refused = await request(app)
+      .patch(`${base}/skills/builtin:meeting-notes`)
+      .set("Authorization", bearer(member))
+      .send({ enabled: false });
+    expect(refused.status).toBe(403);
+    const off = await request(app)
+      .patch(`${base}/skills/builtin:meeting-notes`)
+      .set("Authorization", bearer(user))
+      .send({ enabled: false });
+    expect(off.status).toBe(200);
+    expect(off.body).toMatchObject({ builtIn: true, enabled: false });
+
+    const list = await request(app).get(`${base}/skills`).set("Authorization", bearer(member));
+    expect(
+      list.body.skills.find((skill: { name: string }) => skill.name === "meeting-notes"),
+    ).toMatchObject({
+      enabled: false,
+      canEdit: false,
+    });
+    await chat(member, base, "Hello");
+    const system = JSON.stringify(
+      gateway.requests.find((entry) => entry.body.stream === true)!.body.messages,
+    );
+    expect(system).not.toContain("meeting-notes");
+    expect(workspaceId).toBeTruthy();
+  });
+});

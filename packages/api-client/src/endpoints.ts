@@ -133,6 +133,9 @@ import {
   type UpdateProfileRequest,
   type Workspace,
   type GenerateImageRequest,
+  type UpdateWorkspacePolicies,
+  type WorkspacePolicies,
+  workspacePoliciesSchema,
   type GenerateVideoRequest,
   type MediaItem,
   type MediaListResponse,
@@ -585,6 +588,19 @@ export function createApi(client: ApiClient) {
       remove: async (workspaceId: string, skillId: string): Promise<void> => {
         await http.delete(`/workspaces/${workspaceId}/skills/${skillId}`);
       },
+      /** Adds a reference file or template to a skill, or replaces the one at that path. */
+      putFile: async (
+        workspaceId: string,
+        skillId: string,
+        file: { path: string; content: string },
+      ): Promise<void> => {
+        await http.put(`/workspaces/${workspaceId}/skills/${skillId}/files`, file);
+      },
+      removeFile: async (workspaceId: string, skillId: string, path: string): Promise<void> => {
+        await http.delete(`/workspaces/${workspaceId}/skills/${skillId}/files`, {
+          params: { path },
+        });
+      },
     },
     graph: {
       /** The knowledge graph's size and, with an entity, its connections. */
@@ -664,6 +680,22 @@ export function createApi(client: ApiClient) {
         parse(
           searchResponseSchema,
           (await http.post(`/workspaces/${workspaceId}/search`, input)).data,
+        ),
+    },
+    policies: {
+      /** The workspace's tool, connector, and skill policies. */
+      get: async (workspaceId: string): Promise<WorkspacePolicies> =>
+        parse(
+          workspacePoliciesSchema,
+          (await http.get(`/workspaces/${workspaceId}/policies`)).data,
+        ),
+      update: async (
+        workspaceId: string,
+        input: UpdateWorkspacePolicies,
+      ): Promise<WorkspacePolicies> =>
+        parse(
+          workspacePoliciesSchema,
+          (await http.put(`/workspaces/${workspaceId}/policies`, input)).data,
         ),
     },
     media: {

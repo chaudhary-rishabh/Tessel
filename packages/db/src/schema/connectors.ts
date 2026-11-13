@@ -59,6 +59,8 @@ export const connectorConnections = pgTable(
       .notNull()
       .default({}),
     enabled: boolean("enabled").notNull().default(true),
+    /** Set up by an owner or admin for everyone in the workspace, with its credentials shared. */
+    shared: boolean("shared").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()

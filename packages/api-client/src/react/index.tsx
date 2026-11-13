@@ -1,6 +1,8 @@
 "use client";
 
 import type {
+  UpdateWorkspacePolicies,
+  WorkspacePolicies,
   GenerateImageRequest,
   GenerateVideoRequest,
   MediaItem,
@@ -92,6 +94,7 @@ export const queryKeys = {
   usage: (workspaceId: string, days: number) => ["workspaces", workspaceId, "usage", days] as const,
   voiceStatus: (workspaceId: string) => ["workspaces", workspaceId, "voice", "status"] as const,
   voices: (workspaceId: string) => ["workspaces", workspaceId, "voice", "voices"] as const,
+  policies: (workspaceId: string) => ["workspaces", workspaceId, "policies"] as const,
   mediaStatus: (workspaceId: string) => ["workspaces", workspaceId, "media", "status"] as const,
   media: (workspaceId: string) => ["workspaces", workspaceId, "media", "list"] as const,
   mediaFile: (workspaceId: string, mediaId: string, variant: "original" | "preview") =>
@@ -792,6 +795,50 @@ export function useMemberActions(workspaceId: string) {
       },
     }),
   };
+}
+
+export function usePolicies(workspaceId: string | undefined) {
+  const api = useApi();
+  return useQuery({
+    queryKey: queryKeys.policies(workspaceId ?? "none"),
+    queryFn: () => api.policies.get(workspaceId!),
+    enabled: Boolean(workspaceId),
+  });
+}
+
+export function useUpdatePolicies(workspaceId: string) {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<WorkspacePolicies, ApiClientError, UpdateWorkspacePolicies>({
+    mutationFn: (input) => api.policies.update(workspaceId, input),
+    // One change at a time, in order, so a later one is never undone by an earlier response.
+    scope: { id: `policies:${workspaceId}` },
+    // Show the change at once; the response (or a refetch on failure) settles it.
+    onMutate: (input) => {
+      // A refetch already on its way would bring back the old policies.
+      void queryClient.cancelQueries(
+        { queryKey: queryKeys.policies(workspaceId) },
+        { revert: false },
+      );
+      queryClient.setQueryData<WorkspacePolicies>(queryKeys.policies(workspaceId), (current) =>
+        current
+          ? {
+              ...current,
+              ...(input.toolPolicies ? { toolPolicies: input.toolPolicies } : {}),
+              ...(input.blockedConnectors ? { blockedConnectors: input.blockedConnectors } : {}),
+              ...(input.disabledSkills ? { disabledSkills: input.disabledSkills } : {}),
+            }
+          : current,
+      );
+    },
+    onError: () =>
+      void queryClient.invalidateQueries({ queryKey: queryKeys.policies(workspaceId) }),
+    onSuccess: (policies) => {
+      queryClient.setQueryData(queryKeys.policies(workspaceId), policies);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.connectors(workspaceId) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.skills(workspaceId) });
+    },
+  });
 }
 
 export function useMediaStatus(workspaceId: string | undefined) {

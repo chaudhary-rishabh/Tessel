@@ -182,3 +182,87 @@ describe("skills", () => {
     expect(JSON.stringify(reply.body.messages)).toContain("meeting-notes");
   });
 });
+
+describe("skill files", () => {
+  const events = (body: string) =>
+    body
+      .split("\n\n")
+      .map((block) => block.split("\n").find((line) => line.startsWith("data: ")))
+      .filter((line): line is string => Boolean(line))
+      .map((line) => JSON.parse(line.slice(6)) as ChatEvent);
+
+  it("adds, lists, reads, replaces, and removes a skill's files", async () => {
+    const { user, base } = await setup();
+    const skill = (await create(user, base)).body as Skill;
+    const put = await request(app)
+      .put(`${base}/${skill.id}/files`)
+      .set("Authorization", bearer(user))
+      .send({ path: "templates/notes.md", content: "## Highlights\n- " });
+    expect(put.status).toBe(200);
+    expect(put.body).toEqual({ path: "templates/notes.md", sizeBytes: 16 });
+
+    const listed = await request(app).get(base).set("Authorization", bearer(user));
+    expect(listed.body.skills.find((item: Skill) => item.id === skill.id).files).toEqual([
+      { path: "templates/notes.md", sizeBytes: 16 },
+    ]);
+    await request(app)
+      .put(`${base}/${skill.id}/files`)
+      .set("Authorization", bearer(user))
+      .send({ path: "templates/notes.md", content: "## Highlights\n## Fixes" });
+    const read = await request(app)
+      .get(`${base}/${skill.id}/files/content?path=templates/notes.md`)
+      .set("Authorization", bearer(user));
+    expect(read.body).toEqual({ path: "templates/notes.md", content: "## Highlights\n## Fixes" });
+
+    const bad = await request(app)
+      .put(`${base}/${skill.id}/files`)
+      .set("Authorization", bearer(user))
+      .send({ path: "../escape.md", content: "x" });
+    expect(bad.status).toBe(400);
+    const big = await request(app)
+      .put(`${base}/${skill.id}/files`)
+      .set("Authorization", bearer(user))
+      .send({ path: "big.txt", content: "x".repeat(101 * 1024) });
+    expect(big.body.error.code).toBe("file_too_large");
+
+    const outsider = await setup();
+    const peek = await request(app)
+      .get(`${base}/${skill.id}/files/content?path=templates/notes.md`)
+      .set("Authorization", bearer(outsider.user));
+    expect(peek.status).toBe(404);
+
+    const removed = await request(app)
+      .delete(`${base}/${skill.id}/files?path=templates/notes.md`)
+      .set("Authorization", bearer(user));
+    expect(removed.status).toBe(204);
+  });
+
+  it("lets the agent read a loaded skill's file", async () => {
+    const { user, workspaceId, base } = await setup();
+    const skill = (await create(user, base)).body as Skill;
+    await request(app)
+      .put(`${base}/${skill.id}/files`)
+      .set("Authorization", bearer(user))
+      .send({ path: "template.md", content: "TEMPLATE-OK: Highlights, Fixes" });
+    const res = await readEvents(
+      request(app)
+        .post(`/workspaces/${workspaceId}/chat`)
+        .set("Authorization", bearer(user))
+        .send({
+          content: `MOCK_TOOLS ${JSON.stringify([
+            { name: "read_skill_file", args: { skill: "release-notes", path: "template.md" } },
+          ])}`,
+          knowledge: "off",
+        }),
+    );
+    const done = events(res.body as string).find((event) => event.type === "done") as Extract<
+      ChatEvent,
+      { type: "done" }
+    >;
+    expect(done.message.toolCalls[0]).toMatchObject({
+      name: "read_skill_file",
+      status: "completed",
+    });
+    expect(done.message.content).toContain("TEMPLATE-OK");
+  });
+});

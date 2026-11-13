@@ -37,3 +37,31 @@ export const skills = pgTable(
 );
 
 export type SkillRow = typeof skills.$inferSelect;
+
+/**
+ * Reference files and templates a skill brings with it, which the agent
+ * reads when the skill's instructions call for them. Text only.
+ */
+export const skillFiles = pgTable(
+  "skill_files",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    skillId: uuid("skill_id")
+      .notNull()
+      .references(() => skills.id, { onDelete: "cascade" }),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    /** Like "templates/report.md". */
+    path: text("path").notNull(),
+    content: text("content").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [uniqueIndex("skill_files_skill_path_idx").on(table.skillId, table.path)],
+);
+
+export type SkillFileRow = typeof skillFiles.$inferSelect;

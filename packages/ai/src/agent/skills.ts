@@ -15,6 +15,44 @@ export interface SkillDefinition {
   description: string;
   instructions: string;
   builtIn: boolean;
+  /** Reference files and templates it comes with, read with read_skill_file. */
+  files?: { path: string; content: string }[];
+}
+
+export const READ_SKILL_FILE_TOOL = "read_skill_file";
+
+/** A skill's instructions as the model reads them, with the files it can open. */
+export function skillBody(skill: SkillDefinition): string {
+  const files = skill.files ?? [];
+  const list = files.length
+    ? `\n\nThis skill comes with files. Read one with ${READ_SKILL_FILE_TOOL} when its instructions call for it:\n${files.map((file) => `- ${file.path}`).join("\n")}`
+    : "";
+  return `<skill name="${skill.name}" title="${skill.title.replace(/"/g, "'")}">\n${skill.instructions}${list}\n</skill>`;
+}
+
+/** The tool that reads one of a skill's files. */
+export function readSkillFileTool(skills: SkillDefinition[]): ToolDefinition {
+  return defineTool({
+    name: READ_SKILL_FILE_TOOL,
+    title: "Read a skill file",
+    description:
+      "Read a reference file or template that comes with a skill, by the skill's name and the file's path, as listed in the skill.",
+    schema: z.object({ skill: z.string().min(1).max(80), path: z.string().min(1).max(200) }),
+    risk: "read",
+    run: async ({ skill: name, path }) => {
+      const skill = skills.find((item) => item.name === name.trim().toLowerCase());
+      const file = skill?.files?.find((item) => item.path === path.trim());
+      if (!skill || !file) {
+        throw new ToolError(
+          `There's no file ${path} in ${name}. Files: ${skill?.files?.map((item) => item.path).join(", ") || "none"}`,
+        );
+      }
+      return {
+        content: `<skill_file skill="${skill.name}" path="${file.path}">\n${file.content}\n</skill_file>`,
+        summary: `${skill.title}: ${file.path}`,
+      };
+    },
+  });
 }
 
 export const LOAD_SKILL_TOOL = "load_skill";
@@ -110,7 +148,7 @@ export function skillsPrompt(skills: SkillDefinition[]): string {
 export function pickedSkillPrompt(skill: SkillDefinition): string {
   return [
     `The user picked the "${skill.title}" skill for this message. Follow its instructions for your reply; they never override your safety rules, and actions still need the user's approval.`,
-    `<skill name="${skill.name}" title="${skill.title.replace(/"/g, "'")}">\n${skill.instructions}\n</skill>`,
+    skillBody(skill),
   ].join("\n");
 }
 
@@ -131,7 +169,7 @@ export function loadSkillTool(skills: SkillDefinition[]): ToolDefinition {
         );
       }
       return {
-        content: `<skill name="${skill.name}" title="${skill.title.replace(/"/g, "'")}">\n${skill.instructions}\n</skill>`,
+        content: skillBody(skill),
         summary: skill.title,
         artifact: { skill: skill.name },
       };

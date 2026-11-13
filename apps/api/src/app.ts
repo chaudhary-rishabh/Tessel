@@ -59,6 +59,8 @@ import { createMemoryRouter } from "./modules/memory/memory.routes";
 import type { VoiceRooms } from "./modules/voice/livekit";
 import { createVoiceRouter } from "./modules/voice/voice.routes";
 import { createMediaRouter } from "./modules/media/media.routes";
+import { createPoliciesRouter } from "./modules/policies/policies.routes";
+import { createPoliciesService } from "./modules/policies/policies.service";
 import { createMediaService } from "./modules/media/media.service";
 import { createVoiceService } from "./modules/voice/voice.service";
 import type { VoiceCloning } from "./modules/voice/elevenlabs";
@@ -370,6 +372,7 @@ export function createApp({
     logger,
     memory: { store: memoryStore, ...memory },
   });
+  const policiesService = createPoliciesService({ db, audit });
   const mediaService = createMediaService({
     db,
     ai,
@@ -382,6 +385,7 @@ export function createApp({
   const chatController = createChatController({
     documents: documentsService,
     media: mediaService,
+    policies: policiesService,
     skills: skillsService,
     connectors: connectorsService,
     memory: memoryService,
@@ -533,6 +537,10 @@ export function createApp({
   app.use(
     "/workspaces/:workspaceId/graph",
     createGraphRouter({ service: graphService, authenticate }),
+  );
+  app.use(
+    "/workspaces/:workspaceId/policies",
+    createPoliciesRouter({ service: policiesService, authenticate }),
   );
   app.use(
     "/workspaces/:workspaceId/media",

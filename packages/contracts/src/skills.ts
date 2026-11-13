@@ -16,6 +16,8 @@ export const skillSchema = z.object({
   author: z.object({ id: z.uuid(), name: z.string() }).nullable(),
   /** Whether the signed-in user can edit or delete it. */
   canEdit: z.boolean(),
+  /** Reference files and templates that come with it. */
+  files: z.array(z.object({ path: z.string(), sizeBytes: z.number().int() })).default([]),
   updatedAt: z.iso.datetime().nullable(),
 });
 
@@ -46,10 +48,35 @@ export const updateSkillRequestSchema = z
 
 export const skillParamsSchema = z.object({
   workspaceId: z.uuid("Invalid workspace ID"),
-  skillId: z.uuid("Invalid skill ID"),
+  /** A workspace skill's UUID, or "builtin:<name>" to turn a built-in one on or off. */
+  skillId: z.union([z.uuid("Invalid skill ID"), z.string().regex(/^builtin:[a-z0-9-]{1,80}$/)]),
 });
 
 export type Skill = z.infer<typeof skillSchema>;
 export type SkillListResponse = z.infer<typeof skillListResponseSchema>;
 export type CreateSkillRequest = z.infer<typeof createSkillRequestSchema>;
 export type UpdateSkillRequest = z.infer<typeof updateSkillRequestSchema>;
+
+/** The most text one skill file holds, and how many a skill can have. */
+export const MAX_SKILL_FILE_BYTES = 100 * 1024;
+export const MAX_SKILL_FILES = 20;
+
+export const skillFileRequestSchema = z.object({
+  path: z
+    .string()
+    .trim()
+    .min(1)
+    .max(200)
+    .regex(/^[\w.-]+(\/[\w.-]+)*$/, "Use a path like templates/report.md")
+    .refine((path) => !path.split("/").some((part) => part === ".." || part === "."), {
+      message: "Use a path like templates/report.md",
+    }),
+  content: z.string().min(1, "The file is empty"),
+});
+
+export const skillFileParamsSchema = z.object({
+  workspaceId: z.uuid(),
+  skillId: z.uuid(),
+});
+
+export const skillFileResponseSchema = z.object({ path: z.string(), content: z.string() });

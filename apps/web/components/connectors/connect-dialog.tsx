@@ -21,11 +21,14 @@ const AUTH_OPTIONS: { value: AuthChoice; label: string; hint: string }[] = [
 export function ConnectDialog({
   workspaceId,
   entry,
+  canShare = false,
   onClose,
 }: {
   workspaceId: string;
   /** A catalog app, or undefined for a custom server. */
   entry?: ConnectorCatalogEntry;
+  /** Owners and admins can set it up for everyone in the workspace. */
+  canShare?: boolean;
   onClose: () => void;
 }) {
   const create = useCreateConnection(workspaceId);
@@ -33,15 +36,19 @@ export function ConnectDialog({
   const [serverUrl, setServerUrl] = useState("");
   const [auth, setAuth] = useState<AuthChoice>("oauth");
   const [token, setToken] = useState("");
+  const [shared, setShared] = useState(false);
   const [error, setError] = useState<string>();
   const needsToken = entry ? entry.auth === "token" : auth === "token";
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     setError(undefined);
-    const input: CreateConnectionRequest = entry
-      ? { catalogId: entry.id, ...(needsToken ? { token } : {}) }
-      : { name, serverUrl, auth, ...(needsToken ? { token } : {}) };
+    const input: CreateConnectionRequest = {
+      ...(entry
+        ? { catalogId: entry.id, ...(needsToken ? { token } : {}) }
+        : { name, serverUrl, auth, ...(needsToken ? { token } : {}) }),
+      ...(shared ? { shared: true } : {}),
+    };
     try {
       const result = await create.mutateAsync(input);
       if (result.authorizationUrl) {
@@ -125,6 +132,22 @@ export function ConnectDialog({
             <p className="text-muted text-sm">
               You&apos;ll sign in on {entry.name}&apos;s page, then come back here.
             </p>
+          ) : null}
+          {canShare ? (
+            <label className="flex items-start gap-2.5 text-sm">
+              <input
+                type="checkbox"
+                checked={shared}
+                onChange={(event) => setShared(event.target.checked)}
+                className="accent-accent mt-0.5 size-4"
+              />
+              <span>
+                <span className="font-medium">Share with everyone in this workspace</span>
+                <span className="text-muted block">
+                  Everyone&apos;s chats can use it with these credentials. Only you can change it.
+                </span>
+              </span>
+            </label>
           ) : null}
           <div className="flex justify-end gap-2">
             <DialogClose asChild>

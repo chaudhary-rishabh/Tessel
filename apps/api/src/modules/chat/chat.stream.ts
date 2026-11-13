@@ -6,6 +6,7 @@ import {
   ModelNeedsCreditsError,
   createToolRegistry,
   loadSkillTool,
+  readSkillFileTool,
   resumeOrchestrator,
   runOrchestrator,
   pickedSkillPrompt,
@@ -38,6 +39,7 @@ import type { Actor, ChatService, PreparedReply } from "./chat.service";
 import { designerWorker, teamWorkers, workspaceTools } from "./chat.tools";
 import type { MediaService } from "../media/media.service";
 import { imageTools } from "../media/media.tools";
+import { applyToolPolicies, type PoliciesService } from "../policies/policies.service";
 
 const HEARTBEAT_MS = 15_000;
 
@@ -83,6 +85,7 @@ export interface ReplyDependencies {
   service: ChatService;
   documents: DocumentsService;
   media: MediaService;
+  policies: PoliciesService;
   skills: SkillsService;
   connectors: ConnectorsService;
   memory: MemoryService;
@@ -166,36 +169,50 @@ async function drive(run: Drive): Promise<void> {
         return undefined;
       })
     : undefined;
+  const policies = run.canUseTools
+    ? await deps.policies.forWorkspace(actor).catch((error: unknown) => {
+        deps.logger.warn({ err: error }, "Workspace policies failed to load");
+        return { toolPolicies: {}, blockedConnectors: [], disabledSkills: [] };
+      })
+    : undefined;
   const tools = run.canUseTools
     ? createToolRegistry(
-        workspaceTools({
-          documents: deps.documents,
-          workspaceId: actor.workspaceId,
-          userId: actor.userId,
-          ...(actor.requestId ? { requestId: actor.requestId } : {}),
-          sources: run.sources,
-          ...(run.documentIds ? { documentIds: run.documentIds } : {}),
-          ...(deps.graph.enabled ? { graph: deps.graph } : {}),
-        })
-          .concat(imageTools({ media: deps.media, actor, threadId: run.threadId }))
-          .concat(run.skills.length ? [loadSkillTool(run.skills)] : [])
-          .concat(
-            memoryTools({
-              ...(run.memorySettings.memoryEnabled
-                ? {
-                    remember: async (content: string) =>
-                      (await deps.memory.add(actor, { content }, "tool", run.threadId)).id,
-                  }
-                : {}),
-              ...(run.memorySettings.chatSearchEnabled
-                ? {
-                    searchPastChats: (query: string) =>
-                      deps.memory.searchPastChats(actor, query, run.threadId),
-                  }
-                : {}),
-            }),
-          )
-          .concat(connectors?.tools ?? []),
+        applyToolPolicies(
+          workspaceTools({
+            documents: deps.documents,
+            workspaceId: actor.workspaceId,
+            userId: actor.userId,
+            ...(actor.requestId ? { requestId: actor.requestId } : {}),
+            sources: run.sources,
+            ...(run.documentIds ? { documentIds: run.documentIds } : {}),
+            ...(deps.graph.enabled ? { graph: deps.graph } : {}),
+          })
+            .concat(imageTools({ media: deps.media, actor, threadId: run.threadId }))
+            .concat(run.skills.length ? [loadSkillTool(run.skills)] : [])
+            .concat(
+              run.skills.some((skill) => skill.files?.length)
+                ? [readSkillFileTool(run.skills)]
+                : [],
+            )
+            .concat(
+              memoryTools({
+                ...(run.memorySettings.memoryEnabled
+                  ? {
+                      remember: async (content: string) =>
+                        (await deps.memory.add(actor, { content }, "tool", run.threadId)).id,
+                    }
+                  : {}),
+                ...(run.memorySettings.chatSearchEnabled
+                  ? {
+                      searchPastChats: (query: string) =>
+                        deps.memory.searchPastChats(actor, query, run.threadId),
+                    }
+                  : {}),
+              }),
+            )
+            .concat(connectors?.tools ?? []),
+          policies ?? { toolPolicies: {} },
+        ),
       )
     : createToolRegistry([]);
   const helper = { ...context, feature: "agent" as const };
