@@ -1,11 +1,18 @@
 "use client";
 
 import { useThread } from "@tessel/api-client/react";
-import type { Attachment, ChatMessage } from "@tessel/contracts";
+import {
+  collectArtifacts,
+  parseMessageSegments,
+  type Attachment,
+  type ChatMessage,
+} from "@tessel/contracts";
 import { Button, Spinner } from "@tessel/ui";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ArtifactPanel } from "@/components/artifacts/artifact-panel";
+import { useArtifactPanel } from "@/lib/artifact-store";
 import { Composer } from "@/components/chat/composer";
 import { MessageList } from "@/components/chat/message-list";
 import { useChatModel } from "@/hooks/use-chat-model";
@@ -32,7 +39,72 @@ export default function ThreadPage() {
   const [picked, setPicked] = useState<string>();
   const modelId = picked ?? defaultModel;
   const startVoice = useStartVoice(workspaceId);
-  const messages = thread.data?.messages ?? [];
+  const messages = useMemo(() => thread.data?.messages ?? [], [thread.data?.messages]);
+  const panel = useArtifactPanel();
+
+  // Every artifact's versions, including one being written right now.
+  const artifacts = useMemo(
+    () =>
+      collectArtifacts([
+        ...messages,
+        ...(live ? [{ id: "live", role: "assistant", content: live.text }] : []),
+      ]),
+    [messages, live],
+  );
+  const artifactContext = useMemo(
+    () => ({
+      threadKey: threadId,
+      versionOf: (messageId: string, identifier: string) =>
+        (artifacts.get(identifier)?.findIndex((version) => version.messageId === messageId) ?? 0) +
+        1,
+    }),
+    [artifacts, threadId],
+  );
+
+  // An artifact being written opens beside the chat, once per reply.
+  const opened = useRef(new Set<string>());
+  const streaming = live
+    ? parseMessageSegments(live.text).findLast((segment) => segment.kind === "artifact")
+    : undefined;
+  const streamingId = streaming?.kind === "artifact" ? streaming.identifier : undefined;
+  useEffect(() => {
+    if (!live || !streamingId) return;
+    const key = `${live.key}:${streamingId}`;
+    if (opened.current.has(key)) return;
+    opened.current.add(key);
+    useArtifactPanel.getState().open(threadId, streamingId, null);
+  }, [live, streamingId, threadId]);
+
+  // A reply that just finished with an artifact opens it too: one that arrived
+  // while this chat was open, or one written in the last minute (a new chat's
+  // first reply can finish before its page opens).
+  const known = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    if (!thread.data) return;
+    const first = known.current === null;
+    const seen = known.current ?? new Set<string>();
+    known.current = seen;
+    const fresh = messages.filter((message) => !seen.has(message.id));
+    for (const message of messages) seen.add(message.id);
+    const reply = fresh.findLast((message) => message.role === "assistant");
+    if (!reply) return;
+    if (first && Date.now() - new Date(reply.createdAt).getTime() > 60_000) return;
+    const artifact = parseMessageSegments(reply.content).findLast(
+      (segment) => segment.kind === "artifact",
+    );
+    if (artifact?.kind !== "artifact") return;
+    const key = `${reply.id}:${artifact.identifier}`;
+    if (opened.current.has(key)) return;
+    opened.current.add(key);
+    useArtifactPanel.getState().open(threadId, artifact.identifier, null);
+  }, [messages, thread.data, threadId]);
+
+  // The panel belongs to one chat.
+  useEffect(() => {
+    if (panel.threadKey && panel.threadKey !== threadId) panel.close();
+  }, [panel, threadId]);
+  const panelVersions =
+    panel.threadKey === threadId && panel.identifier ? artifacts.get(panel.identifier) : undefined;
   const {
     ref: scrollRef,
     onScroll,
@@ -91,47 +163,60 @@ export default function ThreadPage() {
   };
 
   return (
-    <div className="flex h-full flex-col">
-      <h1 className="sr-only">{thread.data.thread.title ?? "New chat"}</h1>
-      <div ref={scrollRef} onScroll={onScroll} className="relative min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-3xl px-4 pt-6 pb-10 sm:px-6">
-          <MessageList
+    <div className="flex h-full min-h-0">
+      <div className="flex min-w-0 flex-1 flex-col">
+        <h1 className="sr-only">{thread.data.thread.title ?? "New chat"}</h1>
+        <div
+          ref={scrollRef}
+          onScroll={onScroll}
+          className="relative min-h-0 flex-1 overflow-y-auto"
+        >
+          <div className="mx-auto w-full max-w-3xl px-4 pt-6 pb-10 sm:px-6">
+            <MessageList
+              workspaceId={workspaceId}
+              messages={messages}
+              live={live}
+              artifacts={artifactContext}
+              onEdit={onEdit}
+              onDecide={async (message, callId, approved) => {
+                setDecisionError(undefined);
+                pin();
+                const result = await decide(threadId, message, callId, approved);
+                if (!result.ok && result.error) {
+                  setDecisionError(chatErrorMessage(result.error.code, result.error.message));
+                }
+              }}
+            />
+            {decisionError ? (
+              <p role="alert" className="text-danger mt-4 text-sm">
+                {decisionError}
+              </p>
+            ) : null}
+          </div>
+        </div>
+        <div className="bg-surface mx-auto w-full max-w-3xl px-3 pt-1 pb-3 sm:px-6 sm:pb-5">
+          <Composer
             workspaceId={workspaceId}
-            messages={messages}
-            live={live}
-            onEdit={onEdit}
-            onDecide={async (message, callId, approved) => {
-              setDecisionError(undefined);
-              pin();
-              const result = await decide(threadId, message, callId, approved);
-              if (!result.ok && result.error) {
-                setDecisionError(chatErrorMessage(result.error.code, result.error.message));
-              }
-            }}
+            modelId={modelId}
+            onModelChange={setPicked}
+            onSend={onSend}
+            onStop={() => replyControllers.stop(threadId)}
+            onVoice={
+              startVoice
+                ? () => startVoice({ threadId, ...(modelId ? { model: modelId } : {}) })
+                : undefined
+            }
+            streaming={Boolean(live)}
+            placeholder="Reply to Tessel"
           />
-          {decisionError ? (
-            <p role="alert" className="text-danger mt-4 text-sm">
-              {decisionError}
-            </p>
-          ) : null}
         </div>
       </div>
-      <div className="bg-surface mx-auto w-full max-w-3xl px-3 pt-1 pb-3 sm:px-6 sm:pb-5">
-        <Composer
-          workspaceId={workspaceId}
-          modelId={modelId}
-          onModelChange={setPicked}
-          onSend={onSend}
-          onStop={() => replyControllers.stop(threadId)}
-          onVoice={
-            startVoice
-              ? () => startVoice({ threadId, ...(modelId ? { model: modelId } : {}) })
-              : undefined
-          }
-          streaming={Boolean(live)}
-          placeholder="Reply to Tessel"
-        />
-      </div>
+      {panelVersions?.length ? (
+        // Beside the chat on wide screens; over it on phones.
+        <div className="border-line fixed inset-0 z-30 flex flex-col pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] md:static md:z-auto md:w-[min(52%,56rem)] md:shrink-0 md:border-l md:pt-0 md:pb-0">
+          <ArtifactPanel versions={panelVersions} />
+        </div>
+      ) : null}
     </div>
   );
 }
