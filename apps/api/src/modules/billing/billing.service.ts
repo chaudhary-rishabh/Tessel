@@ -1,8 +1,13 @@
 import {
+  GST_STATES,
   PLANS,
+  type BillingInterval,
   type BillingSummary,
+  type Invoice,
   type PlanId,
+  type TaxDetails,
   type UpdateExtraUsageRequest,
+  type UpdateTaxDetailsRequest,
 } from "@tessel/contracts";
 import {
   billingAccounts,
@@ -14,7 +19,7 @@ import {
   type Database,
 } from "@tessel/db";
 import type { Logger } from "@tessel/logger";
-import { count, eq, sql } from "drizzle-orm";
+import { and, count, eq, isNotNull, sql } from "drizzle-orm";
 import type { AuditRecorder } from "../../lib/audit";
 import { errors } from "../../lib/errors";
 import {
@@ -24,7 +29,7 @@ import {
   type SubscriptionUpdate,
 } from "./providers";
 import { workspacesRepository } from "../workspaces/workspaces.repository";
-import { periodStart, type UsageLimits } from "./usage-limits";
+import { extraUsageUnavailable, periodStart, type UsageLimits } from "./usage-limits";
 
 const USD = 1_000_000_000;
 
@@ -55,6 +60,16 @@ export function createBillingService({
   now?: () => Date;
 }) {
   const providers = { stripe: Boolean(payments.stripe), razorpay: Boolean(payments.razorpay) };
+  const PAID: Exclude<PlanId, "free">[] = ["pro", "max", "team"];
+  const yearly = {
+    stripe: PAID.some((plan) => payments.stripe?.offers(plan, "year")),
+    razorpay: PAID.some((plan) => payments.razorpay?.offers(plan, "year")),
+  };
+
+  const taxOf = (account: BillingAccountRow | undefined): TaxDetails | null =>
+    account?.taxName
+      ? { name: account.taxName, taxId: account.taxId, state: account.taxState }
+      : null;
 
   function requireManager(role: string) {
     if (role !== "owner" && role !== "admin") {
@@ -95,11 +110,25 @@ export function createBillingService({
     account: BillingAccountRow,
     closed: Omit<PeriodClosed, "kind" | "subscriptionId">,
   ) {
-    const amount = await extraBetween(account.workspaceId, closed.periodStart, closed.periodEnd);
+    // Yearly plans were already charged month by month up to extraChargedThrough.
+    const since =
+      account.interval === "year" &&
+      account.extraChargedThrough &&
+      account.extraChargedThrough > closed.periodStart
+        ? account.extraChargedThrough
+        : closed.periodStart;
+    if (account.interval === "year") {
+      await db
+        .update(billingAccounts)
+        .set({ extraChargedThrough: closed.periodEnd })
+        .where(eq(billingAccounts.workspaceId, account.workspaceId));
+    }
+    if (since >= closed.periodEnd) return;
+    const amount = await extraBetween(account.workspaceId, since, closed.periodEnd);
     if (amount <= 0 || !account.provider) return;
     await provider(account.provider).chargeExtra(account, {
       amountNanoUsd: amount,
-      description: `Tessel extra usage, ${closed.periodStart.toISOString().slice(0, 10)} to ${closed.periodEnd.toISOString().slice(0, 10)}`,
+      description: `Tessel extra usage, ${since.toISOString().slice(0, 10)} to ${closed.periodEnd.toISOString().slice(0, 10)}`,
       invoiceId: closed.invoiceId,
     });
     await audit.record({
@@ -160,6 +189,7 @@ export function createBillingService({
       subscriptionId: update.subscriptionId,
       status: update.status,
       ...(update.plan ? { plan: update.plan } : {}),
+      ...(update.interval ? { interval: update.interval } : {}),
       ...(update.customerId ? { customerId: update.customerId } : {}),
       ...(update.seats ? { seats: update.seats } : {}),
       ...(update.periodStart ? { currentPeriodStart: update.periodStart } : {}),
@@ -211,9 +241,11 @@ export function createBillingService({
       const account = await limits.account(actor.workspaceId);
       const plan = limits.effectivePlan(account);
       const canManage = workspace.role === "owner" || workspace.role === "admin";
+      const unavailable = extraUsageUnavailable(plan, account);
       return {
         workspaceId: actor.workspaceId,
         plan: plan.id,
+        interval: plan.id === "free" ? "month" : (account?.interval ?? "month"),
         status: account?.status ?? "active",
         provider: account?.provider ?? null,
         seats: account?.seats ?? 1,
@@ -222,8 +254,9 @@ export function createBillingService({
         cancelAtPeriodEnd: account?.cancelAtPeriodEnd ?? false,
         canManage,
         extraUsage: {
-          available: plan.extraUsage,
-          enabled: Boolean(plan.extraUsage && account?.extraUsageEnabled),
+          available: unavailable === null,
+          unavailableReason: unavailable,
+          enabled: Boolean(unavailable === null && account?.extraUsageEnabled),
           capNanoUsd: account?.extraUsageCapNanoUsd ?? 0,
           spentNanoUsd: canManage
             ? await limits.extraSpent(actor.workspaceId, periodStart(account, now()))
@@ -231,6 +264,8 @@ export function createBillingService({
         },
         usage: await limits.status(actor),
         providers,
+        yearly,
+        tax: canManage ? taxOf(account) : null,
       };
     },
 
@@ -242,10 +277,13 @@ export function createBillingService({
       const { workspace } = await membership(actor);
       requireManager(workspace.role);
       const account = await limits.account(actor.workspaceId);
-      if (input.enabled && !limits.effectivePlan(account).extraUsage) {
+      const unavailable = extraUsageUnavailable(limits.effectivePlan(account), account);
+      if (input.enabled && unavailable) {
         throw errors.conflict(
           "plan_has_no_extra_usage",
-          "Extra usage comes with paid plans. Upgrade first.",
+          unavailable === "plan"
+            ? "Extra usage comes with paid plans. Upgrade first."
+            : "Extra usage needs monthly billing when you pay with Razorpay.",
         );
       }
       const cap = Math.round(input.capUsd * USD);
@@ -279,6 +317,7 @@ export function createBillingService({
       input: {
         plan: Exclude<PlanId, "free">;
         provider: "stripe" | "razorpay";
+        interval?: BillingInterval | undefined;
         seats?: number | undefined;
       },
     ): Promise<{ url: string | null }> {
@@ -294,16 +333,17 @@ export function createBillingService({
         );
       }
       const seats = plan.perSeat ? Math.max(plan.minSeats, members, input.seats ?? 0) : 1;
+      const interval = input.interval ?? "month";
       const account = await limits.account(actor.workspaceId);
       if (hasSubscription(account)) {
         await viaProvider(() =>
-          provider(account!.provider).changePlan(account!, input.plan, seats),
+          provider(account!.provider).changePlan(account!, input.plan, seats, interval),
         );
         await audit.record({
           actorId: actor.userId,
           workspaceId: actor.workspaceId,
           action: "billing.plan_change_requested",
-          metadata: { plan: input.plan, seats },
+          metadata: { plan: input.plan, seats, interval },
           ipAddress: actor.ipAddress,
         });
         return { url: null };
@@ -317,8 +357,10 @@ export function createBillingService({
         provider(input.provider).checkout({
           workspaceId: actor.workspaceId,
           plan: input.plan,
+          interval,
           seats,
           email: owner!.email,
+          tax: taxOf(account),
           successUrl: `${settings}?billing=success#plan`,
           cancelUrl: `${settings}?billing=cancelled#plan`,
           customerId: account?.provider === input.provider ? account.customerId : null,
@@ -328,10 +370,128 @@ export function createBillingService({
         actorId: actor.userId,
         workspaceId: actor.workspaceId,
         action: "billing.checkout_started",
-        metadata: { plan: input.plan, provider: input.provider, seats },
+        metadata: { plan: input.plan, provider: input.provider, seats, interval },
         ipAddress: actor.ipAddress,
       });
       return { url: started.url };
+    },
+
+    /**
+     * The business's name and GSTIN for tax invoices. Saved here, and on the
+     * provider's customer when there is one; new checkouts carry them too.
+     */
+    async updateTax(actor: BillingActor, input: UpdateTaxDetailsRequest): Promise<BillingSummary> {
+      const { workspace } = await membership(actor);
+      requireManager(workspace.role);
+      const taxId = input.taxId ? input.taxId : null;
+      const tax: TaxDetails = {
+        name: input.name,
+        taxId,
+        state: taxId ? (GST_STATES[taxId.slice(0, 2)] ?? null) : null,
+      };
+      await db
+        .insert(billingAccounts)
+        .values({
+          workspaceId: actor.workspaceId,
+          taxName: tax.name,
+          taxId: tax.taxId,
+          taxState: tax.state,
+        })
+        .onConflictDoUpdate({
+          target: billingAccounts.workspaceId,
+          set: { taxName: tax.name, taxId: tax.taxId, taxState: tax.state },
+        });
+      const account = await limits.account(actor.workspaceId);
+      const found = account?.provider ? payments[account.provider] : undefined;
+      if (account?.customerId && found?.setTaxDetails) {
+        await viaProvider(() => found.setTaxDetails!(account, tax));
+      }
+      await audit.record({
+        actorId: actor.userId,
+        workspaceId: actor.workspaceId,
+        action: "billing.tax_details_changed",
+        metadata: { hasTaxId: Boolean(tax.taxId), state: tax.state },
+        ipAddress: actor.ipAddress,
+      });
+      return this.summary(actor);
+    },
+
+    /** Recent invoices from the payment provider, with links to each. */
+    async invoices(actor: BillingActor): Promise<Invoice[]> {
+      const { workspace } = await membership(actor);
+      requireManager(workspace.role);
+      const account = await limits.account(actor.workspaceId);
+      const found = account?.provider ? payments[account.provider] : undefined;
+      if (!account || !found) return [];
+      return viaProvider(() => found.listInvoices(account));
+    },
+
+    /**
+     * Yearly plans: bills last month's extra usage on its own invoice, each
+     * month. Safe to run often and from several servers: each month is
+     * claimed by one of them before it's charged.
+     */
+    async chargeYearlyExtras(): Promise<number> {
+      const at = now();
+      const due = await db
+        .select()
+        .from(billingAccounts)
+        .where(
+          and(
+            eq(billingAccounts.interval, "year"),
+            eq(billingAccounts.provider, "stripe"),
+            isNotNull(billingAccounts.subscriptionId),
+            isNotNull(billingAccounts.currentPeriodStart),
+          ),
+        );
+      let charged = 0;
+      for (const account of due) {
+        if (account.status === "cancelled" || account.status === "incomplete") continue;
+        const monthStart = periodStart(account, at);
+        const from = account.extraChargedThrough ?? account.currentPeriodStart!;
+        if (from >= monthStart) continue;
+        const claimed = await db
+          .update(billingAccounts)
+          .set({ extraChargedThrough: monthStart })
+          .where(
+            and(
+              eq(billingAccounts.workspaceId, account.workspaceId),
+              account.extraChargedThrough
+                ? eq(billingAccounts.extraChargedThrough, account.extraChargedThrough)
+                : sql`${billingAccounts.extraChargedThrough} IS NULL`,
+            ),
+          )
+          .returning({ workspaceId: billingAccounts.workspaceId });
+        if (claimed.length === 0) continue;
+        try {
+          const amount = await extraBetween(account.workspaceId, from, monthStart);
+          if (amount > 0) {
+            await provider(account.provider).chargeExtra(account, {
+              amountNanoUsd: amount,
+              description: `Tessel extra usage, ${from.toISOString().slice(0, 10)} to ${monthStart.toISOString().slice(0, 10)}`,
+              now: true,
+              key: monthStart.toISOString(),
+            });
+            await audit.record({
+              workspaceId: account.workspaceId,
+              action: "billing.extra_usage_charged",
+              metadata: { amountNanoUsd: amount, provider: account.provider },
+            });
+            charged++;
+          }
+        } catch (error) {
+          // Hand the month back so the next run tries again; the charge's key stops doubles.
+          await db
+            .update(billingAccounts)
+            .set({ extraChargedThrough: account.extraChargedThrough })
+            .where(eq(billingAccounts.workspaceId, account.workspaceId));
+          logger.error(
+            { err: error, workspaceId: account.workspaceId },
+            "Couldn't charge a yearly plan's extra usage",
+          );
+        }
+      }
+      return charged;
     },
 
     /** The provider's page for cards and invoices (Stripe). */

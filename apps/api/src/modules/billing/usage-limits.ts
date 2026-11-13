@@ -60,13 +60,68 @@ export function effectivePlan(account: BillingAccountRow | undefined, now = new 
   return PLANS[account.plan as PlanId];
 }
 
-/** Where the current billing period started, for the extra usage cap. */
+/** The same day and time `months` later, on the month's last day when it's shorter. */
+export function addMonths(date: Date, months: number): Date {
+  const target = new Date(date.getTime());
+  const day = target.getUTCDate();
+  target.setUTCDate(1);
+  target.setUTCMonth(target.getUTCMonth() + months);
+  const last = new Date(
+    Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0),
+  ).getUTCDate();
+  target.setUTCDate(Math.min(day, last));
+  return target;
+}
+
+/**
+ * Where the current month of extra usage started, for its cap. That's the
+ * billing period on monthly plans; yearly plans count each month from the
+ * day the year began.
+ */
 export function periodStart(account: BillingAccountRow | undefined, now: Date): Date {
   if (account?.currentPeriodStart && account.currentPeriodStart <= now) {
-    return account.currentPeriodStart;
+    if (account.interval !== "year") return account.currentPeriodStart;
+    let months = 0;
+    while (months < 12 && addMonths(account.currentPeriodStart, months + 1) <= now) months++;
+    return addMonths(account.currentPeriodStart, months);
   }
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
 }
+
+/**
+ * Whether extra usage can be on. Razorpay bills add-ons only with the
+ * subscription's next charge, a year away on yearly plans, so it isn't offered there.
+ */
+export function extraUsageUnavailable(
+  plan: Plan,
+  account: BillingAccountRow | undefined,
+): "plan" | "razorpay_yearly" | null {
+  if (!plan.extraUsage) return "plan";
+  if (account?.provider === "razorpay" && account.interval === "year") return "razorpay_yearly";
+  return null;
+}
+
+/** Usage worth an email: a person near their weekly limit, or a workspace near its extra usage cap. */
+export type UsageAlert =
+  | {
+      kind: "week";
+      workspaceId: string;
+      userId: string;
+      periodStart: Date;
+      resetsAt: Date;
+      share: number;
+    }
+  | {
+      kind: "extra";
+      workspaceId: string;
+      userId: string;
+      periodStart: Date;
+      spentNanoUsd: number;
+      capNanoUsd: number;
+    };
+
+/** The share of a limit that sends the email. */
+export const ALERT_SHARE = 0.8;
 
 const resetLabel = (date: Date) =>
   date.toLocaleString("en-US", {
@@ -86,9 +141,12 @@ const resetLabel = (date: Date) =>
 export function createUsageLimits({
   db,
   now = () => new Date(),
+  onAlert,
 }: {
   db: Database;
   now?: () => Date;
+  /** Called, without waiting, when usage crosses ALERT_SHARE of a limit. */
+  onAlert?: (alert: UsageAlert) => void;
 }) {
   async function account(workspaceId: string) {
     const [row] = await db
@@ -113,13 +171,13 @@ export function createUsageLimits({
       const at = now();
       const result = {} as Record<
         WindowKind,
-        { used: number; limit: number; resetsAt: Date | null }
+        { used: number; limit: number; resetsAt: Date | null; startedAt: Date | null }
       >;
       for (const kind of Object.keys(WINDOWS) as WindowKind[]) {
         const limit = WINDOWS[kind].limit(plan);
         const row = rows.find((item) => item.kind === kind);
         if (!row || row.resetsAt <= at) {
-          result[kind] = { used: 0, limit, resetsAt: null };
+          result[kind] = { used: 0, limit, resetsAt: null, startedAt: null };
           continue;
         }
         // Each person reads their own ledger rows under row-level security.
@@ -133,7 +191,12 @@ export function createUsageLimits({
               gte(usageEvents.createdAt, row.startedAt),
             ),
           );
-        result[kind] = { used: Number(sum?.cost ?? 0), limit, resetsAt: row.resetsAt };
+        result[kind] = {
+          used: Number(sum?.cost ?? 0),
+          limit,
+          resetsAt: row.resetsAt,
+          startedAt: row.startedAt,
+        };
       }
       return result;
     });
@@ -201,6 +264,17 @@ export function createUsageLimits({
         );
       }
       const state = await windows(actor, plan);
+      const week = state.week;
+      if (onAlert && week.startedAt && week.resetsAt && week.used >= ALERT_SHARE * week.limit) {
+        onAlert({
+          kind: "week",
+          workspaceId: actor.workspaceId,
+          userId: actor.userId,
+          periodStart: week.startedAt,
+          resetsAt: week.resetsAt,
+          share: week.used / week.limit,
+        });
+      }
       const over = (Object.keys(WINDOWS) as WindowKind[]).filter(
         (kind) => state[kind].used >= state[kind].limit,
       );
@@ -208,8 +282,21 @@ export function createUsageLimits({
         await startWindows(actor);
         return "included";
       }
-      if (plan.extraUsage && current?.extraUsageEnabled) {
-        const spent = await extraSpent(actor.workspaceId, periodStart(current, now()));
+      if (!extraUsageUnavailable(plan, current) && current?.extraUsageEnabled) {
+        const since = periodStart(current, now());
+        const spent = await extraSpent(actor.workspaceId, since);
+        if (onAlert && current.extraUsageCapNanoUsd > 0) {
+          if (spent >= ALERT_SHARE * current.extraUsageCapNanoUsd) {
+            onAlert({
+              kind: "extra",
+              workspaceId: actor.workspaceId,
+              userId: actor.userId,
+              periodStart: since,
+              spentNanoUsd: spent,
+              capNanoUsd: current.extraUsageCapNanoUsd,
+            });
+          }
+        }
         if (spent < current.extraUsageCapNanoUsd) {
           if (actor.requestId) {
             await db

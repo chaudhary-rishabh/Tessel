@@ -225,6 +225,13 @@
       "when": 1794610964521,
       "tag": "0031_connector_extras",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1794612306716,
+      "tag": "0032_billing_extras",
+      "breakpoints": true
     }
   ]
 }

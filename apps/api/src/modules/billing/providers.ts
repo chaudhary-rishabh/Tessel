@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import type { PlanId } from "@tessel/contracts";
+import type { BillingInterval, Invoice, PlanId, TaxDetails } from "@tessel/contracts";
 import type { BillingAccountRow } from "@tessel/db";
 
 /** What a payment webhook means for a workspace's subscription. */
@@ -9,6 +9,7 @@ export type SubscriptionUpdate = {
   subscriptionId: string;
   customerId?: string | undefined;
   plan?: PlanId | undefined;
+  interval?: BillingInterval | undefined;
   status: "active" | "past_due" | "cancelled" | "incomplete";
   seats?: number | undefined;
   periodStart?: Date | undefined;
@@ -35,19 +36,34 @@ export interface WebhookEvent {
 export interface CheckoutInput {
   workspaceId: string;
   plan: PlanId;
+  interval: BillingInterval;
   seats: number;
   email: string;
   successUrl: string;
   cancelUrl: string;
   customerId?: string | null;
+  /** For tax invoices, when the workspace has given them. */
+  tax?: TaxDetails | null;
 }
+
+/** A price is set per plan and billing interval: "pro" monthly, "pro_yearly" yearly. */
+export type PriceKey = PlanId | `${PlanId}_yearly`;
+export const priceKey = (plan: PlanId, interval: BillingInterval): PriceKey =>
+  interval === "year" ? `${plan}_yearly` : plan;
 
 export interface PaymentProvider {
   name: "stripe" | "razorpay";
   /** A page where the person pays for a new subscription. */
   checkout(input: CheckoutInput): Promise<{ url: string; subscriptionId?: string }>;
-  /** Switches an existing subscription to another plan (prorated). */
-  changePlan(account: BillingAccountRow, plan: PlanId, seats: number): Promise<void>;
+  /** Whether a price is set up for this plan and interval. */
+  offers(plan: PlanId, interval: BillingInterval): boolean;
+  /** Switches an existing subscription to another plan or interval (prorated). */
+  changePlan(
+    account: BillingAccountRow,
+    plan: PlanId,
+    seats: number,
+    interval: BillingInterval,
+  ): Promise<void>;
   updateSeats(account: BillingAccountRow, seats: number): Promise<void>;
   /** Cancels at the end of the period, or undoes that. */
   setCancelAtPeriodEnd(account: BillingAccountRow, cancel: boolean): Promise<void>;
@@ -55,11 +71,25 @@ export interface PaymentProvider {
   cancelNow(account: BillingAccountRow): Promise<void>;
   /** The provider's own page for payment methods and invoices, when it has one. */
   portal?(account: BillingAccountRow, returnUrl: string): Promise<string>;
-  /** Adds extra usage to the next invoice. */
+  /**
+   * Adds extra usage to the next invoice, or with `now`, bills it at once on
+   * its own invoice (yearly plans, whose next invoice is months away).
+   */
   chargeExtra(
     account: BillingAccountRow,
-    input: { amountNanoUsd: number; description: string; invoiceId?: string | undefined },
+    input: {
+      amountNanoUsd: number;
+      description: string;
+      invoiceId?: string | undefined;
+      now?: boolean;
+      /** Makes a retried charge a no-op. */
+      key?: string;
+    },
   ): Promise<void>;
+  /** Puts the business's name and tax ID on the customer, so invoices show them. */
+  setTaxDetails?(account: BillingAccountRow, tax: TaxDetails): Promise<void>;
+  /** Recent invoices, newest first. */
+  listInvoices(account: BillingAccountRow): Promise<Invoice[]>;
   /** Verifies the signature and reads the event; null when it isn't genuine. */
   parseWebhook(rawBody: Buffer, headers: Record<string, string | undefined>): WebhookEvent | null;
 }
@@ -71,11 +101,18 @@ const TIMEOUT_MS = 15_000;
 const sameHex = (a: string, b: string) =>
   a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 
+/** Which plan and interval a provider's price or plan ID is for. */
 function planFromIds(
-  map: Partial<Record<PlanId, string>>,
+  map: Partial<Record<PriceKey, string>>,
   id: string | undefined,
-): PlanId | undefined {
-  return (Object.entries(map) as [PlanId, string][]).find(([, value]) => value === id)?.[0];
+): { plan: PlanId; interval: BillingInterval } | undefined {
+  const key = (Object.entries(map) as [PriceKey, string | undefined][]).find(
+    ([, value]) => value && value === id,
+  )?.[0];
+  if (!key) return undefined;
+  return key.endsWith("_yearly")
+    ? { plan: key.slice(0, -"_yearly".length) as PlanId, interval: "year" }
+    : { plan: key as PlanId, interval: "month" };
 }
 
 const seconds = (value: unknown) =>
@@ -86,8 +123,8 @@ const seconds = (value: unknown) =>
 export interface StripeConfig {
   secretKey: string;
   webhookSecret: string;
-  /** Price IDs for each paid plan. */
-  prices: Partial<Record<PlanId, string>>;
+  /** Price IDs for each paid plan, monthly ("pro") and yearly ("pro_yearly"). */
+  prices: Partial<Record<PriceKey, string | undefined>>;
   baseUrl?: string;
   fetch?: typeof fetch;
 }
@@ -149,9 +186,13 @@ export function createStripeProvider(config: StripeConfig): PaymentProvider {
     return json;
   }
 
-  const priceFor = (plan: PlanId) => {
-    const price = config.prices[plan];
-    if (!price) throw new PaymentProviderError(`No Stripe price is set for the ${plan} plan`);
+  const priceFor = (plan: PlanId, interval: BillingInterval) => {
+    const price = config.prices[priceKey(plan, interval)];
+    if (!price) {
+      throw new PaymentProviderError(
+        `No Stripe price is set for the ${plan} plan${interval === "year" ? " billed yearly" : ""}`,
+      );
+    }
     return price;
   };
 
@@ -167,15 +208,15 @@ export function createStripeProvider(config: StripeConfig): PaymentProvider {
 
   function toUpdate(subscription: StripeSubscription, deleted = false): SubscriptionUpdate {
     const item = subscription.items?.data[0];
+    const priced = planFromIds(config.prices, item?.price?.id);
     return {
       kind: "subscription",
       workspaceId: subscription.metadata?.workspaceId,
       subscriptionId: subscription.id,
       customerId: subscription.customer,
       // The price is the truth: a plan change updates it but not the metadata.
-      plan:
-        planFromIds(config.prices, item?.price?.id) ??
-        (subscription.metadata?.plan as PlanId | undefined),
+      plan: priced?.plan ?? (subscription.metadata?.plan as PlanId | undefined),
+      interval: priced?.interval,
       status: deleted ? "cancelled" : status(subscription.status),
       seats: item?.quantity,
       // Newer API versions keep the period on the item.
@@ -195,25 +236,32 @@ export function createStripeProvider(config: StripeConfig): PaymentProvider {
   return {
     name: "stripe",
 
+    offers: (plan, interval) => Boolean(config.prices[priceKey(plan, interval)]),
+
     async checkout(input) {
       const session = await call<{ id: string; url: string }>("POST", "/checkout/sessions", {
         mode: "subscription",
-        line_items: { 0: { price: priceFor(input.plan), quantity: input.seats } },
+        line_items: { 0: { price: priceFor(input.plan, input.interval), quantity: input.seats } },
         client_reference_id: input.workspaceId,
-        ...(input.customerId ? { customer: input.customerId } : { customer_email: input.email }),
+        ...(input.customerId
+          ? // Saves the name and tax ID entered at checkout to the existing customer.
+            { customer: input.customerId, customer_update: { name: "auto", address: "auto" } }
+          : { customer_email: input.email }),
         success_url: input.successUrl,
         cancel_url: input.cancelUrl,
         allow_promotion_codes: true,
+        // Businesses can enter a tax ID (a GSTIN, a VAT number) for their invoices.
+        tax_id_collection: { enabled: true },
         metadata: { workspaceId: input.workspaceId, plan: input.plan },
         subscription_data: { metadata: { workspaceId: input.workspaceId, plan: input.plan } },
       });
       return { url: session.url };
     },
 
-    async changePlan(account, plan, seats) {
+    async changePlan(account, plan, seats, interval) {
       const item = await firstItem(account.subscriptionId!);
       await call("POST", `/subscriptions/${account.subscriptionId}`, {
-        items: { 0: { id: item.id, price: priceFor(plan), quantity: seats } },
+        items: { 0: { id: item.id, price: priceFor(plan, interval), quantity: seats } },
         metadata: { plan, workspaceId: account.workspaceId },
         proration_behavior: "create_prorations",
         cancel_at_period_end: false,
@@ -246,10 +294,40 @@ export function createStripeProvider(config: StripeConfig): PaymentProvider {
       return session.url;
     },
 
-    async chargeExtra(account, { amountNanoUsd, description, invoiceId }) {
+    async chargeExtra(account, { amountNanoUsd, description, invoiceId, now, key }) {
       const cents = Math.ceil(amountNanoUsd / 10_000_000);
       if (cents <= 0) return;
       // A retried webhook or a timeout must never add the same charge twice.
+      const idempotency = `extra-usage:${account.subscriptionId}:${key ?? invoiceId ?? description}`;
+      if (now) {
+        // Its own invoice, paid with the card on file.
+        const invoice = await call<{ id: string }>(
+          "POST",
+          "/invoices",
+          {
+            customer: account.customerId,
+            collection_method: "charge_automatically",
+            auto_advance: true,
+            description,
+            metadata: { workspaceId: account.workspaceId, kind: "extra_usage" },
+          },
+          `${idempotency}:invoice`,
+        );
+        await call(
+          "POST",
+          "/invoiceitems",
+          {
+            customer: account.customerId,
+            amount: cents,
+            currency: "usd",
+            description,
+            invoice: invoice.id,
+          },
+          idempotency,
+        );
+        await call("POST", `/invoices/${invoice.id}/finalize`, {}, `${idempotency}:finalize`);
+        return;
+      }
       await call(
         "POST",
         "/invoiceitems",
@@ -260,8 +338,55 @@ export function createStripeProvider(config: StripeConfig): PaymentProvider {
           description,
           ...(invoiceId ? { invoice: invoiceId } : { subscription: account.subscriptionId }),
         },
-        `extra-usage:${account.subscriptionId}:${invoiceId ?? description}`,
+        idempotency,
       );
+    },
+
+    async setTaxDetails(account, tax) {
+      if (!account.customerId) return;
+      await call("POST", `/customers/${account.customerId}`, { name: tax.name });
+      const existing = await call<{ data: { id: string; type: string; value: string }[] }>(
+        "GET",
+        `/customers/${account.customerId}/tax_ids`,
+      );
+      const gst = existing.data.filter((item) => item.type === "in_gst");
+      for (const item of gst) {
+        if (item.value !== tax.taxId) {
+          await call("DELETE", `/customers/${account.customerId}/tax_ids/${item.id}`);
+        }
+      }
+      if (tax.taxId && !gst.some((item) => item.value === tax.taxId)) {
+        await call("POST", `/customers/${account.customerId}/tax_ids`, {
+          type: "in_gst",
+          value: tax.taxId,
+        });
+      }
+    },
+
+    async listInvoices(account) {
+      if (!account.customerId) return [];
+      const list = await call<{
+        data: {
+          id: string;
+          number: string | null;
+          created: number;
+          total: number;
+          currency: string;
+          status: string | null;
+          hosted_invoice_url?: string | null;
+        }[];
+      }>("GET", `/invoices?customer=${encodeURIComponent(account.customerId)}&limit=24`);
+      return list.data
+        .filter((invoice) => invoice.status !== "draft")
+        .map((invoice) => ({
+          id: invoice.id,
+          number: invoice.number,
+          createdAt: new Date(invoice.created * 1000).toISOString(),
+          amount: invoice.total,
+          currency: invoice.currency.toUpperCase(),
+          status: invoice.status ?? "open",
+          url: invoice.hosted_invoice_url ?? null,
+        }));
     },
 
     parseWebhook(rawBody, headers) {
@@ -320,8 +445,8 @@ export interface RazorpayConfig {
   keyId: string;
   keySecret: string;
   webhookSecret: string;
-  /** Plan IDs for each paid plan. */
-  plans: Partial<Record<PlanId, string>>;
+  /** Plan IDs for each paid plan, monthly ("pro") and yearly ("pro_yearly"). */
+  plans: Partial<Record<PriceKey, string | undefined>>;
   /** For charging extra usage, which is measured in US dollars. */
   usdToInr: number;
   baseUrl?: string;
@@ -346,7 +471,7 @@ export function createRazorpayProvider(config: RazorpayConfig): PaymentProvider 
   const auth = `Basic ${Buffer.from(`${config.keyId}:${config.keySecret}`).toString("base64")}`;
 
   async function call<T>(
-    method: "GET" | "POST" | "PATCH",
+    method: "GET" | "POST" | "PATCH" | "PUT",
     path: string,
     body?: unknown,
   ): Promise<T> {
@@ -367,9 +492,13 @@ export function createRazorpayProvider(config: RazorpayConfig): PaymentProvider 
     return json;
   }
 
-  const planFor = (plan: PlanId) => {
-    const id = config.plans[plan];
-    if (!id) throw new PaymentProviderError(`No Razorpay plan is set for the ${plan} plan`);
+  const planFor = (plan: PlanId, interval: BillingInterval) => {
+    const id = config.plans[priceKey(plan, interval)];
+    if (!id) {
+      throw new PaymentProviderError(
+        `No Razorpay plan is set for the ${plan} plan${interval === "year" ? " billed yearly" : ""}`,
+      );
+    }
     return id;
   };
 
@@ -384,13 +513,15 @@ export function createRazorpayProvider(config: RazorpayConfig): PaymentProvider 
 
   function toUpdate(subscription: RazorpaySubscription): SubscriptionUpdate {
     const notes = Array.isArray(subscription.notes) ? {} : (subscription.notes ?? {});
+    const priced = planFromIds(config.plans, subscription.plan_id);
     return {
       kind: "subscription",
       workspaceId: notes.workspaceId,
       subscriptionId: subscription.id,
       customerId: subscription.customer_id ?? undefined,
       // The plan ID is the truth: a plan change updates it but not the notes.
-      plan: planFromIds(config.plans, subscription.plan_id) ?? (notes.plan as PlanId | undefined),
+      plan: priced?.plan ?? (notes.plan as PlanId | undefined),
+      interval: priced?.interval,
       status: status(subscription.status),
       seats: subscription.quantity,
       periodStart: seconds(subscription.current_start),
@@ -401,22 +532,40 @@ export function createRazorpayProvider(config: RazorpayConfig): PaymentProvider 
   return {
     name: "razorpay",
 
+    offers: (plan, interval) => Boolean(config.plans[priceKey(plan, interval)]),
+
     async checkout(input) {
+      // A customer with the business's name and GSTIN, so Razorpay's invoices carry them.
+      const customer = input.tax
+        ? await call<{ id: string }>("POST", "/customers", {
+            name: input.tax.name,
+            email: input.email,
+            ...(input.tax.taxId ? { gstin: input.tax.taxId } : {}),
+            fail_existing: 0,
+            notes: { workspaceId: input.workspaceId },
+          })
+        : undefined;
       const subscription = await call<RazorpaySubscription>("POST", "/subscriptions", {
-        plan_id: planFor(input.plan),
-        // Monthly for up to ten years; cancelled from Tessel.
-        total_count: 120,
+        plan_id: planFor(input.plan, input.interval),
+        // Up to ten years either way; cancelled from Tessel.
+        total_count: input.interval === "year" ? 10 : 120,
         quantity: input.seats,
         customer_notify: 1,
-        notes: { workspaceId: input.workspaceId, plan: input.plan, email: input.email },
+        ...(customer ? { customer_id: customer.id } : {}),
+        notes: {
+          workspaceId: input.workspaceId,
+          plan: input.plan,
+          email: input.email,
+          ...(input.tax?.taxId ? { gstin: input.tax.taxId } : {}),
+        },
       });
       if (!subscription.short_url) throw new PaymentProviderError("Razorpay sent no payment link");
       return { url: subscription.short_url, subscriptionId: subscription.id };
     },
 
-    async changePlan(account, plan, seats) {
+    async changePlan(account, plan, seats, interval) {
       await call("PATCH", `/subscriptions/${account.subscriptionId}`, {
-        plan_id: planFor(plan),
+        plan_id: planFor(plan, interval),
         quantity: seats,
         schedule_change_at: "now",
         customer_notify: 1,
@@ -454,6 +603,39 @@ export function createRazorpayProvider(config: RazorpayConfig): PaymentProvider 
         item: { name: "Extra usage", amount: paise, currency: "INR", description },
         quantity: 1,
       });
+    },
+
+    async setTaxDetails(account, tax) {
+      if (!account.customerId) return;
+      await call("PUT", `/customers/${account.customerId}`, {
+        name: tax.name,
+        gstin: tax.taxId ?? "",
+      });
+    },
+
+    async listInvoices(account) {
+      if (!account.subscriptionId) return [];
+      const list = await call<{
+        items: {
+          id: string;
+          invoice_number?: string | null;
+          issued_at?: number | null;
+          created_at: number;
+          amount: number;
+          currency: string;
+          status: string;
+          short_url?: string | null;
+        }[];
+      }>("GET", `/invoices?subscription_id=${encodeURIComponent(account.subscriptionId)}&count=24`);
+      return list.items.map((invoice) => ({
+        id: invoice.id,
+        number: invoice.invoice_number ?? null,
+        createdAt: new Date((invoice.issued_at ?? invoice.created_at) * 1000).toISOString(),
+        amount: invoice.amount,
+        currency: invoice.currency.toUpperCase(),
+        status: invoice.status,
+        url: invoice.short_url || null,
+      }));
     },
 
     parseWebhook(rawBody, headers) {

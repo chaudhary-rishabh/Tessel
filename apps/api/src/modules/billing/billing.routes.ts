@@ -2,6 +2,7 @@ import {
   cancelSubscriptionRequestSchema,
   checkoutRequestSchema,
   updateExtraUsageRequestSchema,
+  updateTaxDetailsRequestSchema,
   workspaceParamsSchema,
 } from "@tessel/contracts";
 import express, { Router, type Request, type RequestHandler } from "express";
@@ -32,6 +33,12 @@ export function createBillingRouter({
     res.json(
       await service.updateExtraUsage(actorOf(req), updateExtraUsageRequestSchema.parse(req.body)),
     );
+  });
+  router.put("/tax", async (req, res) => {
+    res.json(await service.updateTax(actorOf(req), updateTaxDetailsRequestSchema.parse(req.body)));
+  });
+  router.get("/invoices", async (req, res) => {
+    res.set("Cache-Control", "no-store").json({ invoices: await service.invoices(actorOf(req)) });
   });
   router.post("/checkout", async (req, res) => {
     res.json(await service.checkout(actorOf(req), checkoutRequestSchema.parse(req.body)));

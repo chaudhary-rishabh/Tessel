@@ -33,6 +33,7 @@ import {
 import { createOutboxMailer, createSesMailer } from "./lib/mailer";
 import { createOutboxSms, createSnsSms } from "./lib/sms";
 import { createSocialProviders } from "./modules/auth/social-providers";
+import type { BillingService } from "./modules/billing/billing.service";
 import { createRazorpayProvider, createStripeProvider } from "./modules/billing/providers";
 import { connectorCatalog } from "./modules/connectors/connectors.catalog";
 import { configFromEnv } from "./config";
@@ -41,6 +42,8 @@ import { createCheck, httpProbe } from "./modules/health/checks";
 import { createRedisClient } from "./redis";
 
 const SHUTDOWN_TIMEOUT_MS = 10_000;
+/** How often to check for yearly plans whose month of extra usage is due. */
+const YEARLY_EXTRAS_INTERVAL_MS = 60 * 60_000;
 
 loadEnvFiles();
 const env = parseEnv(envSchema);
@@ -150,6 +153,9 @@ function paymentsFromEnv() {
               pro: env.STRIPE_PRICE_PRO,
               max: env.STRIPE_PRICE_MAX,
               team: env.STRIPE_PRICE_TEAM,
+              pro_yearly: env.STRIPE_PRICE_PRO_YEARLY,
+              max_yearly: env.STRIPE_PRICE_MAX_YEARLY,
+              team_yearly: env.STRIPE_PRICE_TEAM_YEARLY,
             },
             ...(mock ? { baseUrl: `${mock}/stripe` } : {}),
           }),
@@ -165,6 +171,9 @@ function paymentsFromEnv() {
               pro: env.RAZORPAY_PLAN_PRO,
               max: env.RAZORPAY_PLAN_MAX,
               team: env.RAZORPAY_PLAN_TEAM,
+              pro_yearly: env.RAZORPAY_PLAN_PRO_YEARLY,
+              max_yearly: env.RAZORPAY_PLAN_MAX_YEARLY,
+              team_yearly: env.RAZORPAY_PLAN_TEAM_YEARLY,
             },
             usdToInr: env.RAZORPAY_USD_TO_INR,
             ...(mock ? { baseUrl: `${mock}/razorpay` } : {}),
@@ -322,6 +331,16 @@ const server = app.listen(env.API_PORT, () => {
   logger.info({ port: env.API_PORT }, "API listening");
 });
 
+// Yearly plans: last month's extra usage is billed each month. Every API
+// server runs this; each month is claimed by one of them before it's charged.
+const billing = app.locals.billing as BillingService;
+const yearlyExtras = setInterval(() => {
+  billing
+    .chargeYearlyExtras()
+    .catch((error: unknown) => logger.error({ err: error }, "Yearly extra usage run failed"));
+}, YEARLY_EXTRAS_INTERVAL_MS);
+yearlyExtras.unref();
+
 let shuttingDown = false;
 async function shutdown(signal: string): Promise<void> {
   if (shuttingDown) return;
@@ -334,6 +353,7 @@ async function shutdown(signal: string): Promise<void> {
   }, SHUTDOWN_TIMEOUT_MS);
   forceExit.unref();
 
+  clearInterval(yearlyExtras);
   await new Promise<void>((resolve) => server.close(() => resolve()));
   await Promise.allSettled([
     database.close(),

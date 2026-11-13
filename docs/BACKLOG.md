@@ -20,7 +20,4 @@ Things noticed along the way that are not needed yet. Each item names the step w
 - **Community summaries:** Summaries of clusters of related entities for broad questions, as in GraphRAG. (Phase 3)
 - **New sign-in alerts:** Email the user when a new device signs in. (Phase 3)
 - **Audit log export:** Download a workspace's audit log as CSV, and stream events to a SIEM. (Phase 3)
-- **Tax and invoices in India:** GST details on invoices and a GSTIN field for businesses paying with Razorpay. (Phase 2)
-- **Annual plans:** Yearly prices with a discount. (Phase 2)
-- **Usage alerts:** Email owners at 80% of a limit and of the extra usage cap. (Phase 2)
 - **Faster chat search:** A trigram index (`pg_trgm`) on message text once chat history grows; search now scans the user's own messages. (Phase 3)

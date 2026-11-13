@@ -88,6 +88,7 @@ import { createAdminService } from "./modules/admin/admin.service";
 import { createBillingRouter, createBillingWebhookRouter } from "./modules/billing/billing.routes";
 import type { PaymentProvider } from "./modules/billing/providers";
 import { createBillingService } from "./modules/billing/billing.service";
+import { createUsageAlerts } from "./modules/billing/usage-alerts";
 import { createUsageLimits } from "./modules/billing/usage-limits";
 import { createSkillsRouter } from "./modules/skills/skills.routes";
 import { createSkillsService } from "./modules/skills/skills.service";
@@ -203,7 +204,15 @@ export function createApp({
   app.use(helmet());
 
   const audit = createAuditRecorder({ db, logger });
-  const usageLimits = config.enforcePlanLimits ? createUsageLimits({ db }) : undefined;
+  const usageAlerts = createUsageAlerts({
+    db,
+    mailer,
+    logger,
+    webOrigin: config.corsOrigins[0]!,
+  });
+  const usageLimits = config.enforcePlanLimits
+    ? createUsageLimits({ db, onAlert: usageAlerts.notify })
+    : undefined;
   const billingService = createBillingService({
     db,
     limits: usageLimits ?? createUsageLimits({ db }),
@@ -212,6 +221,8 @@ export function createApp({
     payments,
     webOrigin: config.corsOrigins[0]!,
   });
+  // The server runs the monthly charge for yearly plans; tests call it directly.
+  app.locals.billing = billingService;
   // Payment providers post here; they need the raw body, so this comes before JSON parsing.
   app.use("/billing/webhooks", createBillingWebhookRouter({ service: billingService }));
 

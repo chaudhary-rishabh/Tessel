@@ -21,6 +21,7 @@ export const billingStatus = pgEnum("billing_status", [
   "incomplete",
 ]);
 export const billingProvider = pgEnum("billing_provider", ["stripe", "razorpay"]);
+export const billingInterval = pgEnum("billing_interval", ["month", "year"]);
 
 /**
  * A workspace's plan and subscription. No row means the free plan. Written by
@@ -38,12 +39,23 @@ export const billingAccounts = pgTable("billing_accounts", {
   subscriptionId: text("subscription_id").unique(),
   /** Team plan: paid seats. */
   seats: integer("seats").notNull().default(1),
+  /** Billed monthly or yearly. */
+  interval: billingInterval("interval").notNull().default("month"),
   currentPeriodStart: timestamp("current_period_start", { withTimezone: true }),
   currentPeriodEnd: timestamp("current_period_end", { withTimezone: true }),
   cancelAtPeriodEnd: boolean("cancel_at_period_end").notNull().default(false),
   /** Let usage continue past the plan's limits, billed at cost, up to a monthly cap. */
   extraUsageEnabled: boolean("extra_usage_enabled").notNull().default(false),
   extraUsageCapNanoUsd: bigint("extra_usage_cap_nano_usd", { mode: "number" }).notNull().default(0),
+  /**
+   * Yearly plans: extra usage is still billed monthly, by Tessel. Usage up to
+   * here has been charged.
+   */
+  extraChargedThrough: timestamp("extra_charged_through", { withTimezone: true }),
+  /** For tax invoices: the business's legal name, tax ID (GSTIN in India), and state. */
+  taxName: text("tax_name"),
+  taxId: text("tax_id"),
+  taxState: text("tax_state"),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow()
@@ -101,3 +113,24 @@ export const billingEvents = pgTable("billing_events", {
 
 export type BillingAccountRow = typeof billingAccounts.$inferSelect;
 export type BillingPlan = (typeof billingPlan.enumValues)[number];
+
+/**
+ * Usage emails already sent, one per threshold per period, so each is sent
+ * once: a person nearing their weekly limit, or owners nearing the extra usage cap.
+ */
+export const usageAlerts = pgTable(
+  "usage_alerts",
+  {
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    /** "week:<user id>" or "extra". */
+    subject: text("subject").notNull(),
+    /** When the window or billing period began. */
+    periodStart: timestamp("period_start", { withTimezone: true }).notNull(),
+    sentAt: timestamp("sent_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.workspaceId, table.subject, table.periodStart] })],
+);
+
+export type UsageAlertRow = typeof usageAlerts.$inferSelect;

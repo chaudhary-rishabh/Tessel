@@ -75,6 +75,36 @@ test.describe("plans and billing", () => {
     await expect(plan(page).getByTestId("current-plan")).toHaveText("Max plan");
   });
 
+  test("pays for a year with a card, adds a GSTIN, and lists the invoice", async ({ page }) => {
+    await signUp(page);
+    await openPlan(page);
+    await plan(page).getByRole("radio", { name: "Yearly, 2 months free" }).click();
+    const plans = plan(page).getByRole("list", { name: "Plans" });
+    await expect(plans.getByText("$200 or ₹19,500 a year")).toBeVisible();
+    await plan(page).getByRole("button", { name: "Upgrade to Pro with a card" }).click();
+    await expect(page.getByRole("heading", { name: "Mock Stripe checkout" })).toBeVisible();
+    await page.getByRole("button", { name: "Pay" }).click();
+    await expect(page.getByText("Payment received. Your plan is updating.")).toBeVisible();
+    await expect(plan(page).getByTestId("current-plan")).toHaveText("Pro plan, billed yearly");
+
+    const details = plan(page).getByRole("heading", { name: "Billing details" }).locator("../..");
+    await details.getByLabel("Legal name").fill("Acme Pvt Ltd");
+    await details.getByLabel("GSTIN (optional)").fill("27AAPFU0939F1ZW");
+    await details.getByRole("button", { name: "Save billing details" }).click();
+    await expect(details.getByText("This GSTIN isn't valid.", { exact: false })).toBeVisible();
+    await details.getByLabel("GSTIN (optional)").fill("27aapfu0939f1zv");
+    await expect(details.getByText("Place of supply: Maharashtra")).toBeVisible();
+    await details.getByRole("button", { name: "Save billing details" }).click();
+    await expect(page.getByText("Billing details saved")).toBeVisible();
+    await page.reload();
+    await expect(plan(page).getByLabel("GSTIN (optional)")).toHaveValue("27AAPFU0939F1ZV");
+
+    const invoices = plan(page).getByRole("list", { name: "Invoices" });
+    await expect(invoices.getByRole("listitem")).toHaveCount(1);
+    await expect(invoices).toContainText("$20.00");
+    await expect(invoices).toContainText("Paid");
+  });
+
   test("explains that a Pro model needs a paid plan", async ({ page }) => {
     await signUp(page);
     // "Claude Opus 5", not "Claude Opus 5.5".
