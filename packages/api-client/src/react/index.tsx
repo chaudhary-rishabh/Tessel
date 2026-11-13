@@ -811,8 +811,15 @@ export function useUpdatePolicies(workspaceId: string) {
   const queryClient = useQueryClient();
   return useMutation<WorkspacePolicies, ApiClientError, UpdateWorkspacePolicies>({
     mutationFn: (input) => api.policies.update(workspaceId, input),
+    // One change at a time, in order, so a later one is never undone by an earlier response.
+    scope: { id: `policies:${workspaceId}` },
     // Show the change at once; the response (or a refetch on failure) settles it.
     onMutate: (input) => {
+      // A refetch already on its way would bring back the old policies.
+      void queryClient.cancelQueries(
+        { queryKey: queryKeys.policies(workspaceId) },
+        { revert: false },
+      );
       queryClient.setQueryData<WorkspacePolicies>(queryKeys.policies(workspaceId), (current) =>
         current
           ? {
