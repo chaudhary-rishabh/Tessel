@@ -1,5 +1,9 @@
 import {
+  aiOptionsFromEnv,
+  createAi,
+  createQdrantIndex,
   createLiveModelRegistry,
+  sparseVector,
   createSpendGuard,
   createUsageTracker,
   readModelsConfig,
@@ -8,8 +12,10 @@ import {
   syncLiveRegistry,
   type LiveModelRegistry,
   type SpendGuard,
+  type Ai,
   type UsageTracker,
 } from "@tessel/ai";
+import { createMemoryStore } from "@tessel/memory";
 import { createDatabase, createUsageLedger, loadModelConfig } from "@tessel/db";
 import { createLogger, type Logger } from "@tessel/logger";
 import { createMemoryQueue, createQueueConnection } from "@tessel/queue";
@@ -28,6 +34,44 @@ export interface VoiceRuntime {
   memory: {
     enqueue(job: { workspaceId: string; userId: string; threadId: string }): Promise<void>;
   };
+  /** Long-term memories: read into the prompt, and added when the user asks. */
+  memories: Pick<ReturnType<typeof createMemoryStore>, "settings" | "list" | "add">;
+  /** Search over the workspace's documents; absent without a search index. */
+  documents?: VoiceDocuments | undefined;
+}
+
+export interface DocumentHit {
+  filename: string;
+  page: number | null;
+  text: string;
+}
+
+export interface VoiceDocuments {
+  search(
+    subject: { workspaceId: string; userId: string; requestId: string },
+    query: string,
+    limit: number,
+  ): Promise<DocumentHit[]>;
+}
+
+/** Hybrid search, as the API's document search does it: the workspace's chunks only. */
+export function createVoiceDocuments(ai: Ai, index: ReturnType<typeof createQdrantIndex>) {
+  return {
+    async search(subject, query, limit) {
+      const dense = await ai.embeddings({ ...subject, feature: "search" }).embedQuery(query);
+      const hits = await index.search({
+        workspaceId: subject.workspaceId,
+        dense,
+        sparse: sparseVector(query),
+        limit,
+      });
+      return hits.map((hit) => ({
+        filename: hit.payload.filename,
+        page: hit.payload.page ?? null,
+        text: hit.payload.text,
+      }));
+    },
+  } satisfies VoiceDocuments;
 }
 
 let runtime: Promise<VoiceRuntime> | undefined;
@@ -63,6 +107,18 @@ async function createRuntime(env: Env): Promise<VoiceRuntime> {
     onError: (error) => logger.error({ err: error }, "Couldn't load the saved model registry"),
   });
   const memoryQueue = createMemoryQueue(createQueueConnection(env.REDIS_QUEUE_URL));
+  const ai = createAi(aiOptionsFromEnv(env, { spend, ledger, logger, registry }));
+  const documents = env.QDRANT_URL
+    ? createVoiceDocuments(
+        ai,
+        createQdrantIndex({
+          url: env.QDRANT_URL,
+          collection: env.QDRANT_COLLECTION,
+          dimensions: registry.forRole("embedding").dimensions ?? 1536,
+          ...(env.QDRANT_API_KEY ? { apiKey: env.QDRANT_API_KEY } : {}),
+        }),
+      )
+    : undefined;
   return {
     env,
     logger,
@@ -71,5 +127,7 @@ async function createRuntime(env: Env): Promise<VoiceRuntime> {
     spend,
     tracker: createUsageTracker({ ledger, spend, logger }),
     memory: memoryQueue,
+    memories: createMemoryStore(database.db),
+    documents,
   };
 }

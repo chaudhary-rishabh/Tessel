@@ -56,7 +56,10 @@ export function createVoiceStore(db: Database) {
     /** The open session, with the chat's recent messages; undefined if it ended or never existed. */
     async open(
       sessionId: string,
-    ): Promise<{ session: VoiceSessionContext; history: HistoryMessage[] } | undefined> {
+    ): Promise<
+      | { session: VoiceSessionContext; history: HistoryMessage[]; summary: string | null }
+      | undefined
+    > {
       const owners = await db.execute<{ user_id: string; workspace_id: string }>(
         sql`select user_id, workspace_id from app.voice_session_owner(${sessionId})`,
       );
@@ -85,9 +88,15 @@ export function createVoiceStore(db: Database) {
           .where(and(eq(messages.threadId, row.threadId), eq(messages.status, "complete")))
           .orderBy(desc(messages.createdAt), desc(messages.id))
           .limit(HISTORY_MESSAGES);
+        // Older messages than these are in the chat's running summary.
+        const [thread] = await tx
+          .select({ summary: threads.summary })
+          .from(threads)
+          .where(eq(threads.id, row.threadId));
         return {
           session: row,
           history: recent.reverse().filter((message) => message.content.trim().length > 0),
+          summary: thread?.summary ?? null,
         };
       });
     },

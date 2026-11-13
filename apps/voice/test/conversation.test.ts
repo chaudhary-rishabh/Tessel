@@ -26,6 +26,7 @@ import { gatewayTTS, TTS_SAMPLE_RATE } from "../src/speech/gateway-tts";
 import { createMockSpeech, MOCK_TRANSCRIPT } from "../src/speech/mock";
 import type { SpeechProviders } from "../src/speech/providers";
 import { createVoiceStore } from "../src/store";
+import { createMemoryStore } from "@tessel/memory";
 
 const QUESTION = "What's the capital of France?";
 const ANSWER = "Paris is the capital of France.";
@@ -224,6 +225,13 @@ function runtimeWith(spendLimitUsd = 100): VoiceRuntime {
       enqueue: async (job) => {
         enqueued.push(job);
       },
+    },
+    memories: createMemoryStore(app.db),
+    documents: {
+      search: async (_subject, query) =>
+        query.includes("leave")
+          ? [{ filename: "handbook.pdf", page: 4, text: "Everyone gets 25 days of paid leave." }]
+          : [],
     },
   };
 }
@@ -438,6 +446,49 @@ describe("a voice conversation", () => {
       { role: "assistant", content: `Echo: ${MOCK_TRANSCRIPT}` },
     ]);
     expect(speaker.frames).toBeGreaterThan(0);
+  });
+
+  it("knows the user's memories, remembers on request, and looks things up in documents", async () => {
+    const seeded = await seedSession();
+    const runtime = runtimeWith();
+    const subject = { workspaceId: seeded.workspaceId, userId: seeded.userId };
+    await runtime.memories.add(subject, { content: "Prefers metric units", source: "user" });
+    gateway.reset();
+    // The model looks up the handbook, saves a memory, then answers.
+    gateway.enqueue(
+      { toolCall: { name: "search_documents", args: { query: "paid leave policy" } } },
+      { toolCall: { name: "remember", args: { content: "Is planning leave in March" } } },
+      { text: "You get 25 days of paid leave." },
+    );
+    const microphone = new Microphone();
+    const session = await runVoiceSession(job(seeded.sessionId), runtime, {
+      speech: scriptedSpeech(),
+      turnDetection: "stt",
+      io: { input: microphone, output: new Speaker() },
+    });
+    microphone.start();
+    const saved = await eventually(
+      async () =>
+        (
+          await owner.query<{ role: string; content: string }>(
+            "select role, content from messages where thread_id = $1 and role = 'assistant'",
+            [seeded.threadId],
+          )
+        ).rows,
+      (rows) => rows.length >= 1,
+    );
+    microphone.stop();
+    await session?.close();
+    expect(saved[0]?.content).toBe("You get 25 days of paid leave.");
+
+    const calls = gateway.requests.filter((request) => request.path.endsWith("/chat/completions"));
+    const first = JSON.stringify(calls[0]?.body);
+    expect(first).toContain("Prefers metric units");
+    expect(first).toContain("search_documents");
+    expect(JSON.stringify(calls.at(-1)?.body)).toContain("Everyone gets 25 days of paid leave.");
+
+    const memories = await runtime.memories.list(subject);
+    expect(memories.map((memory) => memory.content)).toContain("Is planning leave in March");
   });
 
   it("leaves a session that already ended", async () => {

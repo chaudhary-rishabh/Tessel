@@ -26,6 +26,7 @@
     "@tessel/contracts": "workspace:*",
     "@tessel/db": "workspace:*",
     "@tessel/logger": "workspace:*",
+    "@tessel/memory": "workspace:*",
     "@tessel/queue": "workspace:*",
     "ai": "7.0.160",
     "bullmq": "^6.7.2",

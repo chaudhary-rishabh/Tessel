@@ -15,6 +15,10 @@ export const envSchema = z
     LIVEKIT_API_SECRET: z.string().min(1),
     /** Restricted app role; row-level security applies to the agent too. */
     DATABASE_URL: z.url(),
+    /** The search index, for looking things up in the workspace's documents mid-conversation. */
+    QDRANT_URL: z.preprocess((value) => (value === "" ? undefined : value), z.url().optional()),
+    QDRANT_API_KEY: optional,
+    QDRANT_COLLECTION: z.string().min(1).default("tessel_chunks"),
     /** Spend cap counters, shared with the API and worker. */
     REDIS_CACHE_URL: z.url(),
     /** Memory jobs after a conversation, picked up by the worker. */
