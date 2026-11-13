@@ -1,5 +1,6 @@
 import {
   createDocumentRequestSchema,
+  createTextDocumentRequestSchema,
   documentParamsSchema,
   documentTextQuerySchema,
   workspaceParamsSchema,
@@ -26,6 +27,11 @@ export function createDocumentsController(service: DocumentsService) {
     res
       .status(201)
       .json(await service.create(actorFor(req), createDocumentRequestSchema.parse(req.body)));
+  };
+  /** Adds text as a document, for outside tools that have no file to upload. */
+  const createText: RequestHandler = async (req, res) => {
+    const { filename, text } = createTextDocumentRequestSchema.parse(req.body);
+    res.status(201).json(await service.createFromText(actorFor(req), filename, text));
   };
   const complete: RequestHandler = async (req, res) => {
     res.json(await service.complete(actorFor(req), documentIdOf(req)));
@@ -57,6 +63,7 @@ export function createDocumentsController(service: DocumentsService) {
     list,
     get,
     create,
+    createText,
     complete,
     presignParts,
     uploadedParts,

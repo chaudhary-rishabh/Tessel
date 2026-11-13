@@ -242,7 +242,7 @@ A connector tool runs without asking only when its server marks it read-only, or
 
 ## D-060 Personal access tokens are hashed, scoped, and bound to one workspace
 
-A token (`tsl_pat_` plus 24 random bytes) acts as its owner in one workspace with listed scopes; only `documents:read` exists so far. Tessel stores a SHA-256 hash and a short prefix for display, and shows the token once. Tokens expire (7 days to a year, or never if the user chooses), can be revoked, and stop working the moment the owner leaves the workspace, because the lookup joins on membership. "Last used" is updated at most once a minute.
+A token (`tsl_pat_` plus 24 random bytes) acts as its owner in one workspace with listed scopes: `documents:read`, `documents:write`, and `chat:write` (D-102). Tessel stores a SHA-256 hash and a short prefix for display, and shows the token once. Tokens expire (7 days to a year, or never if the user chooses), can be revoked, and stop working the moment the owner leaves the workspace, because the lookup joins on membership. "Last used" is updated at most once a minute.
 
 ## D-061 Tokens reach only an allowlist of API routes
 
@@ -439,3 +439,11 @@ Getting under 600 ms is mostly about not waiting:
 Speech providers sit behind one interface with two implementations. **ElevenLabs** (speech to text with Scribe Realtime, text to speech with Flash v2.5) is used when `ELEVENLABS_API_KEY` is set; it is the fastest option and the only one that can speak with a cloned voice. Without it, the **AI gateway** streams the same kinds of models through the AI SDK, so voice works with only the gateway key, using stock voices.
 
 The LiveKit server is self-hosted on the EC2 host behind Caddy (`rtc.tessel.chat`), with media on one UDP port (7882) and ICE over TCP (7881) for networks that block UDP. Pointing `LIVEKIT_URL` and its keys at LiveKit Cloud moves it there with no code change. The API is the only thing that issues room tokens: it checks the user's plan and limits, creates the voice session, and dispatches the agent with the session's ID in the token, so the agent never trusts anything the browser sends.
+
+## D-102 Write scopes for outside tools, chosen by the user
+
+Tokens and OAuth sign-ins can carry `documents:write` (add a text document) and `chat:write` (ask Tessel a question), beside `documents:read`. The MCP server offers only the tools a token's scopes allow: `add_document` and `ask_tessel` join the three read tools. A new token starts with read only and the user ticks the rest; on the consent page everything the client asked for starts ticked and the user can untick any of it, so a grant never holds more than the user allowed. Both write scopes add things and never change or delete what is already there.
+
+`ask_tessel` posts to the same chat endpoint as the app and reads its stream to the end, so answers search the documents, cite them, count toward the user's limits, and are saved as a chat the user can open. A follow-up passes the chat's ID. An action that needs approval stops the answer with a note to open the chat in Tessel, since an outside client can't be trusted to approve on the user's behalf. Text documents go through the agent's `create_document` path, so they're indexed like uploads.
+
+Connected MCP servers' resources and prompts become agent tools too (`<prefix>_list_resources`, `<prefix>_read_resource`, `<prefix>_prompt_<name>`), recorded when a connector is verified.

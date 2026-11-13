@@ -1,5 +1,6 @@
 import { mcpAuthRouter } from "@modelcontextprotocol/sdk/server/auth/router.js";
 import {
+  ACCESS_TOKEN_SCOPES,
   approveOAuthRequestSchema,
   connectedAppParamsSchema,
   oauthAuthorizationParamsSchema,
@@ -27,7 +28,7 @@ export function createOAuthServerRouter({
     provider: service.provider,
     issuerUrl: new URL(issuerUrl),
     resourceServerUrl: new URL(resourceUrl),
-    scopesSupported: ["documents:read"],
+    scopesSupported: [...ACCESS_TOKEN_SCOPES],
     resourceName: "Tessel",
   });
 }
@@ -48,8 +49,13 @@ export function createOAuthConsentRouter({
   });
   router.post("/:authorizationId/approve", async (req, res) => {
     const { authorizationId } = oauthAuthorizationParamsSchema.parse(req.params);
-    const { workspaceId } = approveOAuthRequestSchema.parse(req.body);
-    const redirectUrl = await service.approve(getAuth(req).userId, authorizationId, workspaceId);
+    const { workspaceId, scopes } = approveOAuthRequestSchema.parse(req.body);
+    const redirectUrl = await service.approve(
+      getAuth(req).userId,
+      authorizationId,
+      workspaceId,
+      scopes,
+    );
     res.json({ redirectUrl });
   });
   router.post("/:authorizationId/deny", async (req, res) => {

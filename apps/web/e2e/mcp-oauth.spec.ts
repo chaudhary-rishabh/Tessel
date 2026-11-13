@@ -71,8 +71,9 @@ test.describe("outside MCP clients signing in", () => {
     await expect(
       page.getByRole("heading", { name: "Allow Claude (test) to use Tessel?" }),
     ).toBeVisible();
-    await expect(page.getByLabel("Workspace")).toHaveValue(/.+/);
-    await expect(page.getByText("Search and read the workspace's documents")).toBeVisible();
+    await expect(page.getByLabel("Workspace", { exact: true })).toHaveValue(/.+/);
+    await expect(page.getByLabel("Search and read the workspace's documents")).toBeChecked();
+    await page.getByLabel("Add notes and text documents to the workspace").uncheck();
     await expect(page.getByText("127.0.0.1:33418")).toBeVisible();
     await page.getByRole("button", { name: "Allow" }).click();
 
@@ -94,9 +95,12 @@ test.describe("outside MCP clients signing in", () => {
       }),
     );
     const { tools } = await client.listTools();
-    expect(tools.map((tool) => tool.name)).toEqual(
-      expect.arrayContaining(["search_documents", "list_documents", "read_document"]),
-    );
+    expect(tools.map((tool) => tool.name)).toEqual([
+      "search_documents",
+      "list_documents",
+      "read_document",
+      "ask_tessel",
+    ]);
     await client.close();
 
     // Settings lists it, and disconnecting it ends its access.

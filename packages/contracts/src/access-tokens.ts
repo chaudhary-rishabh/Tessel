@@ -1,8 +1,15 @@
 import { z } from "zod";
 
-/** What a personal access token may do. */
-export const accessTokenScopeSchema = z.enum(["documents:read"]);
+/** What a personal access token, or an app signed in with OAuth, may do. */
+export const accessTokenScopeSchema = z.enum(["documents:read", "documents:write", "chat:write"]);
 export const ACCESS_TOKEN_SCOPES = accessTokenScopeSchema.options;
+
+/** Each scope in words, for the token and sign-in screens. */
+export const ACCESS_TOKEN_SCOPE_TEXT: Record<AccessTokenScope, string> = {
+  "documents:read": "Search and read the workspace's documents",
+  "documents:write": "Add notes and text documents to the workspace",
+  "chat:write": "Ask Tessel questions, as new chats you can see in the app",
+};
 
 export const accessTokenSchema = z.object({
   id: z.uuid(),

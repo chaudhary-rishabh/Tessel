@@ -289,6 +289,77 @@ describe("Tessel MCP server", () => {
     await client.close();
   });
 
+  it("adds documents and answers questions with the write scopes, and only with them", async () => {
+    const { user, workspaceId, base } = await setup();
+    await seedDocument(workspaceId, user.auth.user.id);
+    const readOnly = await makeToken(user, base);
+    const denied = await request(app)
+      .post(`${base}/documents/text`)
+      .set("Authorization", `Bearer ${readOnly.token}`)
+      .send({ filename: "notes.md", text: "Hello" });
+    expect(denied.status).toBe(403);
+    expect(denied.body.error.message).toBe("This token needs the documents:write scope");
+    const noChat = await request(app)
+      .post(`${base}/chat`)
+      .set("Authorization", `Bearer ${readOnly.token}`)
+      .send({ content: "hi" });
+    expect(noChat.body.error.message).toBe("This token needs the chat:write scope");
+
+    const writer = await makeToken(user, base, {
+      name: "Claude Desktop",
+      scopes: ["documents:write", "chat:write"],
+    });
+    const client = await mcpClient(writer.token);
+    const { tools } = await client.listTools();
+    // Without documents:read the read tools aren't offered.
+    expect(tools.map((tool) => tool.name)).toEqual(["add_document", "ask_tessel"]);
+    expect(client.getInstructions()).toContain("add text documents to it");
+
+    const bad = await client.callTool({
+      name: "add_document",
+      arguments: { filename: "notes.exe", text: "x" },
+    });
+    expect(bad.isError).toBe(true);
+    expect(textOf(bad)).toBe("Name it with .md, .txt, .csv, .json, or .html");
+
+    const added = await client.callTool({
+      name: "add_document",
+      arguments: { filename: "standup.md", text: "# Standup\n\nShip the beta on Friday." },
+    });
+    expect(textOf(added)).toMatch(/^Added standup\.md \(document [0-9a-f-]{36}\)\./);
+    const listed = await request(app).get(`${base}/documents`).set("Authorization", bearer(user));
+    const saved = listed.body.documents.find(
+      (document: { filename: string }) => document.filename === "standup.md",
+    );
+    expect(saved).toMatchObject({ mediaType: "text/markdown", uploadedBy: user.auth.user.id });
+    expect(
+      (await objects.get(storageKeys.documentOriginal(workspaceId, saved.id))).toString(),
+    ).toBe("# Standup\n\nShip the beta on Friday.");
+
+    const answer = textOf(
+      await client.callTool({
+        name: "ask_tessel",
+        arguments: { question: "What is the zephyrine allowance?" },
+      }),
+    );
+    expect(answer).toContain("Echo: What is the zephyrine allowance?");
+    const threadId = answer.match(/Chat ID: ([0-9a-f-]{36})/)?.[1];
+    expect(threadId).toBeDefined();
+    const followUp = textOf(
+      await client.callTool({
+        name: "ask_tessel",
+        arguments: { question: "And on weekends?", thread_id: threadId },
+      }),
+    );
+    expect(followUp).toContain("Echo: And on weekends?");
+    expect(followUp).toContain(`Chat ID: ${threadId}`);
+    const thread = await request(app)
+      .get(`${base}/threads/${threadId}`)
+      .set("Authorization", bearer(user));
+    expect(thread.body.messages).toHaveLength(4);
+    await client.close();
+  });
+
   it("refuses clients without a valid token", async () => {
     const res = await fetch(mcpUrl, {
       method: "POST",

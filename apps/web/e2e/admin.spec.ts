@@ -51,6 +51,15 @@ test.describe("admin app", () => {
     await expect(page.getByRole("heading", { name: "Overview" })).toBeVisible();
     await expect(page.getByRole("definition").filter({ hasText: /^\d/ }).first()).toBeVisible();
 
+    // The theme can be picked here too, and stays picked.
+    if ((page.viewportSize()?.width ?? 1280) >= 768) {
+      await page.getByTitle("Dark").click();
+      await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+      await page.reload();
+      await expect(page.getByRole("radio", { name: "Dark" })).toBeChecked();
+      await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+    }
+
     await goTo(page, "Users");
     await page.getByLabel("Search by name or email").fill(targetEmail);
     await page.getByRole("link", { name: "Suspended Sam" }).click();

@@ -383,7 +383,7 @@ function ConnectedAppsSettings() {
     <Section
       id="connected-apps"
       title="Connected apps"
-      description="Apps you signed in to Tessel from. Each can search and read one workspace's documents."
+      description="Apps you signed in to Tessel from. Each works in one workspace, with what you allowed it."
     >
       <ConnectedAppsSection />
     </Section>

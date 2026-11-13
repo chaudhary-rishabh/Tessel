@@ -3,6 +3,7 @@
 import { useConnectedApps, useDisconnectApp } from "@tessel/api-client/react";
 import { Button, Spinner } from "@tessel/ui";
 import { AppWindow } from "lucide-react";
+import { scopeSummary } from "./scope-choices";
 
 const formatDate = (iso: string | null, fallback: string) =>
   iso
@@ -38,7 +39,7 @@ export function ConnectedAppsSection() {
             <p className="font-medium">{app.name}</p>
             <p className="text-muted mt-0.5 text-xs">
               In {app.workspace.name}. Connected {formatDate(app.createdAt, "")}, last used{" "}
-              {formatDate(app.lastUsedAt, "not yet")}.
+              {formatDate(app.lastUsedAt, "not yet")}. {scopeSummary(app.scopes)}
             </p>
           </div>
           <Button

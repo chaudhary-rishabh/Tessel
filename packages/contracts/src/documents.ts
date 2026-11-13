@@ -98,6 +98,30 @@ export const createDocumentRequestSchema = z
     }
   });
 
+/** Text types an outside tool can add directly, without an upload. */
+export const TEXT_DOCUMENT_EXTENSIONS = ["md", "txt", "csv", "json", "html"] as const;
+export const MAX_TEXT_DOCUMENT_CHARACTERS = 2_000_000;
+
+export const createTextDocumentRequestSchema = z.object({
+  filename: z
+    .string()
+    .trim()
+    .min(1)
+    .max(200)
+    .refine((name) => {
+      const extension = name.split(".").pop()?.toLowerCase() ?? "";
+      return (
+        name.includes(".") && (TEXT_DOCUMENT_EXTENSIONS as readonly string[]).includes(extension)
+      );
+    }, "Name it with .md, .txt, .csv, .json, or .html"),
+  text: z
+    .string()
+    .min(1, "The document is empty")
+    .max(MAX_TEXT_DOCUMENT_CHARACTERS, "Documents added as text can be up to 2 million characters"),
+});
+
+export type CreateTextDocumentRequest = z.infer<typeof createTextDocumentRequestSchema>;
+
 export const presignedUploadSchema = z.object({
   url: z.url(),
   method: z.literal("PUT"),

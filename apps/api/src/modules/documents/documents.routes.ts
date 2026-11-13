@@ -25,6 +25,7 @@ export function createDocumentsRouter({
   router.use(authenticate);
   router.get("/documents", controller.list);
   router.post("/documents", perUser("documents"), controller.create);
+  router.post("/documents/text", perUser("documents"), controller.createText);
   router.get("/documents/:documentId", controller.get);
   router.post("/documents/:documentId/complete", controller.complete);
   router.get("/documents/:documentId/parts", controller.uploadedParts);

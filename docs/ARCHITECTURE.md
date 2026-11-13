@@ -372,8 +372,8 @@ flowchart LR
 ```
 
 - Users create personal access tokens in Settings (`GET|POST /workspaces/:workspaceId/access-tokens`, `DELETE …/access-tokens/:tokenId`). The token is shown once, with the settings an MCP client needs.
-- The API accepts a token only on allowlisted routes in its own workspace: listing and reading documents, document text (`GET …/documents/:documentId/text`), search, and `GET /access-tokens/current`.
-- The MCP server (`@tessel/mcp/server`, run by `apps/mcp-server`) checks the token with the API, then serves `search_documents`, `list_documents`, and `read_document`, each a call to the API with the same token.
+- The API accepts a token only on allowlisted routes in its own workspace, each needing a scope: listing and reading documents, document text (`GET …/documents/:documentId/text`), and search need `documents:read`; adding a text document (`POST …/documents/text`) needs `documents:write`; chat (`POST …/chat`) needs `chat:write`. `GET /access-tokens/current` needs none.
+- The MCP server (`@tessel/mcp/server`, run by `apps/mcp-server`) checks the token with the API, then serves the tools its scopes allow: `search_documents`, `list_documents`, and `read_document`; `add_document`; and `ask_tessel`, which reads the chat stream to the end and returns the answer, its sources, and the chat's ID for follow-ups. Each is a call to the API with the same token.
 - Clients that support MCP authorization sign in instead of pasting a token:
 
 ```mermaid
@@ -387,7 +387,7 @@ sequenceDiagram
   C->>A: /.well-known/oauth-authorization-server, POST /register
   C->>A: GET /authorize (PKCE, resource)
   A-->>W: redirect to /oauth/consent/:id
-  W->>A: approve (signed in, picks a workspace)
+  W->>A: approve (signed in, picks a workspace and what to allow)
   A-->>C: redirect with a one-time code
   C->>A: POST /token, then refresh as needed
   C->>M: POST /mcp, Bearer tsl_oat_…
