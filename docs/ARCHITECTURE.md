@@ -270,6 +270,13 @@ flowchart LR
 - `@tessel/graph` holds the Neo4j store, a memory store for tests, extraction, and fact formatting. The worker builds the graph after indexing; the API uses it in the RAG pipeline (`relate`), the `explore_graph` tool, and `GET /workspaces/:workspaceId/graph?entity=…`.
 - The Documents page shows how many entities and connections were found, and lets you look up a name's connections.
 
+## Chat extras
+
+- **Versions.** Editing a message or retrying a reply keeps the chat from that message on as a version (`message_versions`, owner-only), and the message counts its versions (`messages.version_count`, `version_index`). `POST …/threads/:threadId/messages/:messageId/versions/:position/restore` keeps what's showing as a version in turn and brings the chosen one back; replies that were waiting come back stopped, and later messages' attachments aren't kept.
+- **Skills from the composer.** Typing `/` lists the workspace's skills; the picked one goes with the message as `skill`, and its instructions are added to the system prompt for that reply, even for models without tools.
+- **Mode suggestions.** The composer suggests Plan for a list of steps or a sequence, and Team for a mix of research, numbers, and writing (a heuristic in `lib/mode-suggestion.ts`); it never switches by itself.
+- **Memory review.** A reply that saved a memory with `remember` says "Memory updated" under it, with Undo (the tool call carries `undo: { kind: "memory", id }`).
+
 ## Tools and approvals
 
 ```mermaid

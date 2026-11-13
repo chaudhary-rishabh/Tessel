@@ -3,10 +3,18 @@
 import { imageReferences, parseMessageSegments, type ChatMessage } from "@tessel/contracts";
 import { MediaImage } from "@/components/media/media-image";
 import { ReplyMedia } from "@/components/media/reply-media";
+import { MemoryNotes } from "./memory-note";
 import { ArtifactCard } from "@/components/artifacts/artifact-card";
 import { useModels } from "@tessel/api-client/react";
 import { Button } from "@tessel/ui";
-import { AudioLines, CircleAlert, Pencil, RotateCcw } from "lucide-react";
+import {
+  AudioLines,
+  ChevronLeft,
+  ChevronRight,
+  CircleAlert,
+  Pencil,
+  RotateCcw,
+} from "lucide-react";
 import { useId, useMemo, useState } from "react";
 import { chatErrorMessage } from "@/lib/chat-errors";
 import type { LiveReply } from "@/lib/chat-store";
@@ -71,14 +79,51 @@ function EditForm({
   );
 }
 
+/** "< 2 / 3 >" on a user message that was edited or retried. */
+function VersionSwitcher({
+  versions,
+  onSwitch,
+}: {
+  versions: { index: number; count: number };
+  onSwitch?: ((position: number) => void) | undefined;
+}) {
+  return (
+    <div className="text-muted flex items-center text-xs tabular-nums">
+      <button
+        type="button"
+        className={ACTION}
+        aria-label="Previous version"
+        disabled={!onSwitch || versions.index <= 1}
+        onClick={() => onSwitch?.(versions.index - 1)}
+      >
+        <ChevronLeft className="size-4" aria-hidden="true" />
+      </button>
+      <span aria-live="polite">
+        {versions.index} / {versions.count}
+      </span>
+      <button
+        type="button"
+        className={ACTION}
+        aria-label="Next version"
+        disabled={!onSwitch || versions.index >= versions.count}
+        onClick={() => onSwitch?.(versions.index + 1)}
+      >
+        <ChevronRight className="size-4" aria-hidden="true" />
+      </button>
+    </div>
+  );
+}
+
 function UserMessage({
   workspaceId,
   message,
   onEdit,
+  onSwitchVersion,
 }: {
   workspaceId: string;
   message: ChatMessage;
   onEdit?: ((content: string) => void) | undefined;
+  onSwitchVersion?: ((position: number) => void) | undefined;
 }) {
   const [editing, setEditing] = useState(false);
   if (editing && onEdit) {
@@ -122,6 +167,9 @@ function UserMessage({
         {text}
       </div>
       {message.voiceSessionId ? <Spoken /> : null}
+      {message.versions ? (
+        <VersionSwitcher versions={message.versions} onSwitch={onSwitchVersion} />
+      ) : null}
       {onEdit ? (
         <div className="text-muted flex gap-1 transition-opacity pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 pointer-fine:focus-within:opacity-100">
           <CopyButton text={text} label="Copy message" />
@@ -271,6 +319,7 @@ function AssistantMessage({
         <Thinking searching={searching ?? false} />
       ) : null}
       <ReplyMedia workspaceId={workspaceId} calls={message.toolCalls} />
+      {!streaming ? <MemoryNotes workspaceId={workspaceId} calls={message.toolCalls} /> : null}
       {pending ? (
         <ApprovalCard
           call={pending}
@@ -315,6 +364,7 @@ export function MessageList({
   artifacts,
   onDecide,
   onEdit,
+  onSwitchVersion,
 }: {
   workspaceId: string;
   messages: ChatMessage[];
@@ -325,6 +375,8 @@ export function MessageList({
   onDecide?: DecideHandler | undefined;
   /** Rewrites the chat from a user message; the same text regenerates the reply. */
   onEdit?: ((message: ChatMessage, content: string) => void) | undefined;
+  /** Switches a user message to another of its versions. */
+  onSwitchVersion?: ((message: ChatMessage, position: number) => void) | undefined;
 }) {
   const models = useModels();
   const labelFor = (id: string | null) =>
@@ -346,6 +398,11 @@ export function MessageList({
               workspaceId={workspaceId}
               message={message}
               onEdit={canRewrite ? (content) => onEdit?.(message, content) : undefined}
+              onSwitchVersion={
+                canRewrite && onSwitchVersion
+                  ? (position) => onSwitchVersion(message, position)
+                  : undefined
+              }
             />
           ) : (
             <AssistantMessage

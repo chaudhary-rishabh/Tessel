@@ -20,6 +20,12 @@ export interface ToolMedia {
   alt?: string;
 }
 
+/** A change a tool made that the reply offers to undo. */
+export interface ToolUndo {
+  kind: "memory";
+  id: string;
+}
+
 export interface ToolOutput {
   /** What the model sees. Treated as data, never as instructions. */
   content: string;
@@ -27,6 +33,8 @@ export interface ToolOutput {
   summary: string;
   /** Media to show under the reply. */
   media?: ToolMedia[];
+  /** Something the tool saved that the user can undo from the reply (e.g. a new memory). */
+  undo?: ToolUndo;
   /** Extra data for the interface or the caller, e.g. citations. Not shown to the model. */
   artifact?: unknown;
 }

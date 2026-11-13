@@ -1,16 +1,26 @@
 "use client";
 
 import { ApiClientError } from "@tessel/api-client";
-import { useApi, useVoiceStatus } from "@tessel/api-client/react";
+import { useApi, useSkills, useVoiceStatus } from "@tessel/api-client/react";
 import { MAX_ATTACHMENTS_PER_MESSAGE, type Attachment } from "@tessel/contracts";
 import { cn } from "@tessel/ui";
-import { ArrowUp, AudioLines, Paperclip, Square, X } from "lucide-react";
-import { useEffect, useId, useRef, useState, type ClipboardEvent, type KeyboardEvent } from "react";
+import { ArrowUp, AudioLines, Paperclip, Sparkles, Square, Users, X } from "lucide-react";
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type KeyboardEvent,
+} from "react";
 import type { SendResult } from "@/hooks/use-send-message";
 import { MediaImage } from "@/components/media/media-image";
 import { chatErrorMessage } from "@/lib/chat-errors";
 import { useDocumentScope } from "@/lib/document-scope-store";
 import { useImageReference } from "@/lib/image-reference-store";
+import { suggestMode } from "@/lib/mode-suggestion";
+import { useSkillPick } from "@/lib/skill-pick-store";
 import { AttachmentChip } from "./attachment-chip";
 import { DictationButton } from "./dictation-button";
 import { useChatPreferences } from "@/lib/chat-preferences";
@@ -73,6 +83,24 @@ export function Composer({
   const setMode = useChatPreferences((state) => state.setMode);
   const scope = useDocumentScope();
   const scoped = scope.for(workspaceId);
+  const skills = useSkills(workspaceId);
+  const picked = useSkillPick((state) => state.skill);
+  const pickSkill = useSkillPick((state) => state.set);
+  const clearSkill = useSkillPick((state) => state.clear);
+  const [highlight, setHighlight] = useState(0);
+  const [dismissedSuggestion, setDismissedSuggestion] = useState(false);
+  // "/" at the start of the message offers skills, filtered by what follows it.
+  const slash = /^\/([a-z0-9-]*)$/i.exec(text)?.[1];
+  const skillOptions = useMemo(() => {
+    if (slash === undefined) return [];
+    const query = slash.toLowerCase();
+    return (skills.data ?? [])
+      .filter((skill) => skill.enabled)
+      .filter((skill) => skill.name.includes(query) || skill.title.toLowerCase().includes(query))
+      .slice(0, 8);
+  }, [skills.data, slash]);
+  const menuOpen = skillOptions.length > 0;
+  const suggestion = mode === "auto" && !dismissedSuggestion ? suggestMode(text) : null;
   const imageId = useImageReference((state) => state.imageId);
   const clearImage = useImageReference((state) => state.clear);
 
@@ -142,20 +170,26 @@ export function Composer({
     const content = text.trim();
     const sentFiles = files;
     const sentImage = imageId;
+    const sentSkill = picked;
     setError(undefined);
     setText("");
     setFiles([]);
     clearImage();
-    const result = await onSend(
+    setDismissedSuggestion(false);
+    // The send reads the picked skill as it starts; clear it once it has.
+    const sending = onSend(
       // The image being edited goes with the message, for the model to find.
       sentImage ? `[image:${sentImage}] ${content}` : content,
       ready.map((file) => file.attachment),
     );
+    clearSkill();
+    const result = await sending;
     if (!result.ok) {
       // Put the message back so nothing the user typed is lost.
       setText(content);
       setFiles(sentFiles);
       if (sentImage) useImageReference.getState().set(sentImage);
+      if (sentSkill) useSkillPick.getState().set(sentSkill);
       if (result.error) setError(chatErrorMessage(result.error.code, result.error.message));
       textarea.current?.focus();
       return;
@@ -164,7 +198,32 @@ export function Composer({
     for (const file of sentFiles) if (file.localUrl) URL.revokeObjectURL(file.localUrl);
   }
 
+  function choose(skill: { name: string; title: string }) {
+    pickSkill({ name: skill.name, title: skill.title });
+    setText("");
+    setHighlight(0);
+    textarea.current?.focus();
+  }
+
   function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (menuOpen) {
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        const step = event.key === "ArrowDown" ? 1 : -1;
+        setHighlight((current) => (current + step + skillOptions.length) % skillOptions.length);
+        return;
+      }
+      if ((event.key === "Enter" || event.key === "Tab") && !event.nativeEvent.isComposing) {
+        event.preventDefault();
+        choose(skillOptions[Math.min(highlight, skillOptions.length - 1)]!);
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setText("");
+        return;
+      }
+    }
     if (
       event.key === "Enter" &&
       !event.shiftKey &&
@@ -252,6 +311,74 @@ export function Composer({
             ))}
           </div>
         ) : null}
+        {picked ? (
+          <div className="flex items-center gap-2 px-1.5 pt-1 pb-1.5 text-sm">
+            <span className="bg-accent/10 text-ink inline-flex min-w-0 items-center gap-1.5 rounded-full py-1 pr-1 pl-3">
+              <Sparkles className="text-accent size-3.5 shrink-0" aria-hidden="true" />
+              <span className="truncate">Using {picked.title}</span>
+              <button
+                type="button"
+                aria-label={`Don't use ${picked.title}`}
+                onClick={clearSkill}
+                className="hover:bg-ink/10 focus-visible:outline-accent inline-flex size-6 items-center justify-center rounded-full focus-visible:outline-2"
+              >
+                <X className="size-3.5" aria-hidden="true" />
+              </button>
+            </span>
+          </div>
+        ) : null}
+        {suggestion ? (
+          <div className="text-muted flex flex-wrap items-center gap-x-2 gap-y-1 px-2 pt-1 pb-1.5 text-sm">
+            <span>Looks like several {suggestion === "team" ? "kinds of work" : "steps"}.</span>
+            <button
+              type="button"
+              onClick={() => setMode(suggestion)}
+              className="text-accent focus-visible:outline-accent inline-flex items-center gap-1 rounded font-medium hover:underline focus-visible:outline-2"
+            >
+              <Users className="size-3.5" aria-hidden="true" />
+              Use {suggestion === "team" ? "Team" : "Plan"}
+            </button>
+            <button
+              type="button"
+              aria-label="Dismiss suggestion"
+              onClick={() => setDismissedSuggestion(true)}
+              className="hover:text-ink focus-visible:outline-accent ml-auto inline-flex size-6 items-center justify-center rounded focus-visible:outline-2"
+            >
+              <X className="size-3.5" aria-hidden="true" />
+            </button>
+          </div>
+        ) : null}
+        {menuOpen ? (
+          <ul
+            id={`${inputId}-skills`}
+            role="listbox"
+            aria-label="Skills"
+            className="border-line bg-surface mb-1 max-h-64 overflow-y-auto rounded-xl border p-1 shadow-md"
+          >
+            {skillOptions.map((skill, index) => (
+              <li
+                key={skill.id}
+                id={`${inputId}-skill-${index}`}
+                role="option"
+                aria-selected={index === highlight}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  choose(skill);
+                }}
+                onMouseEnter={() => setHighlight(index)}
+                className={cn(
+                  "cursor-pointer rounded-lg px-3 py-2",
+                  index === highlight ? "bg-accent/10" : "hover:bg-ink/4",
+                )}
+              >
+                <p className="text-sm font-medium">
+                  {skill.title} <span className="text-muted font-normal">/{skill.name}</span>
+                </p>
+                <p className="text-muted truncate text-xs">{skill.description}</p>
+              </li>
+            ))}
+          </ul>
+        ) : null}
         <label htmlFor={inputId} className="sr-only">
           Message
         </label>
@@ -267,6 +394,10 @@ export function Composer({
           onKeyDown={onKeyDown}
           onPaste={onPaste}
           aria-describedby={error ? errorId : undefined}
+          aria-expanded={menuOpen}
+          aria-controls={menuOpen ? `${inputId}-skills` : undefined}
+          aria-activedescendant={menuOpen ? `${inputId}-skill-${highlight}` : undefined}
+          aria-autocomplete="list"
           className="text-ink placeholder:text-muted/80 block max-h-60 min-h-11 w-full resize-none bg-transparent px-2 py-2 text-base focus:outline-none"
         />
         <div className="flex items-center gap-1">

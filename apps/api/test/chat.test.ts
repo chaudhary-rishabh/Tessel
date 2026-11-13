@@ -184,6 +184,68 @@ describe("chat", () => {
     ]);
   });
 
+  it("keeps earlier versions of an edited message and its replies, and switches between them", async () => {
+    const { user, base } = await setup();
+    const first = await send(user, base, { content: "First question" });
+    const start = first.events[0] as Extract<ChatEvent, { type: "start" }>;
+    const threadId = start.thread.id;
+    const messageId = start.userMessage.id;
+    await send(user, base, { threadId, content: "A follow-up" });
+    await send(user, base, {
+      threadId,
+      content: "A better first question",
+      editMessageId: messageId,
+    });
+
+    const contents = (body: { messages: { role: string; content: string }[] }) =>
+      body.messages.map((m) => m.content);
+    const now = await request(app)
+      .get(`${base}/threads/${threadId}`)
+      .set("Authorization", bearer(user));
+    expect(now.body.messages[0].versions).toEqual({ index: 2, count: 2 });
+    expect(contents(now.body)).toEqual([
+      "A better first question",
+      "Echo: A better first question",
+    ]);
+
+    // Back to the first version: the follow-up comes back with it.
+    const back = await request(app)
+      .post(`${base}/threads/${threadId}/messages/${messageId}/versions/1/restore`)
+      .set("Authorization", bearer(user));
+    expect(back.status).toBe(200);
+    expect(back.body.messages[0].versions).toEqual({ index: 1, count: 2 });
+    expect(contents(back.body)).toEqual([
+      "First question",
+      "Echo: First question",
+      "A follow-up",
+      "Echo: A follow-up",
+    ]);
+
+    // Retrying from the first version makes a third.
+    await send(user, base, { threadId, content: "First question", editMessageId: messageId });
+    const third = await request(app)
+      .get(`${base}/threads/${threadId}`)
+      .set("Authorization", bearer(user));
+    expect(third.body.messages[0].versions).toEqual({ index: 3, count: 3 });
+
+    const second = await request(app)
+      .post(`${base}/threads/${threadId}/messages/${messageId}/versions/2/restore`)
+      .set("Authorization", bearer(user));
+    expect(contents(second.body)).toEqual([
+      "A better first question",
+      "Echo: A better first question",
+    ]);
+    const missing = await request(app)
+      .post(`${base}/threads/${threadId}/messages/${messageId}/versions/9/restore`)
+      .set("Authorization", bearer(user));
+    expect(missing.status).toBe(404);
+    const stranger = await setup();
+    const peek = await request(app)
+      .post(`${base}/threads/${threadId}/messages/${messageId}/versions/1/restore`)
+      .set("Authorization", bearer(stranger.user));
+    expect(peek.status).toBe(404);
+  });
+
   it("regenerates the last reply with the same message and keeps its attachments", async () => {
     const { user, base } = await setup();
     const upload = await request(app)

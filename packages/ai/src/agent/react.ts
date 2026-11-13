@@ -18,6 +18,7 @@ import {
   type ToolDefinition,
   type ToolMedia,
   type ToolRegistry,
+  type ToolUndo,
 } from "./tools";
 
 export type ToolCallStatus =
@@ -37,6 +38,8 @@ export interface ToolCallRecord {
   error?: string;
   /** Media the tool made, shown under the reply. */
   media?: ToolMedia[];
+  /** What the user can undo from the reply. */
+  undo?: ToolUndo;
 }
 
 export type AgentEvent = { type: "token"; text: string } | { type: "tool"; call: ToolCallRecord };
@@ -325,6 +328,7 @@ async function execute(
         status: "completed",
         summary: output.summary,
         ...(output.media?.length ? { media: output.media } : {}),
+        ...(output.undo ? { undo: output.undo } : {}),
       },
       emit,
     );

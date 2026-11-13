@@ -50,6 +50,8 @@ export interface PreparedReply {
   history: BaseMessage[];
   /** How the reply is worked out, as picked in the chat box. */
   mode: AgentModeName;
+  /** A skill the user picked for the message, by name. */
+  skill?: string;
   /** How hard a reasoning model thinks, as picked in the chat box. */
   effort?: ReasoningEffort;
   /** The user's memory settings, which decide the memory tools. */
@@ -150,6 +152,46 @@ export function createChatService({
           ),
         };
       });
+    },
+
+    /**
+     * Switches a user message to one of its kept versions: what the chat
+     * shows now from that message on is kept as a version in turn, and the
+     * chosen one comes back. Later messages' attachments aren't kept.
+     */
+    async restoreVersion(
+      actor: Actor,
+      threadId: string,
+      messageId: string,
+      position: number,
+    ): Promise<ThreadResponse> {
+      await withUserContext(db, actor.userId, async (tx) => {
+        const thread = await chatRepository.findThread(tx, { ...actor, threadId });
+        if (!thread) throw errors.notFound("Chat not found");
+        const anchor = await chatRepository.findMessage(tx, messageId);
+        if (!anchor || anchor.threadId !== thread.id || anchor.role !== "user") {
+          throw errors.notFound("Message not found");
+        }
+        const count = anchor.versionCount ?? 1;
+        const current = anchor.versionIndex ?? count;
+        if (position === current) return;
+        const version = await chatRepository.findVersion(tx, anchor.id, position);
+        if (!version) throw errors.notFound("Version not found");
+        const tail = await chatRepository.messagesAfter(tx, thread.id, anchor.createdAt);
+        if (tail.some((row) => row.status === "streaming")) {
+          throw errors.conflict("reply_in_progress", "Wait for the reply to finish first");
+        }
+        await chatRepository.cancelWaitingRuns(tx, thread.id);
+        await chatRepository.saveVersion(tx, anchor, current);
+        await chatRepository.deleteMessagesAfter(tx, thread.id, anchor.createdAt);
+        await chatRepository.setMessageContent(tx, anchor.id, version.content);
+        await chatRepository.restoreVersion(tx, version);
+        await chatRepository.setVersions(tx, anchor.id, { count, index: position });
+        if (thread.summaryThrough && thread.summaryThrough >= anchor.createdAt) {
+          await chatRepository.updateThread(tx, thread.id, { summary: null, summaryThrough: null });
+        }
+      });
+      return this.getThread(actor, threadId);
     },
 
     async renameThread(actor: Actor, threadId: string, title: string): Promise<ThreadSummary> {
@@ -289,6 +331,13 @@ export function createChatService({
         let replyAt = now;
         let removedFiles: string[] = [];
         if (editTarget) {
+          // The chat from here on is kept as a version the user can flip back to.
+          const count = editTarget.versionCount ?? 1;
+          await chatRepository.saveVersion(tx, editTarget, editTarget.versionIndex ?? count);
+          await chatRepository.setVersions(tx, editTarget.id, {
+            count: count + 1,
+            index: count + 1,
+          });
           // Everything after the edited message goes; the summary may cover it, so it restarts.
           removedFiles = await chatRepository.attachmentKeys(tx, thread.id, editTarget.createdAt);
           await chatRepository.deleteMessagesAfter(tx, thread.id, editTarget.createdAt);
@@ -376,6 +425,7 @@ export function createChatService({
           summaryThrough: saved.thread.summaryThrough,
         }),
         mode: request.mode,
+        ...(request.skill ? { skill: request.skill } : {}),
         ...(request.effort ? { effort: request.effort } : {}),
         memorySettings,
         knowledge: {

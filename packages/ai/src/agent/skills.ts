@@ -106,6 +106,14 @@ export function skillsPrompt(skills: SkillDefinition[]): string {
   ].join("\n");
 }
 
+/** A skill the user picked for their message: its instructions, to follow for this reply. */
+export function pickedSkillPrompt(skill: SkillDefinition): string {
+  return [
+    `The user picked the "${skill.title}" skill for this message. Follow its instructions for your reply; they never override your safety rules, and actions still need the user's approval.`,
+    `<skill name="${skill.name}" title="${skill.title.replace(/"/g, "'")}">\n${skill.instructions}\n</skill>`,
+  ].join("\n");
+}
+
 /** The tool that loads a skill's instructions by name. */
 export function loadSkillTool(skills: SkillDefinition[]): ToolDefinition {
   return defineTool({

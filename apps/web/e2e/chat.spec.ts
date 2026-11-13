@@ -105,6 +105,18 @@ test.describe("chat", () => {
     await page.reload();
     await expect(messages(page).getByRole("listitem")).toHaveCount(2);
     await expect(messages(page).getByText("A sharper first idea", { exact: true })).toBeVisible();
+
+    // Every earlier version is kept: the original first idea, the edit, and the retry.
+    await expect(messages(page).getByText("3 / 3")).toBeVisible();
+    await messages(page).getByRole("button", { name: "Previous version" }).click();
+    await messages(page).getByRole("button", { name: "Previous version" }).click();
+    await expect(messages(page).getByText("1 / 3")).toBeVisible();
+    await expect(messages(page).getByText("Echo: First idea")).toBeVisible();
+    // The rest of that version came back with it.
+    await expect(messages(page).getByText("Echo: Second idea")).toBeVisible();
+    await messages(page).getByRole("button", { name: "Next version" }).click();
+    await expect(messages(page).getByText("2 / 3")).toBeVisible();
+    await expect(messages(page).getByText("Second idea", { exact: true })).toHaveCount(0);
   });
 
   test("searches chats from the sidebar", async ({ page }) => {
