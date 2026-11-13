@@ -10,7 +10,7 @@ export const DialogClose = DialogPrimitive.Close;
 
 function Overlay() {
   return (
-    <DialogPrimitive.Overlay className="bg-ink/30 fixed inset-0 z-40 data-[state=open]:animate-[fade-in_150ms_ease-out] motion-reduce:animate-none" />
+    <DialogPrimitive.Overlay className="bg-ink/30 fixed inset-0 z-40 data-[state=closed]:animate-[fade-out_180ms_ease-in] data-[state=open]:animate-[fade-in_150ms_ease-out] motion-reduce:animate-none" />
   );
 }
 
@@ -129,7 +129,7 @@ export function Sheet({
           className={cn(
             "bg-paper fixed inset-y-0 left-0 z-50 flex w-[min(20rem,85vw)] flex-col shadow-xl focus:outline-none",
             "pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]",
-            "data-[state=open]:animate-[slide-in_200ms_ease-out] motion-reduce:animate-none",
+            "data-[state=closed]:animate-[slide-out_200ms_cubic-bezier(0.4,0,1,1)] data-[state=open]:animate-[slide-in_260ms_cubic-bezier(0.32,0.72,0,1)] motion-reduce:animate-none",
           )}
         >
           <DialogPrimitive.Title className="sr-only">{title}</DialogPrimitive.Title>

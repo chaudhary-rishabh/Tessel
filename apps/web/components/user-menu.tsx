@@ -6,6 +6,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  cn,
 } from "@tessel/ui";
 import { LogOut, Settings } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -19,7 +20,14 @@ function initials(name: string): string {
   ).toUpperCase();
 }
 
-export function UserMenu({ onNavigate }: { onNavigate?: () => void }) {
+export function UserMenu({
+  collapsed = false,
+  onNavigate,
+}: {
+  /** The sidebar is folded to icons: show only the avatar, and open the menu to its side. */
+  collapsed?: boolean;
+  onNavigate?: () => void;
+}) {
   const user = useSessionStore((state) => state.user);
   const logout = useLogout();
   const router = useRouter();
@@ -28,7 +36,7 @@ export function UserMenu({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        className="hover:bg-ink/6 focus-visible:outline-accent flex min-h-12 w-full items-center gap-3 rounded-xl px-2.5 text-left outline-none focus-visible:outline-2"
+        className="hover:bg-ink/6 focus-visible:outline-accent flex min-h-12 w-full items-center gap-3 overflow-hidden rounded-xl px-1 text-left whitespace-nowrap outline-none focus-visible:outline-2 focus-visible:-outline-offset-2"
         aria-label="Account menu"
       >
         <span
@@ -37,15 +45,20 @@ export function UserMenu({ onNavigate }: { onNavigate?: () => void }) {
         >
           {initials(user.name)}
         </span>
-        <span className="min-w-0 flex-1">
+        <span
+          className={cn(
+            "min-w-0 flex-1 transition-opacity motion-reduce:transition-none",
+            collapsed ? "opacity-0 duration-100" : "opacity-100 delay-100 duration-200",
+          )}
+        >
           <span className="block truncate font-medium">{user.name}</span>
           <span className="text-muted block truncate text-sm">{user.email}</span>
         </span>
       </DropdownMenuTrigger>
       <DropdownMenuContent
-        side="top"
-        align="start"
-        className="w-(--radix-dropdown-menu-trigger-width)"
+        side={collapsed ? "right" : "top"}
+        align={collapsed ? "end" : "start"}
+        className={collapsed ? "w-60" : "w-(--radix-dropdown-menu-trigger-width)"}
       >
         <DropdownMenuItem
           onSelect={() => {
