@@ -429,6 +429,12 @@ sequenceDiagram
   - Prompt caching is on, reasoning models run at the lowest effort, replies are short by instruction, and speech starts on the first sentence.
   - Every reply's end-of-turn, model first token, first audio, and total delay are saved in `voice_turns`, and p50 and p95 per session in `voice_sessions`.
 - Speech: ElevenLabs directly when `ELEVENLABS_API_KEY` is set (Scribe v2 Realtime and Flash v2.5; also the only path for users' own voices), otherwise the same models through the AI gateway (`apps/voice/src/speech/gateway-*.ts`, the AI SDK's streaming speech).
+- Voices: six ElevenLabs default voices, chosen in Settings → Voice (`users.voice_preference`), and on paid plans with ElevenLabs set up, the user's own voice (`user_voices`):
+  - The user agrees, then reads a passage ending in a one-time code (signed with HMAC, valid ten minutes).
+  - The API transcribes the recording (ElevenLabs Scribe), checks that the code words were said in order and that there are at least 15 seconds of speech, and only then creates an Instant Voice Clone. The recording isn't stored.
+  - Recording again replaces the voice, deleting removes it at ElevenLabs too, and both are in the audit log (`voice.added`, `voice.removed`).
+  - The API puts the provider voice ID on each session; the agent speaks with it (a cloned voice only through ElevenLabs directly, so without that key the default voice speaks). Previews come from ElevenLabs, or the gateway's speech for stock voices.
+  - Endpoints under `…/voice/voices`: `GET`, `PUT selected`, `POST challenge`, `POST` (the recording as the body), `DELETE :voiceId`, `GET :voiceId/preview`.
 - The model is the session's (the picker's choice, or the registry's `voice` default), with the same plan check as chat. The spend cap is checked before every reply; a capped user hears why and the call ends. Calls end at `VOICE_MAX_SESSION_MINUTES`.
 - What's said goes into the chat (`messages.voice_session_id` marks it), the first thing said names a new chat, and the memory job runs when the call ends. Usage rows (feature `voice`) cover model tokens, transcribed minutes, and spoken characters.
 - The agent finds a session's owner through `app.voice_session_owner` (security definer, open sessions only) and does everything else as that user, so row-level security applies to it like to the API.

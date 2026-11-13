@@ -23,6 +23,8 @@ import { SessionsSection } from "@/components/settings/sessions-section";
 import { SignInMethodsSection } from "@/components/settings/sign-in-methods-section";
 import { TwoFactorSection } from "@/components/settings/two-factor-section";
 import { UsageSection } from "@/components/settings/usage-section";
+import { VoiceSection } from "@/components/settings/voice-section";
+import { useVoiceStatus } from "@tessel/api-client/react";
 import { useChangePassword, useResendEmailVerification, useUpdateProfile } from "@/hooks/use-auth";
 import { useCurrentWorkspace } from "@/hooks/use-current-workspace";
 import { applyApiError } from "@/lib/form-errors";
@@ -318,6 +320,21 @@ function MemorySettings() {
   );
 }
 
+function VoiceSettings() {
+  const { current } = useCurrentWorkspace();
+  const status = useVoiceStatus(current?.id);
+  if (!current || !status.data?.available) return null;
+  return (
+    <Section
+      id="voice"
+      title="Voice"
+      description="The voice Tessel speaks with when you talk in voice mode."
+    >
+      <VoiceSection workspaceId={current.id} />
+    </Section>
+  );
+}
+
 function AccessTokenSettings() {
   const { current } = useCurrentWorkspace();
   if (!current) return null;
@@ -397,6 +414,7 @@ export default function SettingsPage() {
         <AppearanceSettings />
         <WorkspaceSection />
         <MemorySettings />
+        <VoiceSettings />
         <PlanSettings />
         <UsageSettings />
         <AccessTokenSettings />

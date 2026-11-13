@@ -1,5 +1,11 @@
-import { voiceSessionParamsSchema, workspaceParamsSchema } from "@tessel/contracts";
-import { Router, type Request, type RequestHandler } from "express";
+import {
+  ownVoiceParamsSchema,
+  voicePreviewParamsSchema,
+  voiceSessionParamsSchema,
+  workspaceParamsSchema,
+} from "@tessel/contracts";
+import express, { Router, type Request, type RequestHandler } from "express";
+import { errors } from "../../lib/errors";
 import { getAuth } from "../../middleware/require-auth";
 import {
   createRateLimiter,
@@ -8,6 +14,17 @@ import {
   type RateLimitStoreFactory,
 } from "../../middleware/rate-limit";
 import type { Actor, VoiceService } from "./voice.service";
+import type { VoicesService } from "./voices.service";
+
+/** Recordings browsers make (MediaRecorder) or people upload. */
+const RECORDING_TYPES = new Set([
+  "audio/webm",
+  "audio/ogg",
+  "audio/mp4",
+  "audio/mpeg",
+  "audio/wav",
+  "audio/x-wav",
+]);
 
 function actorFor(req: Request): Actor {
   const { workspaceId } = workspaceParamsSchema.parse(req.params);
@@ -17,11 +34,13 @@ function actorFor(req: Request): Actor {
 /** Routes under /workspaces/:workspaceId/voice. */
 export function createVoiceRouter({
   service,
+  voices,
   authenticate,
   rateLimit,
   storeFactory,
 }: {
   service: VoiceService;
+  voices: VoicesService;
   authenticate: RequestHandler;
   rateLimit: RateLimitRule;
   storeFactory?: RateLimitStoreFactory | undefined;
@@ -43,6 +62,60 @@ export function createVoiceRouter({
     const { sessionId } = voiceSessionParamsSchema.parse(req.params);
     await service.end(actorFor(req), sessionId);
     res.status(204).end();
+  });
+
+  // The voices Tessel speaks with, including the user's own.
+  const voiceLimiter = createRateLimiter({
+    name: "voices",
+    ...rateLimit,
+    storeFactory,
+    key: userKey,
+  });
+  router.get("/voices", async (req, res) => {
+    res.json(await voices.list(actorFor(req)));
+  });
+  router.put("/voices/selected", async (req, res) => {
+    await voices.select(actorFor(req), req.body);
+    res.status(204).end();
+  });
+  router.post("/voices/challenge", voiceLimiter, async (req, res) => {
+    res.json(await voices.challenge(actorFor(req)));
+  });
+  router.post(
+    "/voices",
+    voiceLimiter,
+    express.raw({ type: [...RECORDING_TYPES], limit: "12mb" }),
+    async (req, res) => {
+      const mediaType = (req.headers["content-type"] ?? "").split(";")[0]!.trim().toLowerCase();
+      if (!RECORDING_TYPES.has(mediaType) || !Buffer.isBuffer(req.body) || req.body.length === 0) {
+        throw errors.badRequest("voice_recording_missing", "Send the recording as audio.");
+      }
+      const token = req.headers["x-voice-challenge"];
+      if (typeof token !== "string" || !token) {
+        throw errors.badRequest("voice_challenge_invalid", "This recording session isn't valid.");
+      }
+      const name = typeof req.query.name === "string" ? req.query.name : "";
+      res
+        .status(201)
+        .json(
+          await voices.create(
+            { ...actorFor(req), ipAddress: req.ip },
+            { token, name, audio: req.body, mediaType },
+          ),
+        );
+    },
+  );
+  router.delete("/voices/:voiceId", async (req, res) => {
+    const { voiceId } = ownVoiceParamsSchema.parse(req.params);
+    await voices.remove({ ...actorFor(req), ipAddress: req.ip }, voiceId);
+    res.status(204).end();
+  });
+  router.get("/voices/:voiceId/preview", voiceLimiter, async (req, res) => {
+    const { voiceId } = voicePreviewParamsSchema.parse(req.params);
+    const audio = await voices.preview(actorFor(req), voiceId);
+    res.setHeader("Content-Type", "audio/mpeg");
+    res.setHeader("Cache-Control", "private, max-age=86400");
+    res.end(audio);
   });
   return router;
 }
