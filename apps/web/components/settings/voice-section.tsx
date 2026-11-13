@@ -130,18 +130,23 @@ export function VoiceSection({ workspaceId }: { workspaceId: string }) {
   const [recording, setRecording] = useState(false);
   const [deleting, setDeleting] = useState<VoiceOption>();
   const [error, setError] = useState<string>();
+  // The choice shows at once, before the server confirms it.
+  const [choosing, setChoosing] = useState<string>();
 
   if (voices.isPending) return <Spinner label="Loading voices" />;
   if (voices.isError) return <FormError message="Voices couldn't load. Refresh to try again." />;
 
-  const { voices: options, selectedId, ownVoice } = voices.data;
+  const { voices: options, ownVoice } = voices.data;
+  const selectedId = choosing ?? voices.data.selectedId;
   const stock = options.filter((voice) => voice.kind === "stock");
   const own = options.filter((voice) => voice.kind === "own");
 
   const select = (voiceId: string) => {
     setError(undefined);
+    setChoosing(voiceId);
     actions.select.mutate(voiceId, {
       onError: () => setError("Your choice couldn't be saved. Try again."),
+      onSettled: () => setChoosing(undefined),
     });
   };
 
