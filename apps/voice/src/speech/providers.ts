@@ -1,4 +1,5 @@
 import type { stt, tts } from "@livekit/agents";
+import { STOCK_VOICES } from "@tessel/contracts";
 import * as elevenlabs from "@livekit/agents-plugin-elevenlabs";
 import { createGateway } from "ai";
 import type { Env } from "../env";
@@ -32,8 +33,9 @@ export function createSpeechProviders(
     | "VOICE_ELEVENLABS_TTS_MODEL"
     | "VOICE_DEFAULT_VOICE_ID"
   >,
-  { voiceId = env.VOICE_DEFAULT_VOICE_ID }: { voiceId?: string | undefined } = {},
+  { voiceId: requested }: { voiceId?: string | null | undefined } = {},
 ): SpeechProviders {
+  let voiceId = requested ?? env.VOICE_DEFAULT_VOICE_ID;
   if (env.ELEVENLABS_API_KEY) {
     return {
       provider: "elevenlabs",
@@ -55,6 +57,9 @@ export function createSpeechProviders(
   if (!env.AI_GATEWAY_API_KEY) {
     throw new Error("Voice needs ELEVENLABS_API_KEY or AI_GATEWAY_API_KEY for speech");
   }
+  // A user's own voice lives in our ElevenLabs account; the gateway can only speak stock voices.
+  if (!STOCK_VOICES.some((voice) => voice.providerId === voiceId))
+    voiceId = env.VOICE_DEFAULT_VOICE_ID;
   const gateway = createGateway({ apiKey: env.AI_GATEWAY_API_KEY });
   return {
     provider: "gateway",

@@ -56,6 +56,8 @@ import { createMemoryRouter } from "./modules/memory/memory.routes";
 import type { VoiceRooms } from "./modules/voice/livekit";
 import { createVoiceRouter } from "./modules/voice/voice.routes";
 import { createVoiceService } from "./modules/voice/voice.service";
+import type { VoiceCloning } from "./modules/voice/elevenlabs";
+import { createVoicesService } from "./modules/voice/voices.service";
 import { createMemoryService, type MemoryQueue } from "./modules/memory/memory.service";
 import { createGraphRouter } from "./modules/graph/graph.routes";
 import { createGraphService } from "./modules/graph/graph.service";
@@ -129,8 +131,16 @@ export interface AppDependencies {
   };
   /** MCP connectors: the catalog, credential encryption, and OAuth redirects. */
   connectors: ConnectorsSettings;
-  /** Voice mode: LiveKit rooms, and the longest one conversation can run. Off without rooms. */
-  voice?: { rooms?: VoiceRooms | undefined; maxSessionMinutes: number };
+  /**
+   * Voice mode: LiveKit rooms, and the longest one conversation can run (off
+   * without rooms); ElevenLabs for users' own voices; and a speaker for previews.
+   */
+  voice?: {
+    rooms?: VoiceRooms | undefined;
+    maxSessionMinutes: number;
+    cloning?: VoiceCloning | undefined;
+    speak?: ((providerVoiceId: string, text: string) => Promise<Buffer>) | undefined;
+  };
   /** Rate limit storage per limiter. Defaults to in-memory (single instance only). */
   rateLimitStoreFactory?: RateLimitStoreFactory;
   /** Override for tests, which use cheaper hashing settings. */
@@ -494,6 +504,15 @@ export function createApp({
     "/workspaces/:workspaceId/memory",
     createMemoryRouter({ service: memoryService, authenticate }),
   );
+  const voicesService = createVoicesService({
+    db,
+    cloning: voice.cloning,
+    speak: voice.speak,
+    limits: usageLimits,
+    audit,
+    logger,
+    secret: config.auth.accessTokenSecret,
+  });
   app.use(
     "/workspaces/:workspaceId/voice",
     createVoiceRouter({
@@ -502,9 +521,11 @@ export function createApp({
         ai,
         rooms: voice.rooms,
         limits: usageLimits,
+        voices: voicesService,
         logger,
         maxSessionMinutes: voice.maxSessionMinutes,
       }),
+      voices: voicesService,
       authenticate,
       rateLimit: config.rateLimits.ai,
       storeFactory: rateLimitStoreFactory,

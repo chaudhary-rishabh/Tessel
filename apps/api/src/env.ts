@@ -93,6 +93,10 @@ export const envSchema = z
     LIVEKIT_PUBLIC_URL: optional,
     LIVEKIT_API_KEY: optional,
     LIVEKIT_API_SECRET: optional,
+    /** ElevenLabs, for users' own voices (cloning) and voice previews. Optional. */
+    ELEVENLABS_API_KEY: optional,
+    /** Voice previews through the AI gateway when there's no ElevenLabs key. */
+    VOICE_GATEWAY_TTS_MODEL: z.string().min(1).default("elevenlabs/eleven-flash-v2.5"),
     /** The longest one voice conversation can run. */
     VOICE_MAX_SESSION_MINUTES: z.coerce.number().int().positive().default(30),
     ...aiEnvShape,

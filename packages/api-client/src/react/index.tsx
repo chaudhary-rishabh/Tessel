@@ -1,6 +1,8 @@
 "use client";
 
 import type {
+  VoiceList,
+  VoiceOption,
   AssignableRole,
   CreateInvitationRequest,
   Invitation,
@@ -85,6 +87,7 @@ export const queryKeys = {
     ["workspaces", workspaceId, "threads", threadId] as const,
   usage: (workspaceId: string, days: number) => ["workspaces", workspaceId, "usage", days] as const,
   voiceStatus: (workspaceId: string) => ["workspaces", workspaceId, "voice", "status"] as const,
+  voices: (workspaceId: string) => ["workspaces", workspaceId, "voice", "voices"] as const,
 };
 
 type QueryOptions<T> = Omit<UseQueryOptions<T, ApiClientError>, "queryKey" | "queryFn">;
@@ -164,6 +167,44 @@ export function useVoiceStatus(workspaceId: string | undefined) {
     enabled: Boolean(workspaceId),
     staleTime: 10 * 60_000,
   });
+}
+
+/** The voices Tessel can speak with in this workspace, and the user's choice. */
+export function useVoices(workspaceId: string | undefined) {
+  const api = useApi();
+  return useQuery({
+    queryKey: queryKeys.voices(workspaceId ?? "none"),
+    queryFn: () => api.voice.voices(workspaceId!),
+    enabled: Boolean(workspaceId),
+  });
+}
+
+export function useVoiceActions(workspaceId: string) {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  const refresh = () => queryClient.invalidateQueries({ queryKey: queryKeys.voices(workspaceId) });
+  return {
+    select: useMutation<void, ApiClientError, string>({
+      mutationFn: (voiceId) => api.voice.selectVoice(workspaceId, voiceId),
+      onMutate: (voiceId) => {
+        // Show the choice at once; the refresh confirms it.
+        queryClient.setQueryData<VoiceList>(queryKeys.voices(workspaceId), (list) =>
+          list ? { ...list, selectedId: voiceId } : list,
+        );
+      },
+      onSettled: refresh,
+    }),
+    add: useMutation<VoiceOption, ApiClientError, { token: string; name: string; recording: Blob }>(
+      {
+        mutationFn: (input) => api.voice.addVoice(workspaceId, input),
+        onSuccess: refresh,
+      },
+    ),
+    remove: useMutation<void, ApiClientError, string>({
+      mutationFn: (ownVoiceId) => api.voice.removeVoice(workspaceId, ownVoiceId),
+      onSuccess: refresh,
+    }),
+  };
 }
 
 export function useUsage(

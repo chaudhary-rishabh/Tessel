@@ -1,4 +1,5 @@
 import { aiEnvShape } from "@tessel/ai";
+import { STOCK_VOICES } from "@tessel/contracts";
 import { loadEnvFiles, logLevelSchema, nodeEnvSchema, parseEnv } from "@tessel/config/env";
 import { z } from "zod";
 
@@ -36,7 +37,7 @@ export const envSchema = z
     /** ElevenLabs text-to-speech model when calling ElevenLabs directly. */
     VOICE_ELEVENLABS_TTS_MODEL: z.string().min(1).default("eleven_flash_v2_5"),
     /** The voice the agent speaks with unless the user picked another. */
-    VOICE_DEFAULT_VOICE_ID: z.string().min(1).default("hpp4J3VqNfWAUOO0d1Us"),
+    VOICE_DEFAULT_VOICE_ID: z.string().min(1).default(STOCK_VOICES[0].providerId),
 
     /** The shortest pause, after speech, that can end a turn. Lower is snappier but cuts in more. */
     VOICE_ENDPOINTING_MIN_MS: z.coerce.number().int().nonnegative().default(250),

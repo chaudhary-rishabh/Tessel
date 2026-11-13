@@ -35,6 +35,8 @@ export const users = pgTable("users", {
   phone: text("phone").unique(),
   phoneVerifiedAt: timestamp("phone_verified_at", { withTimezone: true }),
   role: userRole("role").notNull().default("user"),
+  /** The voice Tessel speaks with in voice mode: "stock:<id>" or "own:<user_voices.id>". */
+  voicePreference: text("voice_preference"),
   /** Set by an admin: the account can't sign in, and its tokens stop working. */
   suspendedAt: timestamp("suspended_at", { withTimezone: true }),
   lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
