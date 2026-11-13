@@ -323,6 +323,15 @@ flowchart TB
 - Stages stream as `activity` events and are saved on the reply (`messages.activity`, with `messages.agent_mode`). The interface shows them in a panel above the tool calls.
 - Finished replies are moderated before they're saved; a blocked reply becomes an error (`reply_blocked`).
 
+## Workspace policies
+
+- `workspace_policies` (one row per workspace; members read it, owners and admins change it) holds tool policies, blocked connectors, and turned-off built-in skills. `GET`/`PUT /workspaces/:workspaceId/policies`; Settings shows it in team workspaces.
+- Tool policies cover Tessel's own tools (`GOVERNABLE_TOOLS`): "ask" makes a tool wait for approval, "allow" lets it run without asking, "block" leaves it out of the agent's tools. Connector tools keep each connection's own settings.
+- A blocked connector (by catalog ID, or name for custom servers) can't be connected, and existing connections to it drop out of the agent's tools.
+- Owners and admins can turn built-in skills off for the workspace (`PATCH …/skills/builtin:<name>` with `{ enabled }`).
+- **Skill files.** A workspace skill can carry up to 20 text files of up to 100 KB (`skill_files`; moderated like the skill). A loaded skill lists them, and `read_skill_file` reads one. `PUT …/skills/:id/files`, `GET …/files/content?path=`, `DELETE …/files?path=`.
+- **Shared connectors.** An owner or admin can set up a connector for everyone (`shared`), with its credentials; members' agents use it, but only its creator changes it (row-level security lets members read shared rows).
+
 ## Skills
 
 - A skill is a name, a description of when to use it, and instructions. Built-in skills are code in `@tessel/ai` (`builtInSkills`); workspace skills are rows in `skills`.

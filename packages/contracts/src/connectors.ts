@@ -34,12 +34,20 @@ export const connectorConnectionSchema = z.object({
   lastError: z.string().nullable(),
   enabled: z.boolean(),
   tools: z.array(connectorToolSchema),
+  /** Set up by an owner or admin for everyone in the workspace. */
+  shared: z.boolean().default(false),
+  /** Whether the signed-in user set it up (and so can change it). */
+  mine: z.boolean().default(true),
   createdAt: z.iso.datetime(),
 });
 
 export const connectorListResponseSchema = z.object({
   catalog: z.array(connectorCatalogEntrySchema),
   connections: z.array(connectorConnectionSchema),
+  /** Connectors the workspace's owners and admins have blocked, by catalog ID or name. */
+  blocked: z.array(z.string()).default([]),
+  /** Whether the signed-in user can share connectors with the workspace. */
+  canShare: z.boolean().default(false),
 });
 
 export const createConnectionRequestSchema = z
@@ -50,6 +58,8 @@ export const createConnectionRequestSchema = z
     serverUrl: z.string().trim().max(500).optional(),
     auth: connectorAuthSchema.optional(),
     token: z.string().trim().min(1, "Paste a token").max(4_000).optional(),
+    /** For everyone in the workspace, with these credentials (owners and admins). */
+    shared: z.boolean().optional(),
   })
   .refine((value) => value.catalogId || value.serverUrl, {
     message: "Pick an app or enter a server URL",
@@ -67,6 +77,7 @@ export const updateConnectionRequestSchema = z
     enabled: z.boolean(),
     toolPolicies: z.record(z.string().max(200), toolPolicySchema),
     token: z.string().trim().min(1).max(4_000),
+    shared: z.boolean(),
   })
   .partial();
 

@@ -13,6 +13,7 @@ import {
   type ConnectorConnectionRow,
   type Database,
   type Transaction,
+  workspacePolicies,
 } from "@tessel/db";
 import type { Logger } from "@tessel/logger";
 import {
@@ -30,7 +31,7 @@ import {
   type SecretBox,
   type ToolPolicy,
 } from "@tessel/mcp";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, or, sql } from "drizzle-orm";
 import { noAudit, type AuditRecorder } from "../../lib/audit";
 import { errors } from "../../lib/errors";
 import { workspacesRepository } from "../workspaces/workspaces.repository";
@@ -56,8 +57,10 @@ export interface ConnectorsSettings {
 /** How long an app sign-in can take, from start to callback. */
 export const CONNECTOR_STATE_TTL_MS = 10 * 60_000;
 
-function toConnection(row: ConnectorConnectionRow): ConnectorConnection {
+function toConnection(row: ConnectorConnectionRow, userId?: string): ConnectorConnection {
   return {
+    shared: row.shared,
+    mine: userId === undefined || row.userId === userId,
     id: row.id,
     catalogId: row.catalogId,
     name: row.name,
@@ -116,7 +119,26 @@ export function createConnectorsService({
   async function membership(tx: Transaction, actor: Actor) {
     const workspace = await workspacesRepository.findForUser(tx, actor.workspaceId, actor.userId);
     if (!workspace) throw errors.notFound("Workspace not found");
+    return workspace;
   }
+
+  /** Connectors the workspace's owners and admins have blocked. */
+  async function blockedIn(tx: Transaction, workspaceId: string): Promise<string[]> {
+    const [row] = await tx
+      .select({ blocked: workspacePolicies.blockedConnectors })
+      .from(workspacePolicies)
+      .where(eq(workspacePolicies.workspaceId, workspaceId));
+    return row?.blocked ?? [];
+  }
+  const isBlocked = (blocked: string[], row: { catalogId: string | null; name: string }) =>
+    blocked.includes(row.catalogId ?? "") || blocked.includes(row.name);
+  const canShare = (role: string) => role === "owner" || role === "admin";
+  /** The user's own connectors, and the ones shared with the workspace. */
+  const visible = (actor: Actor) =>
+    and(
+      eq(connectorConnections.workspaceId, actor.workspaceId),
+      or(eq(connectorConnections.userId, actor.userId), eq(connectorConnections.shared, true)),
+    );
 
   async function find(tx: Transaction, actor: Actor, connectionId: string) {
     const [row] = await tx
@@ -234,20 +256,17 @@ export function createConnectorsService({
   return {
     async list(actor: Actor): Promise<ConnectorListResponse> {
       return withUserContext(db, actor.userId, async (tx) => {
-        await membership(tx, actor);
+        const workspace = await membership(tx, actor);
         const rows = await tx
           .select()
           .from(connectorConnections)
-          .where(
-            and(
-              eq(connectorConnections.workspaceId, actor.workspaceId),
-              eq(connectorConnections.userId, actor.userId),
-            ),
-          )
+          .where(visible(actor))
           .orderBy(asc(connectorConnections.createdAt));
         return {
           catalog: settings.catalog.map(({ url: _url, staticClient: _client, ...entry }) => entry),
-          connections: rows.map(toConnection),
+          connections: rows.map((row) => toConnection(row, actor.userId)),
+          blocked: await blockedIn(tx, actor.workspaceId),
+          canShare: canShare(workspace.role),
         };
       });
     },
@@ -271,10 +290,26 @@ export function createConnectorsService({
         auth === "token" ? { type: "token", token: request.token! } : { type: auth };
 
       const row = await withUserContext(db, actor.userId, async (tx) => {
-        await membership(tx, actor);
+        const workspace = await membership(tx, actor);
+        const name = entry?.name ?? request.name ?? new URL(serverUrl).hostname;
+        if (
+          isBlocked(await blockedIn(tx, actor.workspaceId), { catalogId: entry?.id ?? null, name })
+        ) {
+          throw errors.forbidden(
+            "This workspace's admins have blocked this connector",
+            "connector_blocked",
+          );
+        }
+        if (request.shared && !canShare(workspace.role)) {
+          throw errors.forbidden(
+            "Only owners and admins can share connectors",
+            "connector_share_forbidden",
+          );
+        }
         const [inserted] = await tx
           .insert(connectorConnections)
           .values({
+            shared: request.shared ?? false,
             workspaceId: actor.workspaceId,
             userId: actor.userId,
             catalogId: entry?.id ?? null,
@@ -387,8 +422,14 @@ export function createConnectorsService({
     async update(actor: Actor, connectionId: string, input: unknown): Promise<ConnectorConnection> {
       const request = updateConnectionRequestSchema.parse(input);
       const row = await withUserContext(db, actor.userId, async (tx) => {
-        await membership(tx, actor);
+        const workspace = await membership(tx, actor);
         const current = await find(tx, actor, connectionId);
+        if (request.shared && !canShare(workspace.role)) {
+          throw errors.forbidden(
+            "Only owners and admins can share connectors",
+            "connector_share_forbidden",
+          );
+        }
         if (request.token && current.auth !== "token") {
           throw errors.badRequest("token_not_used", "This connector doesn't sign in with a token");
         }
@@ -396,6 +437,7 @@ export function createConnectorsService({
           .update(connectorConnections)
           .set({
             ...(request.enabled !== undefined ? { enabled: request.enabled } : {}),
+            ...(request.shared !== undefined ? { shared: request.shared } : {}),
             ...(request.toolPolicies
               ? { toolPolicies: { ...current.toolPolicies, ...request.toolPolicies } }
               : {}),
@@ -428,20 +470,24 @@ export function createConnectorsService({
     async forAgent(
       actor: Actor,
     ): Promise<{ tools: ToolDefinition[]; names: string[]; close(): Promise<void> }> {
-      const rows = await withUserContext(db, actor.userId, (tx) =>
-        tx
+      const rows = await withUserContext(db, actor.userId, async (tx) => {
+        const blocked = await blockedIn(tx, actor.workspaceId);
+        const found = await tx
           .select()
           .from(connectorConnections)
           .where(
             and(
-              eq(connectorConnections.workspaceId, actor.workspaceId),
-              eq(connectorConnections.userId, actor.userId),
+              visible(actor),
               eq(connectorConnections.enabled, true),
               eq(connectorConnections.status, "connected"),
             ),
           )
-          .orderBy(asc(connectorConnections.createdAt)),
-      );
+          .orderBy(asc(connectorConnections.createdAt));
+        // Blocked connectors are left out; the user's own come before shared ones of the same app.
+        return found
+          .filter((row) => !isBlocked(blocked, row))
+          .sort((a, b) => Number(b.userId === actor.userId) - Number(a.userId === actor.userId));
+      });
       const clients = new Map<string, Promise<ConnectorClient>>();
       const taken = new Set<string>();
       const tools = rows.flatMap((row) =>

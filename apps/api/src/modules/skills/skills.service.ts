@@ -1,13 +1,18 @@
 import { builtInSkills, skillName, type Ai, type SkillDefinition } from "@tessel/ai";
 import {
+  MAX_SKILL_FILE_BYTES,
+  MAX_SKILL_FILES,
+  skillFileRequestSchema,
   createSkillRequestSchema,
   updateSkillRequestSchema,
   type Skill,
   type WorkspaceRole,
 } from "@tessel/contracts";
 import {
+  skillFiles,
   skills,
   users,
+  workspacePolicies,
   withUserContext,
   type Database,
   type SkillRow,
@@ -30,7 +35,7 @@ const canEdit = (role: WorkspaceRole, authorId: string, userId: string) =>
 /** Built-in names are reserved, so a workspace skill never shadows one. */
 const RESERVED = new Set(builtInSkills.map((skill) => skill.name));
 
-function builtIn(skill: SkillDefinition): Skill {
+function builtIn(skill: SkillDefinition, enabled = true, canToggle = false): Skill {
   return {
     id: `builtin:${skill.name}`,
     name: skill.name,
@@ -38,9 +43,11 @@ function builtIn(skill: SkillDefinition): Skill {
     description: skill.description,
     instructions: skill.instructions,
     builtIn: true,
-    enabled: true,
+    enabled,
+    files: [],
     author: null,
-    canEdit: false,
+    // Owners and admins can turn a built-in skill on or off, but not change it.
+    canEdit: canToggle,
     updatedAt: null,
   };
 }
@@ -57,6 +64,14 @@ export function createSkillsService({ db, ai }: { db: Database; ai: Ai }) {
     return workspace;
   }
 
+  async function disabledBuiltIns(tx: Transaction, workspaceId: string): Promise<Set<string>> {
+    const [row] = await tx
+      .select({ disabled: workspacePolicies.disabledSkills })
+      .from(workspacePolicies)
+      .where(eq(workspacePolicies.workspaceId, workspaceId));
+    return new Set(row?.disabled ?? []);
+  }
+
   async function rows(tx: Transaction, workspaceId: string) {
     return tx
       .select({ skill: skills, authorName: users.name })
@@ -66,12 +81,31 @@ export function createSkillsService({ db, ai }: { db: Database; ai: Ai }) {
       .orderBy(asc(skills.title));
   }
 
+  /** Each skill's files in a workspace, by skill. */
+  async function filesBySkill(tx: Transaction, workspaceId: string) {
+    const files = await tx
+      .select()
+      .from(skillFiles)
+      .where(eq(skillFiles.workspaceId, workspaceId))
+      .orderBy(asc(skillFiles.path));
+    const map = new Map<string, { path: string; content: string }[]>();
+    for (const file of files) {
+      map.set(file.skillId, [
+        ...(map.get(file.skillId) ?? []),
+        { path: file.path, content: file.content },
+      ]);
+    }
+    return map;
+  }
+
   const toSkill = (
     row: SkillRow,
     authorName: string,
     role: WorkspaceRole,
     userId: string,
+    files: { path: string; content: string }[] = [],
   ): Skill => ({
+    files: files.map((file) => ({ path: file.path, sizeBytes: Buffer.byteLength(file.content) })),
     id: row.id,
     name: row.name,
     title: row.title,
@@ -114,26 +148,141 @@ export function createSkillsService({ db, ai }: { db: Database; ai: Ai }) {
   const taken = () =>
     errors.conflict("skill_name_taken", "Another skill in this workspace has this name");
 
+  /** Owners and admins turn built-in skills on or off for the workspace; nothing else changes. */
+  async function toggleBuiltIn(
+    actor: Actor,
+    name: string,
+    request: { enabled?: boolean | undefined; title?: string | undefined },
+  ): Promise<Skill> {
+    const skill = builtInSkills.find((item) => item.name === name);
+    if (!skill) throw errors.notFound("Skill not found");
+    if (request.enabled === undefined || Object.keys(request).length > 1) {
+      throw errors.badRequest("built_in_skill", "Built-in skills can only be turned on or off");
+    }
+    return withUserContext(db, actor.userId, async (tx) => {
+      const workspace = await membership(tx, actor);
+      if (workspace.role !== "owner" && workspace.role !== "admin") {
+        throw errors.forbidden("Only owners and admins can turn built-in skills on or off");
+      }
+      const disabled = await disabledBuiltIns(tx, actor.workspaceId);
+      if (request.enabled) disabled.delete(name);
+      else disabled.add(name);
+      const value = [...disabled];
+      await tx
+        .insert(workspacePolicies)
+        .values({ workspaceId: actor.workspaceId, disabledSkills: value, updatedBy: actor.userId })
+        .onConflictDoUpdate({
+          target: workspacePolicies.workspaceId,
+          set: { disabledSkills: value, updatedBy: actor.userId },
+        });
+      return builtIn(skill, request.enabled!, true);
+    });
+  }
+
+  /** A workspace skill the user can change (author, owners, admins). */
+  async function editableSkill(tx: Transaction, actor: Actor, skillId: string) {
+    const workspace = await membership(tx, actor);
+    const [current] = await tx
+      .select()
+      .from(skills)
+      .where(and(eq(skills.id, skillId), eq(skills.workspaceId, actor.workspaceId)));
+    if (!current) throw errors.notFound("Skill not found");
+    if (!canEdit(workspace.role, current.userId, actor.userId)) {
+      throw errors.forbidden("Only the author, owners, and admins can change this skill");
+    }
+    return current;
+  }
+
   return {
+    /** Adds a file to a skill, or replaces the one at that path. The text is moderated. */
+    async putFile(
+      actor: Actor,
+      skillId: string,
+      input: unknown,
+    ): Promise<{ path: string; sizeBytes: number }> {
+      const { path, content } = skillFileRequestSchema.parse(input);
+      const sizeBytes = Buffer.byteLength(content);
+      if (sizeBytes > MAX_SKILL_FILE_BYTES) {
+        throw errors.badRequest("file_too_large", "Skill files can be up to 100 KB");
+      }
+      await withUserContext(db, actor.userId, (tx) => editableSkill(tx, actor, skillId));
+      await moderate(actor, content);
+      await withUserContext(db, actor.userId, async (tx) => {
+        await editableSkill(tx, actor, skillId);
+        const existing = await tx
+          .select({ path: skillFiles.path })
+          .from(skillFiles)
+          .where(eq(skillFiles.skillId, skillId));
+        if (!existing.some((file) => file.path === path) && existing.length >= MAX_SKILL_FILES) {
+          throw errors.badRequest(
+            "too_many_files",
+            `A skill can have up to ${MAX_SKILL_FILES} files`,
+          );
+        }
+        await tx
+          .insert(skillFiles)
+          .values({ skillId, workspaceId: actor.workspaceId, path, content })
+          .onConflictDoUpdate({ target: [skillFiles.skillId, skillFiles.path], set: { content } });
+      });
+      return { path, sizeBytes };
+    },
+
+    async readFile(actor: Actor, skillId: string, path: string) {
+      const [file] = await withUserContext(db, actor.userId, async (tx) => {
+        await membership(tx, actor);
+        return tx
+          .select()
+          .from(skillFiles)
+          .where(
+            and(
+              eq(skillFiles.skillId, skillId),
+              eq(skillFiles.workspaceId, actor.workspaceId),
+              eq(skillFiles.path, path),
+            ),
+          );
+      });
+      if (!file) throw errors.notFound("File not found");
+      return { path: file.path, content: file.content };
+    },
+
+    async removeFile(actor: Actor, skillId: string, path: string): Promise<void> {
+      const removed = await withUserContext(db, actor.userId, async (tx) => {
+        await editableSkill(tx, actor, skillId);
+        return tx
+          .delete(skillFiles)
+          .where(and(eq(skillFiles.skillId, skillId), eq(skillFiles.path, path)))
+          .returning({ id: skillFiles.id });
+      });
+      if (removed.length === 0) throw errors.notFound("File not found");
+    },
+
     async list(actor: Actor): Promise<Skill[]> {
       return withUserContext(db, actor.userId, async (tx) => {
         const workspace = await membership(tx, actor);
+        const files = await filesBySkill(tx, actor.workspaceId);
         const own = (await rows(tx, actor.workspaceId)).map(({ skill, authorName }) =>
-          toSkill(skill, authorName, workspace.role, actor.userId),
+          toSkill(skill, authorName, workspace.role, actor.userId, files.get(skill.id)),
         );
-        return [...own, ...builtInSkills.map(builtIn)];
+        const disabled = await disabledBuiltIns(tx, actor.workspaceId);
+        const admin = workspace.role === "owner" || workspace.role === "admin";
+        return [
+          ...own,
+          ...builtInSkills.map((skill) => builtIn(skill, !disabled.has(skill.name), admin)),
+        ];
       });
     },
 
     /** The skills the agent may load in this workspace. */
     async forAgent(actor: Actor): Promise<SkillDefinition[]> {
-      const own = await withUserContext(db, actor.userId, (tx) =>
-        tx
+      const { own, disabled, files } = await withUserContext(db, actor.userId, async (tx) => ({
+        files: await filesBySkill(tx, actor.workspaceId),
+        own: await tx
           .select()
           .from(skills)
           .where(and(eq(skills.workspaceId, actor.workspaceId), eq(skills.enabled, true)))
           .orderBy(asc(skills.title)),
-      );
+        disabled: await disabledBuiltIns(tx, actor.workspaceId),
+      }));
       return [
         ...own.map((row) => ({
           name: row.name,
@@ -141,8 +290,9 @@ export function createSkillsService({ db, ai }: { db: Database; ai: Ai }) {
           description: row.description,
           instructions: row.instructions,
           builtIn: false,
+          files: files.get(row.id) ?? [],
         })),
-        ...builtInSkills,
+        ...builtInSkills.filter((skill) => !disabled.has(skill.name)),
       ];
     },
 
@@ -173,6 +323,7 @@ export function createSkillsService({ db, ai }: { db: Database; ai: Ai }) {
 
     async update(actor: Actor, skillId: string, input: unknown): Promise<Skill> {
       const request = updateSkillRequestSchema.parse(input);
+      if (skillId.startsWith("builtin:")) return toggleBuiltIn(actor, skillId.slice(8), request);
       const text = [request.title, request.description, request.instructions]
         .filter(Boolean)
         .join("\n");
@@ -212,6 +363,9 @@ export function createSkillsService({ db, ai }: { db: Database; ai: Ai }) {
     },
 
     async remove(actor: Actor, skillId: string): Promise<void> {
+      if (skillId.startsWith("builtin:")) {
+        throw errors.badRequest("built_in_skill", "Built-in skills can be turned off, not deleted");
+      }
       await withUserContext(db, actor.userId, async (tx) => {
         const workspace = await membership(tx, actor);
         const [current] = await tx

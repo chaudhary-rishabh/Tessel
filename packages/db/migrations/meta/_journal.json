@@ -204,6 +204,20 @@
       "when": 1794609119596,
       "tag": "0028_reply_versions",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1794609685303,
+      "tag": "0029_workspace_policies",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1794610348302,
+      "tag": "0030_skill_files",
+      "breakpoints": true
     }
   ]
 }

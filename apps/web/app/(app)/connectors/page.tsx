@@ -158,7 +158,14 @@ function ConnectionRow({
           <Plug className="size-5" aria-hidden="true" />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="font-medium">{connection.name}</p>
+          <p className="font-medium">
+            {connection.name}
+            {connection.shared ? (
+              <span className="bg-accent/10 text-ink ml-2 rounded-full px-2 py-0.5 align-middle text-xs font-normal">
+                {connection.mine ? "Shared with everyone" : "Shared by your admins"}
+              </span>
+            ) : null}
+          </p>
           <p className="text-muted truncate text-xs">{host}</p>
           <p className={cn("mt-0.5 text-sm", status.tone)}>
             {refresh.isPending ? "Checking…" : status.label}
@@ -167,49 +174,58 @@ function ConnectionRow({
             ) : null}
           </p>
         </div>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={on}
-          aria-label={`Use ${connection.name}`}
-          disabled={update.isPending || connection.status !== "connected"}
-          onClick={() =>
-            update.mutate({ connectionId: connection.id, input: { enabled: !connection.enabled } })
-          }
-          className={cn(
-            "focus-visible:outline-accent relative mt-2 h-6 w-10 shrink-0 rounded-full transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-50 motion-reduce:transition-none",
-            on ? "bg-accent" : "bg-line",
-          )}
-        >
-          <span
-            className={cn(
-              "bg-surface absolute top-0.5 left-0.5 size-5 rounded-full shadow transition-transform motion-reduce:transition-none",
-              on && "translate-x-4",
-            )}
-          />
-        </button>
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            aria-label={`Options for ${connection.name}`}
-            className="text-muted hover:text-ink hover:bg-ink/6 focus-visible:outline-accent flex size-10 shrink-0 items-center justify-center rounded-lg focus-visible:outline-2"
-          >
-            <Ellipsis className="size-4" aria-hidden="true" />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="min-w-44">
-            <DropdownMenuItem onSelect={() => void checkAgain()}>
-              <RotateCw className="size-4" aria-hidden="true" />
-              {connection.status === "connected" ? "Check again" : "Reconnect"}
-            </DropdownMenuItem>
-            <DropdownMenuItem className="text-danger" onSelect={onDisconnect}>
-              <Trash2 className="size-4" aria-hidden="true" />
-              Disconnect
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        {connection.mine ? (
+          <>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={on}
+              aria-label={`Use ${connection.name}`}
+              disabled={update.isPending || connection.status !== "connected"}
+              onClick={() =>
+                update.mutate({
+                  connectionId: connection.id,
+                  input: { enabled: !connection.enabled },
+                })
+              }
+              className={cn(
+                "focus-visible:outline-accent relative mt-2 h-6 w-10 shrink-0 rounded-full transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-50 motion-reduce:transition-none",
+                on ? "bg-accent" : "bg-line",
+              )}
+            >
+              <span
+                className={cn(
+                  "bg-surface absolute top-0.5 left-0.5 size-5 rounded-full shadow transition-transform motion-reduce:transition-none",
+                  on && "translate-x-4",
+                )}
+              />
+            </button>
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                aria-label={`Options for ${connection.name}`}
+                className="text-muted hover:text-ink hover:bg-ink/6 focus-visible:outline-accent flex size-10 shrink-0 items-center justify-center rounded-lg focus-visible:outline-2"
+              >
+                <Ellipsis className="size-4" aria-hidden="true" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="min-w-44">
+                <DropdownMenuItem onSelect={() => void checkAgain()}>
+                  <RotateCw className="size-4" aria-hidden="true" />
+                  {connection.status === "connected" ? "Check again" : "Reconnect"}
+                </DropdownMenuItem>
+                <DropdownMenuItem className="text-danger" onSelect={onDisconnect}>
+                  <Trash2 className="size-4" aria-hidden="true" />
+                  Disconnect
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </>
+        ) : null}
       </div>
-      <div className="pl-13">
-        <ToolSettings workspaceId={workspaceId} connection={connection} />
-      </div>
+      {connection.mine ? (
+        <div className="pl-13">
+          <ToolSettings workspaceId={workspaceId} connection={connection} />
+        </div>
+      ) : null}
     </li>
   );
 }
@@ -314,7 +330,9 @@ export default function ConnectorsPage() {
                     <p className="font-medium">{entry.name}</p>
                     <p className="text-muted text-sm">{entry.description}</p>
                   </div>
-                  {connectedIds.has(entry.id) ? (
+                  {connectors.data.blocked.includes(entry.id) ? (
+                    <span className="text-muted text-sm">Blocked by your admins</span>
+                  ) : connectedIds.has(entry.id) ? (
                     <span className="text-muted text-sm">Connected</span>
                   ) : (
                     <Button
@@ -335,6 +353,7 @@ export default function ConnectorsPage() {
       {connecting ? (
         <ConnectDialog
           workspaceId={current.id}
+          canShare={connectors.data?.canShare ?? false}
           {...(connecting === "custom" ? {} : { entry: connecting })}
           onClose={() => setConnecting(undefined)}
         />

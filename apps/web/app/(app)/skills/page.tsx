@@ -99,7 +99,17 @@ function SkillRow({
         <Instructions skill={skill} />
       </div>
       {skill.builtIn ? (
-        <span className="text-muted shrink-0 pt-0.5 text-xs">Built in</span>
+        skill.canEdit ? (
+          // Owners and admins can turn a built-in skill off for the workspace.
+          <div className="flex shrink-0 items-center gap-2">
+            <span className="text-muted text-xs">Built in</span>
+            <EnabledSwitch workspaceId={workspaceId} skill={skill} />
+          </div>
+        ) : (
+          <span className="text-muted shrink-0 pt-0.5 text-xs">
+            {skill.enabled ? "Built in" : "Built in, turned off"}
+          </span>
+        )
       ) : (
         <div className="flex shrink-0 items-center gap-1">
           <EnabledSwitch workspaceId={workspaceId} skill={skill} />

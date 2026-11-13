@@ -18,6 +18,7 @@ import { AppearanceSection } from "@/components/settings/appearance-section";
 import { ConnectedAppsSection } from "@/components/settings/connected-apps-section";
 import { DeleteWorkspace } from "@/components/settings/delete-workspace";
 import { MemorySection } from "@/components/settings/memory-section";
+import { PoliciesSection } from "@/components/settings/policies-section";
 import { BillingReturnNotice, PlanSection } from "@/components/settings/plan-section";
 import { SessionsSection } from "@/components/settings/sessions-section";
 import { SignInMethodsSection } from "@/components/settings/sign-in-methods-section";
@@ -335,6 +336,20 @@ function VoiceSettings() {
   );
 }
 
+function PolicySettings() {
+  const { current } = useCurrentWorkspace();
+  if (!current || current.isPersonal) return null;
+  return (
+    <Section
+      id="policies"
+      title="Workspace policies"
+      description="How the agent may use tools and connectors, for everyone in this workspace."
+    >
+      <PoliciesSection workspaceId={current.id} />
+    </Section>
+  );
+}
+
 function AccessTokenSettings() {
   const { current } = useCurrentWorkspace();
   if (!current) return null;
@@ -415,6 +430,7 @@ export default function SettingsPage() {
         <WorkspaceSection />
         <MemorySettings />
         <VoiceSettings />
+        <PolicySettings />
         <PlanSettings />
         <UsageSettings />
         <AccessTokenSettings />

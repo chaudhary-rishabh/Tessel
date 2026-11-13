@@ -4,6 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useCreateSkill, useUpdateSkill } from "@tessel/api-client/react";
 import { createSkillRequestSchema, type CreateSkillRequest, type Skill } from "@tessel/contracts";
 import { Button, cn, Dialog, DialogClose, DialogContent, TextField } from "@tessel/ui";
+import { SkillFiles } from "./skill-files";
 import { useId } from "react";
 import { useForm } from "react-hook-form";
 import { FormError } from "@/components/form-error";
@@ -95,6 +96,7 @@ export function SkillEditor({
               </p>
             ) : null}
           </div>
+          {skill ? <SkillFiles workspaceId={workspaceId} skill={skill} /> : null}
           <div className="flex justify-end gap-2">
             <DialogClose asChild>
               <Button type="button" variant="ghost">
