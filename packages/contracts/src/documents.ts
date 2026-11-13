@@ -1,6 +1,35 @@
 import { z } from "zod";
 
 export const MAX_DOCUMENT_BYTES = 50 * 1024 * 1024;
+/** Recordings are transcribed, so they can be bigger: about two hours of video. */
+export const MAX_RECORDING_BYTES = 500 * 1024 * 1024;
+
+/** Audio and video, which are transcribed into text, by extension. */
+export const RECORDING_TYPES = {
+  mp3: "audio/mpeg",
+  m4a: "audio/mp4",
+  wav: "audio/wav",
+  ogg: "audio/ogg",
+  oga: "audio/ogg",
+  flac: "audio/flac",
+  aac: "audio/aac",
+  opus: "audio/opus",
+  mp4: "video/mp4",
+  m4v: "video/mp4",
+  mov: "video/quicktime",
+  webm: "video/webm",
+  mkv: "video/x-matroska",
+} as const;
+
+/** Whether a stored media type is a recording to transcribe. */
+export const isRecording = (mediaType: string) =>
+  mediaType.startsWith("audio/") || mediaType.startsWith("video/");
+
+/** The largest upload allowed for a file name. */
+export function maxUploadBytes(filename: string): number {
+  const extension = filename.split(".").pop()?.toLowerCase() ?? "";
+  return Object.hasOwn(RECORDING_TYPES, extension) ? MAX_RECORDING_BYTES : MAX_DOCUMENT_BYTES;
+}
 
 /** File types the ingestion pipeline can read, by extension. */
 export const DOCUMENT_TYPES = {
@@ -13,6 +42,7 @@ export const DOCUMENT_TYPES = {
   json: "application/json",
   html: "text/html",
   htm: "text/html",
+  ...RECORDING_TYPES,
 } as const;
 
 export const documentStatusSchema = z.enum([
@@ -39,22 +69,32 @@ export const documentSchema = z.object({
 
 export const documentListResponseSchema = z.object({ documents: z.array(documentSchema) });
 
-export const createDocumentRequestSchema = z.object({
-  filename: z
-    .string()
-    .trim()
-    .min(1)
-    .max(200)
-    .refine((name) => {
-      const extension = name.split(".").pop()?.toLowerCase() ?? "";
-      return name.includes(".") && Object.hasOwn(DOCUMENT_TYPES, extension);
-    }, "Upload a PDF, Word (.docx), text, Markdown, CSV, JSON, or HTML file"),
-  sizeBytes: z
-    .number()
-    .int()
-    .min(1, "The file is empty")
-    .max(MAX_DOCUMENT_BYTES, "Files can be up to 50 MB"),
-});
+export const createDocumentRequestSchema = z
+  .object({
+    filename: z
+      .string()
+      .trim()
+      .min(1)
+      .max(200)
+      .refine((name) => {
+        const extension = name.split(".").pop()?.toLowerCase() ?? "";
+        return name.includes(".") && Object.hasOwn(DOCUMENT_TYPES, extension);
+      }, "Upload a PDF, Word (.docx), text, Markdown, CSV, JSON, or HTML file, or an audio or video recording"),
+    sizeBytes: z.number().int().min(1, "The file is empty"),
+  })
+  .superRefine(({ filename, sizeBytes }, ctx) => {
+    const max = maxUploadBytes(filename);
+    if (sizeBytes > max) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["sizeBytes"],
+        message:
+          max === MAX_RECORDING_BYTES
+            ? "Recordings can be up to 500 MB"
+            : "Files can be up to 50 MB",
+      });
+    }
+  });
 
 export const presignedUploadSchema = z.object({
   url: z.url(),

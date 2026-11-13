@@ -467,6 +467,13 @@ sequenceDiagram
 - The worker checks the operation (`experimental_getVideoStatus`) every `VIDEO_POLL_MS`. While it's running, the row's progress moves toward 95% (providers don't report progress) and the job queues itself again. When it's done, the clip is saved to S3 and the row marked `ready`, with its cost recorded as feature `video`. Errors and anything over 15 minutes are marked `failed`.
 - The reply and the gallery show the video's progress (they poll the item while it's pending), then a player with download.
 
+## Recordings
+
+- Audio (MP3, M4A, WAV, OGG, FLAC, AAC, Opus) and video (MP4, MOV, WebM, MKV) upload to Documents like any file, up to 500 MB, and are transcribed instead of parsed.
+- The worker turns the recording into small mono speech audio with ffmpeg (16 kHz MP3, about 15 MB an hour; the worker image installs ffmpeg) and sends it to the gateway's transcription model (`AI_TRANSCRIPTION_MODEL`, default `elevenlabs/scribe-v2`). Without ffmpeg, the file goes as it is.
+- The transcript is saved as the document's text in paragraphs of about a minute, each starting with its time ("[1:05] …"), then chunked, embedded, and indexed like any document. Search hits and citations quote the time, so an answer says where in the recording it came from.
+- Transcription counts toward the uploader's daily caps and is recorded as feature `transcription` (minutes × `AI_TRANSCRIPTION_USD_PER_MINUTE`). Failures the user can act on mark the document failed with `transcription_failed` or `transcription_unavailable`.
+
 ## Caching
 
 | Layer          | Where                     | Key                                                  | Lifetime                        |

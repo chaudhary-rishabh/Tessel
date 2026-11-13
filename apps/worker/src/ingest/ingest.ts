@@ -1,11 +1,19 @@
-import { AiError, chunkSections, sparseVector, type Ai, type VectorIndex } from "@tessel/ai";
-import { MAX_DOCUMENT_BYTES } from "@tessel/contracts";
+import {
+  AiError,
+  chunkSections,
+  sparseVector,
+  type Ai,
+  type Transcriber,
+  type VectorIndex,
+} from "@tessel/ai";
+import { isRecording, MAX_RECORDING_BYTES, maxUploadBytes } from "@tessel/contracts";
 import { extractGraph, graphWindows, type GraphExtraction, type GraphStore } from "@tessel/graph";
 import type { Logger } from "@tessel/logger";
 import type { IngestJobData } from "@tessel/queue";
 import { storageKeys, type ObjectStore } from "@tessel/storage";
-import { IngestError, parseDocument } from "./parse";
+import { IngestError, parseDocument, type ParsedDocument } from "./parse";
 import type { DocumentStore } from "./store";
+import { speechAudio, transcriptSections } from "./transcribe";
 
 /** About 500 pages of dense text. Larger documents need a summary-first pipeline. */
 export const MAX_CHARACTERS = 2_000_000;
@@ -18,6 +26,53 @@ export interface IngestDependencies {
   logger: Logger;
   /** The knowledge graph; without it, documents are only indexed for search. */
   graph?: GraphStore | undefined;
+  /** Turns audio and video into text; without it, recordings can't be added. */
+  transcriber?: Transcriber | undefined;
+}
+
+/**
+ * A recording's text: its speech, transcribed with timings. Counts toward
+ * the uploader's daily caps and is recorded as feature "transcription".
+ */
+async function transcribeRecording(
+  { ai, transcriber, logger }: Pick<IngestDependencies, "ai" | "transcriber" | "logger">,
+  owner: { userId: string; workspaceId: string },
+  bytes: Buffer,
+): Promise<ParsedDocument> {
+  if (!transcriber) {
+    throw new IngestError("transcription_unavailable", "Transcribing recordings isn't set up");
+  }
+  await ai.spend.assertWithinBudget(owner);
+  const { audio, converted } = await speechAudio(bytes);
+  if (!converted) logger.warn("ffmpeg couldn't convert a recording; sending it as it is");
+  const startedAt = Date.now();
+  let transcript;
+  try {
+    transcript = await transcriber.transcribe(audio);
+  } catch (error) {
+    logger.warn({ err: error }, "Transcription failed");
+    throw new IngestError(
+      "transcription_failed",
+      "This recording couldn't be transcribed. Check that it has speech and plays",
+    );
+  }
+  await ai.tracker.record({
+    ...owner,
+    requestId: null,
+    feature: "transcription",
+    route: "gateway",
+    modelId: transcriber.modelId,
+    inputTokens: 0,
+    outputTokens: 0,
+    cachedInputTokens: 0,
+    reasoningTokens: 0,
+    estimated: false,
+    status: "ok",
+    errorCode: null,
+    costNanoUsd: transcriber.costNanoUsd(transcript.durationSeconds),
+    latencyMs: Date.now() - startedAt,
+  });
+  return { sections: transcriptSections(transcript), pageCount: null };
 }
 
 export type IngestOutcome = "ready" | "failed" | "skipped";
@@ -33,7 +88,7 @@ export type IngestOutcome = "ready" | "failed" | "skipped";
  * `isLastAttempt` marks the document failed before the final throw.
  */
 export async function ingestDocument(
-  { store, objects, index, ai, logger, graph }: IngestDependencies,
+  { store, objects, index, ai, logger, graph, transcriber }: IngestDependencies,
   { workspaceId, documentId }: IngestJobData,
   { isLastAttempt }: { isLastAttempt: boolean },
 ): Promise<IngestOutcome> {
@@ -46,10 +101,18 @@ export async function ingestDocument(
   try {
     const object = await objects.head(document.storageKey);
     if (!object) throw new IngestError("file_missing", "The uploaded file couldn't be found");
-    if (object.size > MAX_DOCUMENT_BYTES)
-      throw new IngestError("file_too_large", "Files can be up to 50 MB");
+    const max = maxUploadBytes(document.filename);
+    if (object.size > max) {
+      throw new IngestError(
+        "file_too_large",
+        max === MAX_RECORDING_BYTES ? "Recordings can be up to 500 MB" : "Files can be up to 50 MB",
+      );
+    }
 
-    const parsed = await parseDocument(await objects.get(document.storageKey), document.mediaType);
+    const bytes = await objects.get(document.storageKey);
+    const parsed = isRecording(document.mediaType)
+      ? await transcribeRecording({ ai, transcriber, logger: log }, { userId, workspaceId }, bytes)
+      : await parseDocument(bytes, document.mediaType);
     const characterCount = parsed.sections.reduce(
       (total, section) => total + section.text.length,
       0,
@@ -61,7 +124,9 @@ export async function ingestDocument(
     if (chunks.length === 0) {
       throw new IngestError(
         "no_text",
-        "No text was found. Scanned documents need text recognition, which isn't supported yet",
+        isRecording(document.mediaType)
+          ? "No speech was found in this recording"
+          : "No text was found. Scanned documents need text recognition, which isn't supported yet",
       );
     }
     await objects.put(

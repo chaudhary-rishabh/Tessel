@@ -3,7 +3,7 @@
 import { toApiClientError } from "@tessel/api-client";
 
 import { useApi, useDeleteDocument, useReprocessDocument } from "@tessel/api-client/react";
-import type { DocumentSummary } from "@tessel/contracts";
+import { isRecording, type DocumentSummary } from "@tessel/contracts";
 import {
   Button,
   cn,
@@ -16,7 +16,16 @@ import {
   DropdownMenuTrigger,
   Spinner,
 } from "@tessel/ui";
-import { CircleAlert, Download, Ellipsis, FileText, RotateCw, Trash2 } from "lucide-react";
+import {
+  AudioLines,
+  CircleAlert,
+  Download,
+  Ellipsis,
+  FileText,
+  RotateCw,
+  Trash2,
+  Video,
+} from "lucide-react";
 import { useState } from "react";
 import { FormError } from "@/components/form-error";
 import { documentErrorMessage } from "@/lib/document-errors";
@@ -52,7 +61,9 @@ function Status({ document }: { document: DocumentSummary }) {
         <span className="text-muted flex items-center gap-1.5">
           <Spinner className="size-3.5" label="" />
           {document.status === "processing"
-            ? "Indexing"
+            ? isRecording(document.mediaType)
+              ? "Transcribing"
+              : "Indexing"
             : document.status === "queued"
               ? "Waiting to index"
               : "Uploading"}
@@ -89,7 +100,13 @@ export function DocumentList({
         {documents.map((document) => (
           <li key={document.id} className="flex items-start gap-3 py-3.5">
             <div className="bg-paper text-muted flex size-10 shrink-0 items-center justify-center rounded-lg">
-              <FileText className="size-5" aria-hidden="true" />
+              {document.mediaType.startsWith("video/") ? (
+                <Video className="size-5" aria-hidden="true" />
+              ) : document.mediaType.startsWith("audio/") ? (
+                <AudioLines className="size-5" aria-hidden="true" />
+              ) : (
+                <FileText className="size-5" aria-hidden="true" />
+              )}
             </div>
             <div className="min-w-0 flex-1 text-sm">
               <p className="truncate font-medium">{document.filename}</p>

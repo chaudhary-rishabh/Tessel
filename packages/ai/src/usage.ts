@@ -16,7 +16,8 @@ export type UsageFeature =
   | "graph"
   | "voice"
   | "image"
-  | "video";
+  | "video"
+  | "transcription";
 
 /** Who a model call is for. Always taken from the session, never from model output. */
 export interface AiCallContext {

@@ -55,7 +55,8 @@ node_service() {
 }
 
 node_service api @tessel/api dist/server.mjs
-node_service worker @tessel/worker dist/worker.mjs
+# The worker turns uploaded recordings into small speech audio with ffmpeg before transcribing.
+node_service worker @tessel/worker dist/worker.mjs --build-arg SYSTEM_PACKAGES=ffmpeg
 node_service mcp-server @tessel/mcp-server dist/server.mjs
 node_service migrate @tessel/db dist/migrate.mjs
 # The voice agent's native audio libraries (WebRTC, on-device turn detection) need glibc.

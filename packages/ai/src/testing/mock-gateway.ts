@@ -29,6 +29,8 @@ import { MOCK_VIDEO_MP4_BASE64 } from "./mock-video";
  * Images (the AI SDK's /image-model): a solid PNG whose colour comes from
  * the prompt, sized by the aspect ratio; edits (with source images) come out
  * inverted. MOCK_IMAGE_FAIL in the prompt fails the request.
+ * Transcription (/transcription-model): a short meeting transcript with timed
+ * segments, or the audio's own text after "MOCK_TRANSCRIPT:" if it has some.
  * Videos (/video-model/start and /status): pending for the first two status
  * checks, then a one-second clip; MOCK_VIDEO_FAIL in the prompt ends in an error.
  * Artifacts: MOCK_ARTIFACT writes an HTML page, MOCK_ARTIFACT_V2 a second
@@ -435,6 +437,30 @@ function mockImage(body: Record<string, unknown>): { status: number; body: unkno
   };
 }
 
+export const MOCK_TRANSCRIPT_SEGMENTS = [
+  { text: "Welcome to the weekly product review.", startSecond: 0, endSecond: 4.2 },
+  { text: "The headline: the mobile launch moves to May 14th.", startSecond: 31, endSecond: 36.5 },
+  { text: "Priya owns the release notes, due Friday.", startSecond: 75, endSecond: 79 },
+];
+
+function mockTranscription(body: Record<string, unknown>): { status: number; body: unknown } {
+  const audio = Buffer.from(String(body.audio ?? ""), "base64").toString("latin1");
+  const own = /MOCK_TRANSCRIPT: ([^\0]+)/.exec(audio)?.[1]?.trim();
+  if (audio.includes("MOCK_TRANSCRIBE_FAIL")) {
+    return { status: 400, body: { error: { message: "Mock transcription failure" } } };
+  }
+  const segments = own ? [{ text: own, startSecond: 0, endSecond: 5 }] : MOCK_TRANSCRIPT_SEGMENTS;
+  return {
+    status: 200,
+    body: {
+      text: segments.map((segment) => segment.text).join(" "),
+      segments,
+      language: "en",
+      durationInSeconds: segments.at(-1)!.endSecond,
+    },
+  };
+}
+
 /** Video operations by ID: the prompt and how many times they were checked. */
 const videoOperations = new Map<string, { prompt: string; checks: number }>();
 
@@ -474,6 +500,11 @@ export async function startMockGateway({ port = 0 }: { port?: number } = {}): Pr
 
       if (req.method === "GET" && path.endsWith("/health"))
         return sendJson(res, 200, { status: "ok" });
+
+      if (path.endsWith("/transcription-model")) {
+        const transcript = mockTranscription(body);
+        return sendJson(res, transcript.status, transcript.body);
+      }
 
       if (path.includes("/video-model/")) {
         const video = mockVideo(path, body);
