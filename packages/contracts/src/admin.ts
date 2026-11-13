@@ -151,3 +151,36 @@ export type AdminModels = z.infer<typeof adminModelsSchema>;
 export type AdminModelsResponse = z.infer<typeof adminModelsResponseSchema>;
 export type AdminUsageResponse = z.infer<typeof adminUsageResponseSchema>;
 export type AdminAuditQuery = z.input<typeof adminAuditQuerySchema>;
+
+/** The voice latency target: from the end of the user's speech to Tessel's first sound. */
+export const VOICE_LATENCY_TARGET_MS = 600;
+
+/** Voice conversations' speed, for the admin app. Latencies are in milliseconds. */
+export const adminVoiceResponseSchema = z.object({
+  targetMs: z.number().int(),
+  sessions: z.number().int(),
+  turns: z.number().int(),
+  userAudioMinutes: z.number(),
+  p50Ms: z.number().int().nullable(),
+  p95Ms: z.number().int().nullable(),
+  /** Share of replies within the target, preemptively drafted, and interrupted. */
+  withinTarget: z.number(),
+  preemptive: z.number(),
+  interrupted: z.number(),
+  /** Median time spent in each stage. */
+  stages: z.object({
+    endOfTurnMs: z.number().int().nullable(),
+    modelFirstTokenMs: z.number().int().nullable(),
+    firstAudioMs: z.number().int().nullable(),
+  }),
+  days: z.array(
+    z.object({
+      day: z.string(),
+      turns: z.number().int(),
+      sessions: z.number().int(),
+      p50Ms: z.number().int(),
+      p95Ms: z.number().int(),
+    }),
+  ),
+});
+export type AdminVoiceResponse = z.infer<typeof adminVoiceResponseSchema>;

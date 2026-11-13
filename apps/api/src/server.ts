@@ -23,7 +23,11 @@ import { RedisStore } from "rate-limit-redis";
 import { createApp } from "./app";
 import { createLiveKitRooms } from "./modules/voice/livekit";
 import { createElevenLabs } from "./modules/voice/elevenlabs";
-import { createGateway, experimental_generateSpeech as generateSpeech } from "ai";
+import {
+  createGateway,
+  experimental_generateSpeech as generateSpeech,
+  experimental_transcribe as transcribeAudio,
+} from "ai";
 import { createOutboxMailer, createSesMailer } from "./lib/mailer";
 import { createOutboxSms, createSnsSms } from "./lib/sms";
 import { createSocialProviders } from "./modules/auth/social-providers";
@@ -200,6 +204,19 @@ const speakPreview = voiceCloning
       }
     : undefined;
 
+// Dictation: ElevenLabs Scribe directly, or the same model through the gateway.
+const gatewayTranscriber = env.AI_GATEWAY_API_KEY
+  ? createGateway({ apiKey: env.AI_GATEWAY_API_KEY }).transcription("elevenlabs/scribe-v2")
+  : undefined;
+const transcribe = voiceCloning
+  ? voiceCloning.transcribe
+  : gatewayTranscriber
+    ? async (audio: Buffer) => {
+        const result = await transcribeAudio({ model: gatewayTranscriber, audio });
+        return { text: result.text, seconds: result.durationInSeconds ?? 0 };
+      }
+    : undefined;
+
 const app = createApp({
   models: registry,
   voice: {
@@ -207,6 +224,11 @@ const app = createApp({
     maxSessionMinutes: env.VOICE_MAX_SESSION_MINUTES,
     cloning: voiceCloning,
     speak: speakPreview,
+    transcribe,
+    rates: {
+      sttUsdPerMinute: env.VOICE_STT_USD_PER_MINUTE,
+      ttsUsdPer1kChars: env.VOICE_TTS_USD_PER_1K_CHARS,
+    },
   },
   payments: paymentsFromEnv(),
   config,

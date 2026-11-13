@@ -58,6 +58,7 @@ import { createVoiceRouter } from "./modules/voice/voice.routes";
 import { createVoiceService } from "./modules/voice/voice.service";
 import type { VoiceCloning } from "./modules/voice/elevenlabs";
 import { createVoicesService } from "./modules/voice/voices.service";
+import { createSpeechService } from "./modules/voice/speech.service";
 import { createMemoryService, type MemoryQueue } from "./modules/memory/memory.service";
 import { createGraphRouter } from "./modules/graph/graph.routes";
 import { createGraphService } from "./modules/graph/graph.service";
@@ -140,6 +141,11 @@ export interface AppDependencies {
     maxSessionMinutes: number;
     cloning?: VoiceCloning | undefined;
     speak?: ((providerVoiceId: string, text: string) => Promise<Buffer>) | undefined;
+    /** Batch speech to text, for dictation. */
+    transcribe?:
+      | ((audio: Buffer, mediaType: string) => Promise<{ text: string; seconds: number }>)
+      | undefined;
+    rates?: { sttUsdPerMinute: number; ttsUsdPer1kChars: number } | undefined;
   };
   /** Rate limit storage per limiter. Defaults to in-memory (single instance only). */
   rateLimitStoreFactory?: RateLimitStoreFactory;
@@ -526,6 +532,15 @@ export function createApp({
         maxSessionMinutes: voice.maxSessionMinutes,
       }),
       voices: voicesService,
+      speech: createSpeechService({
+        db,
+        ai,
+        voices: voicesService,
+        speak: voice.speak,
+        transcribe: voice.transcribe,
+        rates: voice.rates ?? { sttUsdPerMinute: 0.0037, ttsUsdPer1kChars: 0.04 },
+        logger,
+      }),
       authenticate,
       rateLimit: config.rateLimits.ai,
       storeFactory: rateLimitStoreFactory,

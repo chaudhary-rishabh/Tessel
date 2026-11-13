@@ -362,6 +362,9 @@ importers:
       '@tessel/logger':
         specifier: workspace:*
         version: link:../../packages/logger
+      '@tessel/memory':
+        specifier: workspace:*
+        version: link:../../packages/memory
       '@tessel/queue':
         specifier: workspace:*
         version: link:../../packages/queue

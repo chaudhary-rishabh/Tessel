@@ -14,8 +14,12 @@ export const voiceSessionParamsSchema = z.object({
   sessionId: z.uuid(),
 });
 
-/** Whether this server offers voice (LiveKit and a model provider are set up). */
-export const voiceStatusSchema = z.object({ available: z.boolean() });
+/** What this server offers: voice conversations (LiveKit), replies read aloud, and dictation. */
+export const voiceStatusSchema = z.object({
+  available: z.boolean(),
+  readAloud: z.boolean().default(false),
+  dictation: z.boolean().default(false),
+});
 export type VoiceStatus = z.infer<typeof voiceStatusSchema>;
 
 /** Everything the browser needs to join the conversation. */

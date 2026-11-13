@@ -8,6 +8,8 @@ import {
   adminModelsResponseSchema,
   adminOverviewSchema,
   adminUsageResponseSchema,
+  adminVoiceResponseSchema,
+  type AdminVoiceResponse,
   adminUserDetailSchema,
   adminUserListResponseSchema,
   type AdminAuditQuery,
@@ -327,6 +329,11 @@ export function createApi(client: ApiClient) {
         parse(adminModelsResponseSchema, (await http.get("/admin/models")).data),
       saveModels: async (models: AdminModels): Promise<AdminModelsResponse> =>
         parse(adminModelsResponseSchema, (await http.put("/admin/models", models)).data),
+      voice: async (days: number): Promise<AdminVoiceResponse> =>
+        parse(
+          adminVoiceResponseSchema,
+          (await http.get("/admin/voice", { params: { days } })).data,
+        ),
       usage: async (days: number): Promise<AdminUsageResponse> =>
         parse(
           adminUsageResponseSchema,
@@ -657,6 +664,25 @@ export function createApi(client: ApiClient) {
       removeVoice: async (workspaceId: string, ownVoiceId: string): Promise<void> => {
         await http.delete(`/workspaces/${workspaceId}/voice/voices/${ownVoiceId}`);
       },
+      /** A reply read aloud in the user's chosen voice, as an MP3. */
+      speak: async (workspaceId: string, messageId: string): Promise<Blob> =>
+        (
+          await http.post(
+            `/workspaces/${workspaceId}/voice/speak`,
+            { messageId },
+            { responseType: "blob", timeout: 60_000 },
+          )
+        ).data as Blob,
+      /** A short recording as text, for the composer. */
+      transcribe: async (workspaceId: string, recording: Blob): Promise<string> =>
+        (
+          (
+            await http.post(`/workspaces/${workspaceId}/voice/transcribe`, recording, {
+              headers: { "Content-Type": recording.type.split(";")[0] || "audio/webm" },
+              timeout: 60_000,
+            })
+          ).data as { text: string }
+        ).text,
       /** A few seconds of a voice, as an MP3. */
       voicePreview: async (workspaceId: string, voiceId: string): Promise<Blob> =>
         (

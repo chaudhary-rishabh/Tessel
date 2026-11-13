@@ -169,6 +169,13 @@
       "when": 1794599284931,
       "tag": "0023_own_voices",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1794600512138,
+      "tag": "0024_voice_latency",
+      "breakpoints": true
     }
   ]
 }

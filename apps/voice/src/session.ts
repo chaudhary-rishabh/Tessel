@@ -2,6 +2,7 @@ import { inference, llm, voice, type JobContext, type metrics, type VAD } from "
 import { CostCapExceededError } from "@tessel/ai";
 import { VOICE_INTERRUPT_RPC, voiceDispatchMetadataSchema } from "@tessel/contracts";
 import { turnTimings, type StageMetrics } from "./latency";
+import { voiceKnowledge } from "./knowledge";
 import { GatewayLLM } from "./model";
 import { voiceInstructions } from "./prompt";
 import type { VoiceRuntime } from "./runtime";
@@ -103,7 +104,7 @@ export async function runVoiceSession(
     ctx.shutdown("session_not_open");
     return undefined;
   }
-  const { session: saved, history } = opened;
+  const { session: saved, history, summary } = opened;
   const log = logger.child({ voiceSessionId: saved.id, threadId: saved.threadId });
 
   const model = registry.get(saved.modelId);
@@ -158,8 +159,11 @@ export async function runVoiceSession(
     session.shutdown({ reason, drain: true });
   };
 
+  const knowledge = await voiceKnowledge(runtime, saved, summary);
+  const instructions = voiceInstructions({ userName: saved.userName });
   const agent = new TesselVoiceAgent({
-    instructions: voiceInstructions({ userName: saved.userName }),
+    instructions: knowledge.prompt ? `${instructions}\n\n${knowledge.prompt}` : instructions,
+    tools: knowledge.tools,
     chatCtx,
     beforeReply: async () => {
       try {
