@@ -37,6 +37,18 @@ export const toolCallSchema = z.object({
   description: z.string().optional(),
   summary: z.string().optional(),
   error: z.string().optional(),
+  /** Media the tool made, shown under the reply. */
+  media: z
+    .array(
+      z.object({
+        kind: z.enum(["image", "video"]),
+        id: z.string(),
+        width: z.number().optional(),
+        height: z.number().optional(),
+        alt: z.string().optional(),
+      }),
+    )
+    .optional(),
 });
 
 export const knowledgeModeSchema = z.enum(["auto", "always", "off"]);

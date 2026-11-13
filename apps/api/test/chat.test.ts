@@ -497,7 +497,10 @@ describe("attachments", () => {
       ChatEvent,
       { type: "done" }
     >;
-    expect(done.message.content).toBe("Echo: What's in this? [1 image]");
+    // The model also gets the image's ID, so it can edit it.
+    expect(done.message.content).toMatch(
+      /^Echo: What's in this\?\s+<attached_image id="[0-9a-f-]{36}" name="[^"]+" \/> \[1 image\]$/,
+    );
 
     const content = await request(app)
       .get(`${base}/attachments/${image.body.id}/content`)

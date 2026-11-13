@@ -451,6 +451,15 @@ sequenceDiagram
 - React components are compiled in the frame with Sucrase; React comes from esm.sh through an import map, other packages from esm.sh sharing that React, and Tailwind's browser build styles them. Mermaid renders with `securityLevel: "strict"`.
 - An `app` artifact is a project of `<file path>` files. Its pages are its HTML files: local stylesheets and classic scripts are inlined, and module scripts go through a loader inside the frame that compiles each file, links relative imports (with or without extensions) as blob URLs, injects imported CSS, and turns JSON and SVG imports into modules. Links to the app's other pages open them in the panel. It downloads as a zip of its files (`fflate`).
 
+## Images
+
+- Chat has two tools when an image model is set up (`AI_IMAGE_MODEL`, through the gateway's AI SDK endpoint `AI_GATEWAY_SDK_URL`): `generate_image` (a prompt and an aspect ratio) and `edit_image` (a change, and the images to change: by ID, or by default the newest image in the chat). Team mode gets a designer worker with both. Image tools may run for up to three minutes.
+- The model knows images by ID: attached images appear in the user's turn as `<attached_image id>`, images a reply made as `<generated_image id>` after it, and "Edit in chat" sends `[image:ID]` at the start of the message (shown as a thumbnail, not text).
+- `media` holds every generated image (and, from step 28, video): owner-only under row-level security, with the prompt, model, source images, size, and cost. The file is in S3 at `workspaces/{workspaceId}/media/{mediaId}/original`, with a 512 px WebP preview beside it (`sharp`). Sources are re-encoded as PNG (at most 2048 px) before they go to the model, and an edit keeps the source's shape unless asked otherwise.
+- Tool calls carry `media` (kind, ID, size, alt text); the reply shows those images under its text, with a placeholder of the right shape while one is made. Images open full screen with download and "Edit in chat".
+- Each generation checks the plan's limits and the daily caps, and is recorded as feature `image` at the gateway's reported cost (or by tokens, or a flat price per image). The gallery's prompts are moderated; in chat the user's message already was.
+- The gallery (`/gallery`, "Images") lists them newest first, makes new ones, edits one into a new image, downloads, and deletes. Endpoints under `/workspaces/:workspaceId/media`: `GET /status`, `GET /`, `POST /images`, `GET /:mediaId`, `GET /:mediaId/content?variant=original|preview`, `DELETE /:mediaId`. Files are served with the user's token and cached as immutable.
+
 ## Caching
 
 | Layer          | Where                     | Key                                                  | Lifetime                        |

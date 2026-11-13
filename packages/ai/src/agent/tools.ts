@@ -10,11 +10,23 @@ export interface ToolRunContext {
   signal: AbortSignal;
 }
 
+/** Media a tool made, shown with the reply (e.g. a generated image). */
+export interface ToolMedia {
+  kind: "image" | "video";
+  id: string;
+  width?: number;
+  height?: number;
+  /** What it shows, for screen readers. */
+  alt?: string;
+}
+
 export interface ToolOutput {
   /** What the model sees. Treated as data, never as instructions. */
   content: string;
   /** A short line for the interface, e.g. "Found 4 passages". */
   summary: string;
+  /** Media to show under the reply. */
+  media?: ToolMedia[];
   /** Extra data for the interface or the caller, e.g. citations. Not shown to the model. */
   artifact?: unknown;
 }
@@ -33,6 +45,8 @@ export interface ToolDefinition<Schema extends z.ZodType = z.ZodType> {
    */
   parameters?: Record<string, unknown>;
   risk: ToolRisk;
+  /** How long one call may run. Defaults to the agent's tool timeout (30 seconds). */
+  timeoutMs?: number;
   /** Shown on the approval card, e.g. "Create travel-notes.md". May look things up. */
   describeCall?: (args: z.infer<Schema>) => string | Promise<string>;
   run(args: z.infer<Schema>, run: ToolRunContext): Promise<ToolOutput>;

@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { Button, cn, Sheet, Tooltip, TooltipProvider } from "@tessel/ui";
 import {
   FileText,
+  Images,
   PanelLeft,
   PanelLeftClose,
   PanelLeftOpen,
@@ -32,6 +33,7 @@ const VoiceMode = dynamic(() => import("./voice/voice-mode").then((module) => mo
 
 const NAV: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/documents", label: "Documents", icon: FileText },
+  { href: "/gallery", label: "Images", icon: Images },
   { href: "/skills", label: "Skills", icon: Sparkles },
   { href: "/connectors", label: "Connectors", icon: Plug },
   { href: "/members", label: "Members", icon: Users },

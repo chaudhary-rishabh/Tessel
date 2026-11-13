@@ -1,6 +1,9 @@
 "use client";
 
 import type {
+  GenerateImageRequest,
+  MediaItem,
+  MediaListResponse,
   VoiceList,
   VoiceOption,
   AssignableRole,
@@ -45,7 +48,7 @@ import {
   type QueryClient,
   type UseQueryOptions,
 } from "@tanstack/react-query";
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, type ReactNode } from "react";
 import type { Api } from "../endpoints";
 import type { ApiClientError } from "../errors";
 
@@ -88,6 +91,10 @@ export const queryKeys = {
   usage: (workspaceId: string, days: number) => ["workspaces", workspaceId, "usage", days] as const,
   voiceStatus: (workspaceId: string) => ["workspaces", workspaceId, "voice", "status"] as const,
   voices: (workspaceId: string) => ["workspaces", workspaceId, "voice", "voices"] as const,
+  mediaStatus: (workspaceId: string) => ["workspaces", workspaceId, "media", "status"] as const,
+  media: (workspaceId: string) => ["workspaces", workspaceId, "media", "list"] as const,
+  mediaFile: (workspaceId: string, mediaId: string, variant: "original" | "preview") =>
+    ["workspaces", workspaceId, "media", "file", mediaId, variant] as const,
 };
 
 type QueryOptions<T> = Omit<UseQueryOptions<T, ApiClientError>, "queryKey" | "queryFn">;
@@ -782,6 +789,101 @@ export function useMemberActions(workspaceId: string) {
         await refresh();
         await queryClient.invalidateQueries({ queryKey: queryKeys.workspaces, exact: true });
       },
+    }),
+  };
+}
+
+export function useMediaStatus(workspaceId: string | undefined) {
+  const api = useApi();
+  return useQuery({
+    queryKey: queryKeys.mediaStatus(workspaceId ?? "none"),
+    queryFn: () => api.media.status(workspaceId!),
+    enabled: Boolean(workspaceId),
+    staleTime: 5 * 60_000,
+  });
+}
+
+/** The user's gallery, newest first, a page at a time. */
+export function useGallery(workspaceId: string | undefined, kind?: "image" | "video") {
+  const api = useApi();
+  return useInfiniteQuery({
+    queryKey: [...queryKeys.media(workspaceId ?? "none"), kind ?? "all"],
+    queryFn: ({ pageParam }) =>
+      api.media.list(workspaceId!, {
+        ...(kind ? { kind } : {}),
+        ...(pageParam ? { before: pageParam } : {}),
+        limit: 24,
+      }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (page: MediaListResponse) => page.nextCursor ?? undefined,
+    enabled: Boolean(workspaceId),
+  });
+}
+
+export function useMediaItem(workspaceId: string | undefined, mediaId: string | undefined) {
+  const api = useApi();
+  return useQuery({
+    queryKey: [...queryKeys.media(workspaceId ?? "none"), "item", mediaId ?? "none"],
+    queryFn: () => api.media.get(workspaceId!, mediaId!),
+    enabled: Boolean(workspaceId && mediaId),
+    staleTime: 60_000,
+  });
+}
+
+/**
+ * A media file as an object URL. Files never change once made, so each is
+ * fetched once and kept while it's shown.
+ */
+export function useMediaUrl(
+  workspaceId: string | undefined,
+  mediaId: string | undefined,
+  variant: "original" | "preview" = "preview",
+) {
+  const api = useApi();
+  const query = useQuery({
+    queryKey: queryKeys.mediaFile(workspaceId ?? "none", mediaId ?? "none", variant),
+    queryFn: () => api.media.blob(workspaceId!, mediaId!, variant),
+    enabled: Boolean(workspaceId && mediaId),
+    staleTime: Infinity,
+    gcTime: 10 * 60_000,
+    retry: 1,
+  });
+  const url = useMemo(
+    () => (query.data ? URL.createObjectURL(query.data) : undefined),
+    [query.data],
+  );
+  // Revoked once it's replaced or unmounted, but a moment later, so Strict
+  // Mode's quick remount (which keeps the same URL) can cancel it.
+  const pendingRevoke = useRef<{ url: string; timer: number } | undefined>(undefined);
+  useEffect(() => {
+    const pending = pendingRevoke.current;
+    if (pending && pending.url === url) {
+      window.clearTimeout(pending.timer);
+      pendingRevoke.current = undefined;
+    }
+    return () => {
+      if (!url) return;
+      pendingRevoke.current = {
+        url,
+        timer: window.setTimeout(() => URL.revokeObjectURL(url), 0),
+      };
+    };
+  }, [url]);
+  return { url, isError: query.isError, isLoading: query.isLoading };
+}
+
+export function useMediaActions(workspaceId: string) {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  const refresh = () => queryClient.invalidateQueries({ queryKey: queryKeys.media(workspaceId) });
+  return {
+    generateImage: useMutation<MediaItem, ApiClientError, GenerateImageRequest>({
+      mutationFn: (input) => api.media.generateImage(workspaceId, input),
+      onSuccess: refresh,
+    }),
+    remove: useMutation<void, ApiClientError, string>({
+      mutationFn: (mediaId) => api.media.remove(workspaceId, mediaId),
+      onSuccess: refresh,
     }),
   };
 }

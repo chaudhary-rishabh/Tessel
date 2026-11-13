@@ -12,7 +12,13 @@ import type { Logger } from "@tessel/logger";
 import type { TesselChatModel } from "../chat-model";
 import { AiError } from "../errors";
 import type { AiCallContext } from "../usage";
-import { needsApproval, ToolError, type ToolDefinition, type ToolRegistry } from "./tools";
+import {
+  needsApproval,
+  ToolError,
+  type ToolDefinition,
+  type ToolMedia,
+  type ToolRegistry,
+} from "./tools";
 
 export type ToolCallStatus =
   "running" | "waiting" | "completed" | "failed" | "rejected" | "cancelled";
@@ -29,6 +35,8 @@ export interface ToolCallRecord {
   description?: string;
   summary?: string;
   error?: string;
+  /** Media the tool made, shown under the reply. */
+  media?: ToolMedia[];
 }
 
 export type AgentEvent = { type: "token"; text: string } | { type: "tool"; call: ToolCallRecord };
@@ -296,7 +304,9 @@ async function execute(
 ): Promise<string> {
   const { emit, signal, context, logger } = options;
   upsert(state, { ...record, status: "running" }, emit);
-  const timeout = AbortSignal.timeout(options.toolTimeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS);
+  const timeout = AbortSignal.timeout(
+    tool.timeoutMs ?? options.toolTimeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS,
+  );
   try {
     const combined = AbortSignal.any([signal, timeout]);
     // A tool that ignores its signal still can't hold the run past the timeout.
@@ -308,7 +318,16 @@ async function execute(
       }),
     ]);
     if (output.artifact !== undefined) options.onArtifact?.(tool.name, output.artifact);
-    upsert(state, { ...record, status: "completed", summary: output.summary }, emit);
+    upsert(
+      state,
+      {
+        ...record,
+        status: "completed",
+        summary: output.summary,
+        ...(output.media?.length ? { media: output.media } : {}),
+      },
+      emit,
+    );
     return output.content;
   } catch (error) {
     if (signal.aborted) throw error;
