@@ -27,6 +27,8 @@ export function createDocumentsRouter({
   router.post("/documents", perUser("documents"), controller.create);
   router.get("/documents/:documentId", controller.get);
   router.post("/documents/:documentId/complete", controller.complete);
+  router.get("/documents/:documentId/parts", controller.uploadedParts);
+  router.post("/documents/:documentId/parts", perUser("documents"), controller.presignParts);
   router.post("/documents/:documentId/reprocess", perUser("documents"), controller.reprocess);
   router.get("/documents/:documentId/download", controller.download);
   router.get("/documents/:documentId/text", controller.text);

@@ -2,7 +2,8 @@
 
 import { useGraph } from "@tessel/api-client/react";
 import type { GraphFactView } from "@tessel/contracts";
-import { Button, Spinner } from "@tessel/ui";
+import { Button, Spinner, cn } from "@tessel/ui";
+import { GraphDiagram } from "./graph-diagram";
 import { ArrowRight, Network } from "lucide-react";
 import { useState, type FormEvent } from "react";
 
@@ -34,6 +35,7 @@ function FactRow({ fact }: { fact: GraphFactView }) {
 export function GraphPanel({ workspaceId }: { workspaceId: string }) {
   const [draft, setDraft] = useState("");
   const [entity, setEntity] = useState("");
+  const [view, setView] = useState<"diagram" | "list">("diagram");
   const overview = useGraph(workspaceId);
   const result = useGraph(workspaceId, entity);
 
@@ -79,14 +81,51 @@ export function GraphPanel({ workspaceId }: { workspaceId: string }) {
               {result.isPending ? (
                 <Spinner label="Finding connections" />
               ) : result.data?.facts.length ? (
-                <ul className="divide-line border-line divide-y border-y" aria-label="Connections">
-                  {result.data.facts.map((fact, index) => (
-                    <FactRow
-                      key={`${fact.source}-${fact.type}-${fact.target}-${index}`}
-                      fact={fact}
+                <>
+                  <div
+                    role="tablist"
+                    aria-label="Show connections as"
+                    className="bg-paper inline-flex rounded-lg p-0.5 text-sm"
+                  >
+                    {(["diagram", "list"] as const).map((option) => (
+                      <button
+                        key={option}
+                        type="button"
+                        role="tab"
+                        aria-selected={view === option}
+                        onClick={() => setView(option)}
+                        className={cn(
+                          "focus-visible:outline-accent rounded-md px-3 py-1 font-medium capitalize focus-visible:outline-2",
+                          view === option ? "bg-surface text-ink shadow-sm" : "text-muted",
+                        )}
+                      >
+                        {option}
+                      </button>
+                    ))}
+                  </div>
+                  {view === "diagram" ? (
+                    <GraphDiagram
+                      centre={entity}
+                      facts={result.data.facts}
+                      onPick={(name) => {
+                        setDraft(name);
+                        setEntity(name);
+                      }}
                     />
-                  ))}
-                </ul>
+                  ) : (
+                    <ul
+                      className="divide-line border-line mt-3 divide-y border-y"
+                      aria-label="Connections"
+                    >
+                      {result.data.facts.map((fact, index) => (
+                        <FactRow
+                          key={`${fact.source}-${fact.type}-${fact.target}-${index}`}
+                          fact={fact}
+                        />
+                      ))}
+                    </ul>
+                  )}
+                </>
               ) : (
                 <p className="text-muted text-sm">
                   No connections found for &ldquo;{entity}&rdquo;.

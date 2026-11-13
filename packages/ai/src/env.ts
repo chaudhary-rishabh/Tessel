@@ -23,6 +23,8 @@ export const aiEnvShape = {
   /** The video model, and what a second of video costs (with sound, at 720p), for the ledger. */
   AI_VIDEO_MODEL: z.string().min(1).default("google/veo-3.1-fast-generate-001"),
   AI_VIDEO_USD_PER_SECOND: z.coerce.number().nonnegative().default(0.15),
+  /** The model that reads scanned PDFs (it must take PDFs), from the model registry. */
+  AI_OCR_MODEL: z.string().min(1).default("google/gemini-3.5-flash-lite"),
   /** The model that transcribes uploaded recordings, and its price per minute for the ledger. */
   AI_TRANSCRIPTION_MODEL: z.string().min(1).default("elevenlabs/scribe-v2"),
   AI_TRANSCRIPTION_USD_PER_MINUTE: z.coerce.number().nonnegative().default(0.0037),

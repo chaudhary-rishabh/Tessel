@@ -33,6 +33,7 @@ import { MOCK_VIDEO_MP4_BASE64 } from "./mock-video";
  * segments, or the audio's own text after "MOCK_TRANSCRIPT:" if it has some.
  * Videos (/video-model/start and /status): pending for the first two status
  * checks, then a one-second clip; MOCK_VIDEO_FAIL in the prompt ends in an error.
+ * Text recognition: a user turn with a PDF file part gets two pages of text.
  * Artifacts: MOCK_ARTIFACT writes an HTML page, MOCK_ARTIFACT_V2 a second
  * version of it, and MOCK_ARTIFACT_REACT a React component.
  */
@@ -313,6 +314,17 @@ function defaultReply(body: Record<string, unknown>): MockReply {
   }
   // Images arrive as content parts; say how many so tests can check they were sent.
   const lastContent = messages.findLast((message) => message.role === "user")?.content;
+  // A PDF to read (text recognition for scanned documents): two pages of "scanned" text.
+  const pdf = Array.isArray(lastContent)
+    ? (lastContent as { type?: string; file?: { filename?: string } }[]).find(
+        (part) => part?.type === "file",
+      )
+    : undefined;
+  if (pdf) {
+    return {
+      text: `=== Page 1 ===\nScanned invoice ${pdf.file?.filename ?? ""}\n\n=== Page 2 ===\nThe zephyrine total is 1,240 euros.`,
+    };
+  }
   const images = Array.isArray(lastContent)
     ? lastContent.filter((part) => part?.type === "image_url").length
     : 0;

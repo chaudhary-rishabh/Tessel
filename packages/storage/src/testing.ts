@@ -1,14 +1,58 @@
-import type { ObjectInfo, ObjectStore } from "./object-store";
+import type { ObjectInfo, ObjectStore, UploadedPart } from "./object-store";
 import type { QueueMessage, UploadEventQueue } from "./upload-queue";
 
 /** Object storage in memory, for tests. Presigned URLs point at a fake host. */
 export function memoryObjectStore(bucket = "test-bucket"): ObjectStore & {
   objects: Map<string, { body: Buffer; info: ObjectInfo }>;
+  /** What a browser's PUT to a part URL would do. */
+  uploadPart(uploadId: string, partNumber: number, body: Buffer): void;
+  multipartUploads: Map<string, { key: string; contentType: string; parts: Map<number, Buffer> }>;
 } {
   const objects = new Map<string, { body: Buffer; info: ObjectInfo }>();
+  const multipartUploads = new Map<
+    string,
+    { key: string; contentType: string; parts: Map<number, Buffer> }
+  >();
+  let uploads = 0;
+  const upload = (uploadId: string) => {
+    const found = multipartUploads.get(uploadId);
+    if (!found) throw Object.assign(new Error("No such upload"), { name: "NoSuchUpload" });
+    return found;
+  };
   return {
     bucket,
     objects,
+    multipartUploads,
+    uploadPart: (uploadId, partNumber, body) => {
+      upload(uploadId).parts.set(partNumber, body);
+    },
+    createMultipart: async (key, contentType) => {
+      const uploadId = `upload-${++uploads}`;
+      multipartUploads.set(uploadId, { key, contentType, parts: new Map() });
+      return { uploadId };
+    },
+    presignPart: async (key, uploadId, partNumber) =>
+      `https://storage.test/${bucket}/${key}?uploadId=${uploadId}&partNumber=${partNumber}`,
+    listParts: async (_key, uploadId) =>
+      [...upload(uploadId).parts.entries()]
+        .sort(([a], [b]) => a - b)
+        .map(([partNumber, body]): UploadedPart => ({
+          partNumber,
+          size: body.length,
+          etag: `"etag-${partNumber}"`,
+        })),
+    completeMultipart: async (key, uploadId, parts) => {
+      const found = upload(uploadId);
+      const body = Buffer.concat(parts.map((part) => found.parts.get(part.partNumber)!));
+      objects.set(key, {
+        body,
+        info: { size: body.length, contentType: found.contentType, metadata: {} },
+      });
+      multipartUploads.delete(uploadId);
+    },
+    abortMultipart: async (_key, uploadId) => {
+      multipartUploads.delete(uploadId);
+    },
     put: async (key, body, contentType) => {
       const buffer = Buffer.isBuffer(body) ? body : Buffer.from(body);
       objects.set(key, { body: buffer, info: { size: buffer.length, contentType, metadata: {} } });

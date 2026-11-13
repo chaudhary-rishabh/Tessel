@@ -110,6 +110,8 @@ interface Drive {
   memorySettings: MemorySettingsValue;
   /** Collects citation sources: pre-fetched ones first, then any the agent finds. */
   sources: Source[];
+  /** The documents the user picked; the search tool stays within them. */
+  documentIds?: string[] | undefined;
   /** Text already written, when continuing a paused reply. */
   initialText: string;
   initialToolCalls: ToolCallRecord[];
@@ -171,6 +173,7 @@ async function drive(run: Drive): Promise<void> {
           userId: actor.userId,
           ...(actor.requestId ? { requestId: actor.requestId } : {}),
           sources: run.sources,
+          ...(run.documentIds ? { documentIds: run.documentIds } : {}),
           ...(deps.graph.enabled ? { graph: deps.graph } : {}),
         })
           .concat(imageTools({ media: deps.media, actor, threadId: run.threadId }))
@@ -425,6 +428,7 @@ async function replyOnStream({
             message: prepared.userMessage.content,
             mode: knowledge.mode,
             hasDocuments: true,
+            ...(knowledge.documentIds ? { documentIds: knowledge.documentIds } : {}),
           },
           signal,
         );
@@ -483,6 +487,7 @@ async function replyOnStream({
     skills,
     memorySettings: prepared.memorySettings,
     sources,
+    documentIds: prepared.knowledge.documentIds,
     initialText: "",
     initialToolCalls: [],
     initialActivity: [],

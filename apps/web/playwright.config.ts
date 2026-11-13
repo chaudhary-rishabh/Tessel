@@ -88,6 +88,9 @@ export default defineConfig({
         AI_GATEWAY_URL: MOCK_GATEWAY_URL,
         // Image models go through the AI SDK's endpoint, which the mock serves too.
         AI_GATEWAY_SDK_URL: "http://127.0.0.1:4300/v3/ai",
+        // Small enough that a test file goes up in parts.
+        UPLOAD_MULTIPART_THRESHOLD_BYTES: String(6 * 1024 * 1024),
+        UPLOAD_PART_BYTES: String(5 * 1024 * 1024),
         GITHUB_MCP_URL: MOCK_GITHUB_MCP_URL,
         GOOGLE_CLIENT_ID: "e2e-google",
         GOOGLE_CLIENT_SECRET: "e2e-google-secret",

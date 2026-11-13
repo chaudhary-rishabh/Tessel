@@ -270,3 +270,134 @@ describe("search", () => {
     expect(ledger.map((row) => row.feature)).toEqual(["search"]);
   });
 });
+
+describe("big uploads in parts", () => {
+  const MB = 1024 * 1024;
+  function partsSetup() {
+    const objects = memoryObjectStore("tessel-test");
+    const uploads = memoryUploadQueue();
+    const app = createTestApp({
+      ai: createTestAi({ gatewayUrl: gateway.url }),
+      storage: {
+        objects,
+        uploads,
+        uploadEvents: "api",
+        multipart: { thresholdBytes: 10 * MB, partBytes: 5 * MB },
+      },
+      vectorIndex: memoryVectorIndex(),
+    });
+    return { app, objects, uploads };
+  }
+
+  it("splits a big file into parts, resumes after an interruption, and joins them", async () => {
+    const { app, objects, uploads } = partsSetup();
+    const user = await signUp(app);
+    const base = `/workspaces/${await workspaceOf(app, user)}/documents`;
+    const size = 12 * MB;
+    const created = await request(app)
+      .post(base)
+      .set("Authorization", bearer(user))
+      .send({ filename: "all-hands.mp4", sizeBytes: size });
+    expect(created.status).toBe(201);
+    expect(created.body.upload).toBeNull();
+    expect(created.body.multipart).toEqual({ partSize: 5 * MB, partCount: 3 });
+    const id = created.body.document.id as string;
+    const [row] = await ownerDb().select().from(documents).where(eq(documents.id, id));
+    const uploadId = row!.uploadId!;
+    expect(uploadId).toBeTruthy();
+
+    const urls = await request(app)
+      .post(`${base}/${id}/parts`)
+      .set("Authorization", bearer(user))
+      .send({ partNumbers: [1, 2, 3] });
+    expect(urls.body.parts.map((part: { partNumber: number }) => part.partNumber)).toEqual([
+      1, 2, 3,
+    ]);
+    expect(urls.body.parts[0].url).toContain("partNumber=1");
+    const tooMany = await request(app)
+      .post(`${base}/${id}/parts`)
+      .set("Authorization", bearer(user))
+      .send({ partNumbers: [4] });
+    expect(tooMany.status).toBe(400);
+
+    // Two parts arrive, then the connection drops.
+    const bytes = Buffer.alloc(size, 7);
+    objects.uploadPart(uploadId, 1, bytes.subarray(0, 5 * MB));
+    objects.uploadPart(uploadId, 3, bytes.subarray(10 * MB));
+    const early = await request(app)
+      .post(`${base}/${id}/complete`)
+      .set("Authorization", bearer(user));
+    expect(early.status).toBe(409);
+    expect(early.body.error.code).toBe("upload_incomplete");
+
+    // Coming back, the browser asks what's there and sends the rest.
+    const resume = await request(app).get(`${base}/${id}/parts`).set("Authorization", bearer(user));
+    expect(resume.body).toEqual({
+      partSize: 5 * MB,
+      partCount: 3,
+      uploaded: [
+        { partNumber: 1, size: 5 * MB },
+        { partNumber: 3, size: 2 * MB },
+      ],
+    });
+    objects.uploadPart(uploadId, 2, bytes.subarray(5 * MB, 10 * MB));
+
+    const done = await request(app)
+      .post(`${base}/${id}/complete`)
+      .set("Authorization", bearer(user));
+    expect(done.status).toBe(200);
+    expect(done.body.status).toBe("queued");
+    const stored = objects.objects.get(storageKeys.documentOriginal(row!.workspaceId, id))!;
+    expect(stored.body.equals(bytes)).toBe(true);
+    expect(uploads.pending()).toBe(1);
+    const [after] = await ownerDb().select().from(documents).where(eq(documents.id, id));
+    expect(after!.uploadId).toBeNull();
+  });
+
+  it("only lets the uploader send parts, and cancels the upload when the document is deleted", async () => {
+    const { app, objects } = partsSetup();
+    const user = await signUp(app);
+    const base = `/workspaces/${await workspaceOf(app, user)}/documents`;
+    const created = await request(app)
+      .post(base)
+      .set("Authorization", bearer(user))
+      .send({ filename: "lecture.mp3", sizeBytes: 11 * MB });
+    const id = created.body.document.id as string;
+    expect(objects.multipartUploads.size).toBe(1);
+
+    const stranger = await signUp(app);
+    const peek = await request(app)
+      .get(`${base}/${id}/parts`)
+      .set("Authorization", bearer(stranger));
+    expect(peek.status).toBe(404);
+
+    // Small files still go up in one PUT.
+    const small = await request(app)
+      .post(base)
+      .set("Authorization", bearer(user))
+      .send({ filename: "notes.md", sizeBytes: 100 });
+    expect(small.body.multipart).toBeNull();
+    expect(small.body.upload.method).toBe("PUT");
+
+    const removed = await request(app).delete(`${base}/${id}`).set("Authorization", bearer(user));
+    expect(removed.status).toBe(204);
+    expect(objects.multipartUploads.size).toBe(0);
+  });
+
+  it("caps recordings at 500 MB and other files at 50 MB", async () => {
+    const { app } = partsSetup();
+    const user = await signUp(app);
+    const base = `/workspaces/${await workspaceOf(app, user)}/documents`;
+    const big = await request(app)
+      .post(base)
+      .set("Authorization", bearer(user))
+      .send({ filename: "notes.pdf", sizeBytes: 60 * MB });
+    expect(big.status).toBe(400);
+    const recording = await request(app)
+      .post(base)
+      .set("Authorization", bearer(user))
+      .send({ filename: "town-hall.mov", sizeBytes: 400 * MB });
+    expect(recording.status).toBe(201);
+    expect(recording.body.multipart.partCount).toBe(80);
+  });
+});

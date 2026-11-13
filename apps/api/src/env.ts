@@ -100,6 +100,17 @@ export const envSchema = z
     /** US dollars per minute of speech to text and per thousand characters spoken, for the ledger. */
     VOICE_STT_USD_PER_MINUTE: z.coerce.number().nonnegative().default(0.0037),
     VOICE_TTS_USD_PER_1K_CHARS: z.coerce.number().nonnegative().default(0.04),
+    /** Uploads over this many bytes go up in parts of UPLOAD_PART_BYTES (at least 5 MB). */
+    UPLOAD_MULTIPART_THRESHOLD_BYTES: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(50 * 1024 * 1024),
+    UPLOAD_PART_BYTES: z.coerce
+      .number()
+      .int()
+      .min(5 * 1024 * 1024)
+      .default(16 * 1024 * 1024),
     /** The longest one voice conversation can run. */
     VOICE_MAX_SESSION_MINUTES: z.coerce.number().int().positive().default(30),
     ...aiEnvShape,

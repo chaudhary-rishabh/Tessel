@@ -1,6 +1,7 @@
 import type { TextSection } from "@tessel/ai";
 import mammoth from "mammoth";
 import { extractText, getDocumentProxy } from "unpdf";
+import { pptxSections, xlsxSections } from "./office";
 
 /** An ingestion failure the user can act on. It is saved on the document and never retried. */
 export class IngestError extends Error {
@@ -84,6 +85,27 @@ export async function parseDocument(bytes: Buffer, mediaType: string): Promise<P
         throw new IngestError(
           "unreadable_file",
           "This Word document couldn't be read. It may be damaged",
+        );
+      }
+    }
+    case "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
+      try {
+        return { sections: xlsxSections(bytes), pageCount: null };
+      } catch {
+        throw new IngestError(
+          "unreadable_file",
+          "This spreadsheet couldn't be read. It may be damaged",
+        );
+      }
+    }
+    case "application/vnd.openxmlformats-officedocument.presentationml.presentation": {
+      try {
+        const sections = pptxSections(bytes);
+        return { sections, pageCount: sections.length };
+      } catch {
+        throw new IngestError(
+          "unreadable_file",
+          "This presentation couldn't be read. It may be damaged",
         );
       }
     }

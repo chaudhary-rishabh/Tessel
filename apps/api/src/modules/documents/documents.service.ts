@@ -2,7 +2,10 @@ import { randomUUID } from "node:crypto";
 import { sparseVector, type Ai, type VectorIndex } from "@tessel/ai";
 import {
   documentMediaType,
+  MULTIPART_THRESHOLD_BYTES,
+  uploadPartsRequestSchema,
   type CreateDocumentRequest,
+  type UploadedPartsResponse,
   type CreateDocumentResponse,
   type DocumentSummary,
   type DocumentTextResponse,
@@ -42,7 +45,11 @@ export interface DocumentsServiceDependencies {
   /** Removes a deleted document's part of the knowledge graph. */
   graph?: { forgetDocument(workspaceId: string, documentId: string): Promise<void> };
   audit?: AuditRecorder;
+  /** Files over `thresholdBytes` go up in parts of `partBytes` (at least 5 MB, S3's minimum). */
+  multipart?: { thresholdBytes: number; partBytes: number };
 }
+
+const DEFAULT_PART_BYTES = 16 * 1024 * 1024;
 
 export function createDocumentsService({
   db,
@@ -54,7 +61,22 @@ export function createDocumentsService({
   logger,
   graph,
   audit = noAudit,
+  multipart = { thresholdBytes: MULTIPART_THRESHOLD_BYTES, partBytes: DEFAULT_PART_BYTES },
 }: DocumentsServiceDependencies) {
+  const partCount = (sizeBytes: number) => Math.ceil(sizeBytes / multipart.partBytes);
+
+  /** The uploader's document while its parts are arriving. */
+  async function uploadingInParts(actor: Actor, documentId: string) {
+    const row = await withUserContext(db, actor.userId, (tx) =>
+      documentsRepository.find(tx, actor.workspaceId, documentId),
+    );
+    if (!row || row.userId !== actor.userId) throw errors.notFound("Document not found");
+    if (row.status !== "uploading" || !row.uploadId) {
+      throw errors.conflict("not_uploading_in_parts", "This file isn't being uploaded in parts");
+    }
+    return row as typeof row & { uploadId: string };
+  }
+
   async function membership(
     tx: Parameters<Parameters<typeof withUserContext>[2]>[0],
     actor: Actor,
@@ -95,9 +117,13 @@ export function createDocumentsService({
       const id = randomUUID();
       const storageKey = storageKeys.documentOriginal(actor.workspaceId, id);
       const mediaType = documentMediaType(request.filename);
-      const row = await withUserContext(db, actor.userId, async (tx) => {
-        await membership(tx, actor);
-        return documentsRepository.insert(tx, {
+      const inParts = request.sizeBytes > multipart.thresholdBytes;
+      await withUserContext(db, actor.userId, (tx) => membership(tx, actor));
+      const uploadId = inParts
+        ? (await objects.createMultipart(storageKey, mediaType)).uploadId
+        : undefined;
+      const row = await withUserContext(db, actor.userId, (tx) =>
+        documentsRepository.insert(tx, {
           id,
           workspaceId: actor.workspaceId,
           userId: actor.userId,
@@ -105,13 +131,54 @@ export function createDocumentsService({
           mediaType,
           sizeBytes: request.sizeBytes,
           storageKey,
-        });
-      });
+          ...(uploadId ? { uploadId } : {}),
+        }),
+      );
+      if (inParts) {
+        return {
+          document: toDocument(row),
+          upload: null,
+          multipart: { partSize: multipart.partBytes, partCount: partCount(request.sizeBytes) },
+        };
+      }
       const upload = await objects.presignUpload(storageKey, {
         contentType: mediaType,
         contentLength: request.sizeBytes,
       });
-      return { document: toDocument(row), upload };
+      return { document: toDocument(row), upload, multipart: null };
+    },
+
+    /** Presigned URLs for some of a big file's parts. */
+    async presignParts(
+      actor: Actor,
+      documentId: string,
+      input: unknown,
+    ): Promise<{ parts: { partNumber: number; url: string }[] }> {
+      const { partNumbers } = uploadPartsRequestSchema.parse(input);
+      const row = await uploadingInParts(actor, documentId);
+      const count = partCount(row.sizeBytes);
+      if (partNumbers.some((number) => number > count)) {
+        throw errors.badRequest("invalid_part", `This file has ${count} parts`);
+      }
+      return {
+        parts: await Promise.all(
+          partNumbers.map(async (partNumber) => ({
+            partNumber,
+            url: await objects.presignPart(row.storageKey, row.uploadId, partNumber),
+          })),
+        ),
+      };
+    },
+
+    /** The parts already uploaded, so an interrupted upload can carry on. */
+    async uploadedParts(actor: Actor, documentId: string): Promise<UploadedPartsResponse> {
+      const row = await uploadingInParts(actor, documentId);
+      const parts = await objects.listParts(row.storageKey, row.uploadId);
+      return {
+        partSize: multipart.partBytes,
+        partCount: partCount(row.sizeBytes),
+        uploaded: parts.map(({ partNumber, size }) => ({ partNumber, size })),
+      };
     },
 
     /**
@@ -152,6 +219,19 @@ export function createDocumentsService({
       );
       if (!row) throw errors.notFound("Document not found");
       if (row.status !== "uploading") return toDocument(row);
+
+      if (row.uploadId) {
+        // Join the parts, once every one of them is there.
+        const parts = await objects.listParts(row.storageKey, row.uploadId);
+        const size = parts.reduce((total, part) => total + part.size, 0);
+        if (parts.length !== partCount(row.sizeBytes) || size !== row.sizeBytes) {
+          throw errors.conflict("upload_incomplete", "Some parts of the file haven't uploaded yet");
+        }
+        await objects.completeMultipart(row.storageKey, row.uploadId, parts);
+        await withUserContext(db, actor.userId, (tx) =>
+          documentsRepository.clearUploadId(tx, row.id),
+        );
+      }
 
       const object = await objects.head(row.storageKey);
       if (!object) throw errors.conflict("upload_incomplete", "The file hasn't finished uploading");
@@ -237,6 +317,11 @@ export function createDocumentsService({
         }
         return document;
       });
+      if (row.uploadId) {
+        await objects.abortMultipart(row.storageKey, row.uploadId).catch((error: unknown) => {
+          logger.warn({ err: error, documentId: row.id }, "Couldn't cancel a multipart upload");
+        });
+      }
       await index.deleteDocument(actor.workspaceId, row.id);
       await graph
         ?.forgetDocument(actor.workspaceId, row.id)

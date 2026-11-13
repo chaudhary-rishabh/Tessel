@@ -467,6 +467,14 @@ sequenceDiagram
 - The worker checks the operation (`experimental_getVideoStatus`) every `VIDEO_POLL_MS`. While it's running, the row's progress moves toward 95% (providers don't report progress) and the job queues itself again. When it's done, the clip is saved to S3 and the row marked `ready`, with its cost recorded as feature `video`. Errors and anything over 15 minutes are marked `failed`.
 - The reply and the gallery show the video's progress (they poll the item while it's pending), then a player with download.
 
+## Document formats and uploads
+
+- Besides PDF, Word, text, Markdown, CSV, JSON, and HTML, the worker reads Excel (.xlsx: every sheet, rows as tab-separated cells) and PowerPoint (.pptx: slides as pages, with speaker notes) straight from their XML.
+- A PDF with no text layer is a scan: the worker sends it (up to 20 MB and 100 pages) to a model that reads PDFs (`AI_OCR_MODEL`, from the registry) and indexes its page-by-page transcription. Recorded as feature `ocr`.
+- Files over `UPLOAD_MULTIPART_THRESHOLD_BYTES` (50 MB) go up in parts of `UPLOAD_PART_BYTES` (16 MB): the API starts an S3 multipart upload (`documents.upload_id`), presigns part URLs in batches (`POST …/documents/:id/parts`), and on `complete` joins the listed parts, so the browser never needs ETags. The browser sends four parts at once, retries each, and remembers the upload by file, so picking the same file again carries on from the parts that made it (`GET …/documents/:id/parts`). Deleting the document cancels the upload.
+- The composer's documents menu can pick documents for the next messages: they're always searched, and the search tool stays within them (`documentIds` on the message).
+- The Documents page draws an entity's neighbourhood from the knowledge graph as a diagram; choosing a neighbour moves to it, and a list view shows every connection.
+
 ## Recordings
 
 - Audio (MP3, M4A, WAV, OGG, FLAC, AAC, Opus) and video (MP4, MOV, WebM, MKV) upload to Documents like any file, up to 500 MB, and are transcribed instead of parsed.

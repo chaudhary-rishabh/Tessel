@@ -63,6 +63,8 @@ import {
   usageSummarySchema,
   attachmentSchema,
   createDocumentResponseSchema,
+  uploadedPartsResponseSchema,
+  uploadPartsResponseSchema,
   documentListResponseSchema,
   documentSchema,
   graphOverviewSchema,
@@ -590,19 +592,45 @@ export function createApi(client: ApiClient) {
       /**
        * Uploads a file straight to storage: register it, PUT the bytes to the
        * presigned URL (with progress), then tell the API the upload is done.
+       * Big files go up in parts, each retried on its own; passing `resume`
+       * (a document whose parts were already arriving) carries on from the
+       * parts that made it.
        */
       upload: async (
         workspaceId: string,
         file: File,
         onProgress?: (fraction: number) => void,
+        options: { resume?: string; onStart?: (documentId: string) => void } = {},
       ): Promise<DocumentSummary> => {
         const base = `/workspaces/${workspaceId}/documents`;
-        const { document, upload } = parse(
-          createDocumentResponseSchema,
-          (await http.post(base, { filename: file.name, sizeBytes: file.size })).data,
-        );
-        await putToStorage(upload, file, onProgress);
-        return parse(documentSchema, (await http.post(`${base}/${document.id}/complete`)).data);
+        let documentId: string | undefined;
+        let plan: { partSize: number; partCount: number; uploaded: Set<number> } | undefined;
+        if (options.resume) {
+          try {
+            const parts = parse(
+              uploadedPartsResponseSchema,
+              (await http.get(`${base}/${options.resume}/parts`)).data,
+            );
+            documentId = options.resume;
+            plan = { ...parts, uploaded: new Set(parts.uploaded.map((part) => part.partNumber)) };
+          } catch {
+            // Gone or finished: start again.
+          }
+        }
+        if (!documentId) {
+          const created = parse(
+            createDocumentResponseSchema,
+            (await http.post(base, { filename: file.name, sizeBytes: file.size })).data,
+          );
+          documentId = created.document.id;
+          if (created.multipart) plan = { ...created.multipart, uploaded: new Set() };
+          else if (created.upload) await putToStorage(created.upload, file, onProgress);
+        }
+        if (plan) {
+          options.onStart?.(documentId);
+          await uploadParts(http, `${base}/${documentId}/parts`, file, plan, onProgress);
+        }
+        return parse(documentSchema, (await http.post(`${base}/${documentId}/complete`)).data);
       },
       reprocess: async (workspaceId: string, documentId: string): Promise<DocumentSummary> =>
         parse(
@@ -769,6 +797,73 @@ export type Api = ReturnType<typeof createApi>;
  * PUTs a file to a presigned storage URL. XMLHttpRequest rather than fetch,
  * because fetch can't report upload progress.
  */
+/** Parts going up at once. */
+const PART_CONCURRENCY = 4;
+const PART_ATTEMPTS = 3;
+
+async function uploadParts(
+  http: ApiClient["http"],
+  partsUrl: string,
+  file: Blob,
+  plan: { partSize: number; partCount: number; uploaded: Set<number> },
+  onProgress?: (fraction: number) => void,
+) {
+  const sizeOf = (number: number) =>
+    Math.min(plan.partSize, file.size - (number - 1) * plan.partSize);
+  const missing = Array.from({ length: plan.partCount }, (_, i) => i + 1).filter(
+    (number) => !plan.uploaded.has(number),
+  );
+  let done = [...plan.uploaded].reduce((total, number) => total + sizeOf(number), 0);
+  const inFlight = new Map<number, number>();
+  const report = () =>
+    onProgress?.((done + [...inFlight.values()].reduce((a, b) => a + b, 0)) / file.size);
+  report();
+
+  // URLs in batches, as they're needed (they expire after an hour).
+  const urls = new Map<number, string>();
+  async function urlFor(number: number) {
+    if (!urls.has(number)) {
+      const batch = missing.filter((n) => n >= number && !urls.has(n)).slice(0, 20);
+      const { parts } = uploadPartsResponseSchema.parse(
+        (await http.post(partsUrl, { partNumbers: batch })).data,
+      );
+      for (const part of parts) urls.set(part.partNumber, part.url);
+    }
+    return urls.get(number)!;
+  }
+
+  const queue = [...missing];
+  async function worker() {
+    for (let number = queue.shift(); number !== undefined; number = queue.shift()) {
+      const start = (number - 1) * plan.partSize;
+      const blob = file.slice(start, start + sizeOf(number));
+      for (let attempt = 1; ; attempt++) {
+        try {
+          const partNumber = number;
+          await putToStorage(
+            { url: await urlFor(number), method: "PUT", headers: {}, expiresAt: "" },
+            blob,
+            (fraction) => {
+              inFlight.set(partNumber, fraction * blob.size);
+              report();
+            },
+          );
+          break;
+        } catch (error) {
+          inFlight.delete(number);
+          urls.delete(number);
+          if (attempt >= PART_ATTEMPTS) throw error;
+          await new Promise((resolve) => setTimeout(resolve, 1000 * 2 ** attempt));
+        }
+      }
+      inFlight.delete(number);
+      done += blob.size;
+      report();
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(PART_CONCURRENCY, missing.length) }, worker));
+}
+
 function putToStorage(
   upload: PresignedUpload,
   file: Blob,

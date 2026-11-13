@@ -35,6 +35,8 @@ export function maxUploadBytes(filename: string): number {
 export const DOCUMENT_TYPES = {
   pdf: "application/pdf",
   docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   txt: "text/plain",
   md: "text/markdown",
   markdown: "text/markdown",
@@ -79,7 +81,7 @@ export const createDocumentRequestSchema = z
       .refine((name) => {
         const extension = name.split(".").pop()?.toLowerCase() ?? "";
         return name.includes(".") && Object.hasOwn(DOCUMENT_TYPES, extension);
-      }, "Upload a PDF, Word (.docx), text, Markdown, CSV, JSON, or HTML file, or an audio or video recording"),
+      }, "Upload a PDF, Word, Excel, PowerPoint, text, Markdown, CSV, JSON, or HTML file, or an audio or video recording"),
     sizeBytes: z.number().int().min(1, "The file is empty"),
   })
   .superRefine(({ filename, sizeBytes }, ctx) => {
@@ -103,9 +105,33 @@ export const presignedUploadSchema = z.object({
   expiresAt: z.iso.datetime(),
 });
 
+/** Files over this go up in parts that can be retried and resumed. */
+export const MULTIPART_THRESHOLD_BYTES = 50 * 1024 * 1024;
+
+/** How a big file is split: parts of `partSize` bytes, the last one smaller. */
+export const multipartPlanSchema = z.object({
+  partSize: z.number().int().positive(),
+  partCount: z.number().int().positive(),
+});
+
 export const createDocumentResponseSchema = z.object({
   document: documentSchema,
-  upload: presignedUploadSchema,
+  /** One PUT for the whole file; null when it goes up in parts. */
+  upload: presignedUploadSchema.nullable(),
+  multipart: multipartPlanSchema.nullable().default(null),
+});
+
+export const uploadPartsRequestSchema = z.object({
+  partNumbers: z.array(z.number().int().min(1).max(10_000)).min(1).max(100),
+});
+
+export const uploadPartsResponseSchema = z.object({
+  parts: z.array(z.object({ partNumber: z.number().int(), url: z.url() })),
+});
+
+/** The parts already uploaded, so an interrupted upload can carry on. */
+export const uploadedPartsResponseSchema = multipartPlanSchema.extend({
+  uploaded: z.array(z.object({ partNumber: z.number().int(), size: z.number().int() })),
 });
 
 export const documentParamsSchema = z.object({
@@ -136,6 +162,8 @@ export type DocumentSummary = z.infer<typeof documentSchema>;
 export type DocumentStatus = z.infer<typeof documentStatusSchema>;
 export type CreateDocumentRequest = z.infer<typeof createDocumentRequestSchema>;
 export type CreateDocumentResponse = z.infer<typeof createDocumentResponseSchema>;
+export type MultipartPlan = z.infer<typeof multipartPlanSchema>;
+export type UploadedPartsResponse = z.infer<typeof uploadedPartsResponseSchema>;
 export type PresignedUpload = z.infer<typeof presignedUploadSchema>;
 export type SearchRequest = z.input<typeof searchRequestSchema>;
 export type SearchHit = z.infer<typeof searchHitSchema>;

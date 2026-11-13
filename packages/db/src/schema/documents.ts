@@ -30,6 +30,8 @@ export const documents = pgTable(
     mediaType: text("media_type").notNull(),
     sizeBytes: integer("size_bytes").notNull(),
     storageKey: text("storage_key").notNull(),
+    /** A big file's multipart upload, while its parts are arriving. */
+    uploadId: text("upload_id"),
     status: documentStatus("status").notNull().default("uploading"),
     errorCode: text("error_code"),
     pageCount: integer("page_count"),

@@ -59,7 +59,7 @@ test.describe("documents", () => {
     });
     await expect(
       page.getByText(
-        "Upload a PDF, Word, text, Markdown, CSV, JSON, or HTML file, or an audio or video recording",
+        "Upload a PDF, Word, Excel, PowerPoint, text, Markdown, CSV, JSON, or HTML file, or an audio or video recording",
       ),
     ).toBeVisible();
   });
@@ -146,5 +146,54 @@ test.describe("documents", () => {
       page.getByRole("dialog").getByText(/\[0:00\] Welcome to the weekly product review/),
     ).toBeVisible();
     await expect(page.getByRole("dialog").getByText(/May 14th/)).toBeVisible();
+  });
+
+  test("uploads a big recording in parts", async ({ page }) => {
+    test.setTimeout(90_000);
+    await signUp(page);
+    await page.goto("/documents");
+    // About 12 minutes of a tone: 11 MB, so it goes up in three parts.
+    await page.getByTestId("document-input").setInputFiles({
+      name: "all-hands.wav",
+      mimeType: "audio/wav",
+      buffer: toneWav(700),
+    });
+    const list = page.getByRole("list", { name: "Documents" });
+    await expect(list.getByText("all-hands.wav")).toBeVisible();
+    await expect(list.getByText(/Ready, \d+ passages?/)).toBeVisible({ timeout: 60_000 });
+  });
+
+  test("searches only the documents picked for a question", async ({ page }) => {
+    await signUp(page);
+    await page.goto("/documents");
+    await page.getByTestId("document-input").setInputFiles([
+      {
+        name: "travel-policy.md",
+        mimeType: "text/markdown",
+        buffer: Buffer.from("# Travel\n\nThe zephyrine allowance is 40 euros a day."),
+      },
+      {
+        name: "old-policy.md",
+        mimeType: "text/markdown",
+        buffer: Buffer.from("# Old travel\n\nThe zephyrine allowance was 25 euros a day."),
+      },
+    ]);
+    await expect(page.getByRole("list", { name: "Documents" }).getByText(/Ready/)).toHaveCount(2, {
+      timeout: 30_000,
+    });
+
+    await page.goto("/chat");
+    await page.getByRole("button", { name: /^Use documents:/ }).click();
+    await page.getByRole("menuitem", { name: /^Choose documents/ }).click();
+    const chooser = page.getByRole("dialog", { name: "Choose documents" });
+    await chooser.getByRole("checkbox", { name: "old-policy.md" }).check();
+    await chooser.getByRole("button", { name: "Search 1 document" }).click();
+    await expect(page.getByText("Searching old-policy.md")).toBeVisible();
+
+    await page.getByRole("textbox", { name: "Message" }).fill("What is the zephyrine allowance?");
+    await page.getByRole("button", { name: "Send message" }).click();
+    const messages = page.getByRole("list", { name: "Messages" });
+    await expect(messages.getByRole("button", { name: "Source 1: old-policy.md" })).toBeVisible();
+    await expect(messages.getByRole("button", { name: /travel-policy\.md/ })).toHaveCount(0);
   });
 });

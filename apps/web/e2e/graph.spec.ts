@@ -32,6 +32,16 @@ test.describe("knowledge graph", () => {
     }).toPass({ timeout: 30_000 });
     await graph.getByLabel("Find connections").fill("Alice Chen");
     await graph.getByRole("button", { name: "Find connections" }).click();
+    // A diagram of the neighbourhood first; choosing a neighbour moves to it.
+    const diagram = graph.getByRole("group", { name: /^How Alice Chen connects to/ });
+    await expect(diagram).toContainText("manages");
+    await diagram.getByRole("button", { name: /^Payments Team, team/ }).click();
+    await expect(
+      graph.getByRole("group", { name: /^How Payments Team connects to/ }),
+    ).toBeVisible();
+    await graph.getByLabel("Find connections").fill("Alice Chen");
+    await graph.getByRole("button", { name: "Find connections" }).click();
+    await graph.getByRole("tab", { name: "list" }).click();
     const connections = graph.getByRole("list", { name: "Connections" });
     await expect(connections).toContainText("manages");
     await expect(connections).toContainText("Ledger Service");
