@@ -423,3 +423,19 @@ The web app has a public site: home, features, pricing, security, privacy, and t
 Signup asks only for an email and a password, creates the account, and signs in straight away, replacing the emailed code from earlier steps. A name starts from the email ("ada.lovelace@…" becomes "Ada Lovelace") and is changed in Settings. A link to confirm the email follows by email; it works for 7 days, only the newest works, and only while signed in to that account, so opening someone else's link can't confirm their account. Signing up with an email that has an account now says so (`409 email_taken`); that is the cost of skipping the code, kept small by the signup rate limits.
 
 Skipping the code means anyone can sign up with an address they don't own. Two rules keep that harmless. An account whose email isn't confirmed can't accept invitations, which are the only thing an email address grants. And when the real owner proves the address (Google or GitHub with that verified email, or a password reset link), `app.reset_unverified_account` removes every way in set up before: the password, two-step sign-in, the phone number, linked sign-ins, sessions, personal access tokens, and connected apps. The squatter is locked out and the owner takes over. The old `signup_challenges` table is left empty for the nightly cleanup.
+
+## D-101 Voice runs on LiveKit, with a pipeline we control
+
+Voice mode uses LiveKit: a LiveKit server carries audio over WebRTC, and a voice agent (`apps/voice`, built on LiveKit Agents for Node) joins each conversation as a participant. The agent runs a pipeline rather than a speech-to-speech model: speech to text, then a chat model through the AI gateway, then text to speech. A pipeline lets the agent use any chat model in the registry, speak with any voice (including a user's own), keep a text transcript for the chat, and record usage per stage. Speech-to-speech models are faster in isolation, but each is tied to one provider's voices and models.
+
+Getting under 600 ms is mostly about not waiting:
+
+- **Turn detection** combines voice activity detection with LiveKit's end-of-turn model, so a short pause after a finished sentence ends the turn quickly, while "um, and then…" doesn't.
+- **Preemptive generation** starts the model on the transcript before the turn is confirmed; if the user keeps talking, the draft is dropped.
+- **Text to speech starts on the first clause** of the reply, over a connection opened when the session starts.
+- **Voice uses a fast model** by default (the registry's `voice` role), with a short system prompt that asks for spoken-style answers.
+- **Everything runs close together:** the LiveKit server and the agent share the EC2 host in Mumbai, near the people using it.
+
+Speech providers sit behind one interface with two implementations. **ElevenLabs** (speech to text with Scribe Realtime, text to speech with Flash v2.5) is used when `ELEVENLABS_API_KEY` is set; it is the fastest option and the only one that can speak with a cloned voice. Without it, the **AI gateway** streams the same kinds of models through the AI SDK, so voice works with only the gateway key, using stock voices.
+
+The LiveKit server is self-hosted on the EC2 host behind Caddy (`rtc.tessel.chat`), with media over UDP and a TURN fallback on port 3478 for networks that block it. Pointing `LIVEKIT_URL` and its keys at LiveKit Cloud moves it there with no code change. The API is the only thing that issues room tokens: it checks the user's plan and limits, creates the voice session, and dispatches the agent with the session's ID in the token, so the agent never trusts anything the browser sends.
