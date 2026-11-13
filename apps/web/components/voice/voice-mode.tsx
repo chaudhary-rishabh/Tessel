@@ -85,6 +85,8 @@ function VoiceConversation({ request, onRetry }: { request: VoiceRequest; onRetr
   const sessionRef = useRef<VoiceSession | undefined>(undefined);
   const ended = useRef(false);
   const started = useRef(false);
+  // Only a room that connected can "end"; a failed connection shows the error instead.
+  const connected = useRef(false);
 
   const end = useCallback(
     async (note?: string) => {
@@ -123,6 +125,7 @@ function VoiceConversation({ request, onRetry }: { request: VoiceRequest; onRetr
         sessionRef.current = next;
         setSession(next);
         await Promise.all([microphone, room.connect(next.url, next.token)]);
+        connected.current = true;
       } catch (error) {
         const current = sessionRef.current;
         if (current) void api.voice.end(request.workspaceId, current.sessionId).catch(() => {});
@@ -136,7 +139,13 @@ function VoiceConversation({ request, onRetry }: { request: VoiceRequest; onRetr
   // The server or the network ended the call.
   useEffect(() => {
     const onDisconnected = (reason?: DisconnectReason) => {
-      if (ended.current || failure || reason === DisconnectReason.CLIENT_INITIATED) return;
+      if (
+        ended.current ||
+        failure ||
+        !connected.current ||
+        reason === DisconnectReason.CLIENT_INITIATED
+      )
+        return;
       void end("The voice conversation ended.");
     };
     room.on(RoomEvent.Disconnected, onDisconnected);

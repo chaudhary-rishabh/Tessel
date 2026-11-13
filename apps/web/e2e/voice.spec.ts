@@ -15,6 +15,9 @@ test.use({
 });
 
 test.describe("voice", () => {
+  // A conversation happens in real time: the agent joins, hears a second of audio, and answers.
+  test.setTimeout(60_000);
+
   test("talks with Tessel and keeps what was said in the chat", async ({ page }) => {
     await signUp(page);
     await page.getByRole("button", { name: "Start voice conversation" }).click();

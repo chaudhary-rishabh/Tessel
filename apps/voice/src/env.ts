@@ -48,6 +48,8 @@ export const envSchema = z
     VOICE_MAX_SESSION_MINUTES: z.coerce.number().int().positive().default(30),
     /** Warm job processes kept ready, so a new conversation doesn't wait for one to start. */
     VOICE_IDLE_PROCESSES: z.coerce.number().int().nonnegative().default(2),
+    /** Calls this agent takes at once before LiveKit sends new ones elsewhere (or refuses them). */
+    VOICE_MAX_CONCURRENT_CALLS: z.coerce.number().int().positive().default(8),
     /** Health check port for the agent server. */
     VOICE_HEALTH_PORT: z.coerce.number().int().positive().default(4700),
 
