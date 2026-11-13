@@ -11,7 +11,15 @@
  * editing or retrying a message changes them the same way it changes the chat.
  */
 
-export const ARTIFACT_TYPES = ["html", "react", "svg", "mermaid", "markdown", "code"] as const;
+export const ARTIFACT_TYPES = [
+  "html",
+  "react",
+  "svg",
+  "mermaid",
+  "markdown",
+  "code",
+  "app",
+] as const;
 export type ArtifactType = (typeof ARTIFACT_TYPES)[number];
 
 export interface ArtifactBlock {
@@ -94,6 +102,50 @@ export function parseMessageSegments(content: string): MessageSegment[] {
   return segments;
 }
 
+/** One file of an app artifact. */
+export interface AppFile {
+  path: string;
+  content: string;
+  /** False while it's still being written. */
+  complete: boolean;
+}
+
+/** Paths are relative to the project, without "./" or a leading slash. */
+export function normalizePath(path: string): string {
+  const parts: string[] = [];
+  for (const part of path.replace(/\\/g, "/").split("/")) {
+    if (!part || part === ".") continue;
+    if (part === "..") parts.pop();
+    else parts.push(part);
+  }
+  return parts.join("/");
+}
+
+/**
+ * The files of an app artifact, written as <file path="src/App.jsx">…</file>
+ * inside it, in order. While streaming, the last file can be incomplete.
+ */
+export function parseAppFiles(content: string): AppFile[] {
+  const files: AppFile[] = [];
+  const open = /<file\b([^>]*)>/g;
+  for (let match = open.exec(content); match; match = open.exec(content)) {
+    const path = normalizePath(attributes(match[1] ?? "").path ?? "");
+    const start = match.index + match[0].length;
+    const end = content.indexOf("</file>", start);
+    const body = content.slice(start, end === -1 ? undefined : end);
+    if (path) {
+      files.push({
+        path,
+        content: end === -1 ? body.replace(/^\n/, "") : unfenced(body),
+        complete: end !== -1,
+      });
+    }
+    if (end === -1) break;
+    open.lastIndex = end + "</file>".length;
+  }
+  return files;
+}
+
 /** One version of an artifact: where it was written, and what it said then. */
 export interface ArtifactVersion extends ArtifactBlock {
   messageId: string;
@@ -132,6 +184,7 @@ export function artifactFilename(
     mermaid: "mmd",
     markdown: "md",
     code: CODE_EXTENSIONS[artifact.language?.toLowerCase() ?? ""] ?? "txt",
+    app: "zip",
   };
   const base = artifact.identifier.replace(/[^\w-]+/g, "-").replace(/^-+|-+$/g, "") || "artifact";
   return `${base}.${extension[artifact.type]}`;

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { artifactFilename, collectArtifacts, parseMessageSegments } from "./artifacts";
+import {
+  artifactFilename,
+  collectArtifacts,
+  normalizePath,
+  parseAppFiles,
+  parseMessageSegments,
+} from "./artifacts";
 
 describe("artifact parsing", () => {
   it("splits a reply into text and artifacts", () => {
@@ -76,5 +82,20 @@ describe("artifact parsing", () => {
     expect(artifactFilename({ identifier: "etl", type: "code", language: "Python" })).toBe(
       "etl.py",
     );
+  });
+});
+
+describe("app files", () => {
+  it("reads each file of an app, normalizing paths, with the last one still streaming", () => {
+    expect(
+      parseAppFiles(
+        '<file path="./index.html"><div id="root"></div></file>\n<file path="src/../src/App.jsx">\n```jsx\nexport default 1\n```\n</file><file path="src/x.css">body{',
+      ),
+    ).toEqual([
+      { path: "index.html", content: '<div id="root"></div>', complete: true },
+      { path: "src/App.jsx", content: "export default 1", complete: true },
+      { path: "src/x.css", content: "body{", complete: false },
+    ]);
+    expect(normalizePath("/a/./b/../c.js")).toBe("a/c.js");
   });
 });

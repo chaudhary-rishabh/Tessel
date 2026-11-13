@@ -1,6 +1,7 @@
 "use client";
 
-import type { ArtifactType } from "@tessel/contracts";
+import { parseAppFiles, type ArtifactType } from "@tessel/contracts";
+import { appDocument } from "./app-runtime";
 import { useEffect, useMemo, useRef } from "react";
 
 const REACT = "https://esm.sh/react@19.3.1";
@@ -94,8 +95,14 @@ try {
 </script></body></html>`;
 }
 
-export function artifactDocument(type: ArtifactType, content: string): string | null {
+export function artifactDocument(
+  type: ArtifactType,
+  content: string,
+  page = "index.html",
+): string | null {
   switch (type) {
+    case "app":
+      return appDocument(parseAppFiles(content), page, ERROR_REPORTER);
     case "html":
       return htmlDocument(content);
     case "svg":
@@ -119,6 +126,8 @@ export function ArtifactFrame({
   content,
   title,
   reloadKey = 0,
+  page,
+  onNavigate,
   onError,
 }: {
   type: ArtifactType;
@@ -126,22 +135,32 @@ export function ArtifactFrame({
   title: string;
   /** Changing it runs the artifact again from the start. */
   reloadKey?: number;
+  /** An app's page to show. */
+  page?: string | undefined;
+  /** An app's link to another of its pages was clicked. */
+  onNavigate?: ((page: string) => void) | undefined;
   onError?: (message: string | null) => void;
 }) {
   const frame = useRef<HTMLIFrameElement>(null);
-  const document = useMemo(() => artifactDocument(type, content), [type, content]);
+  const document = useMemo(() => artifactDocument(type, content, page), [type, content, page]);
 
   useEffect(() => {
     onError?.(null);
     const listen = (event: MessageEvent) => {
       if (event.source !== frame.current?.contentWindow) return;
-      const data = event.data as { source?: string; kind?: string; message?: string };
-      if (data?.source === "tessel-artifact" && data.kind === "error")
-        onError?.(data.message ?? "");
+      const data = event.data as {
+        source?: string;
+        kind?: string;
+        message?: string;
+        page?: string;
+      };
+      if (data?.source !== "tessel-artifact") return;
+      if (data.kind === "error") onError?.(data.message ?? "");
+      if (data.kind === "navigate" && typeof data.page === "string") onNavigate?.(data.page);
     };
     window.addEventListener("message", listen);
     return () => window.removeEventListener("message", listen);
-  }, [document, reloadKey, onError]);
+  }, [document, reloadKey, onError, onNavigate]);
 
   if (!document) return null;
   return (

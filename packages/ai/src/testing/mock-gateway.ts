@@ -244,6 +244,38 @@ function defaultReply(body: Record<string, unknown>): MockReply {
     return { text: Array.from({ length: 200 }, (_, i) => `word${i}`).join(" "), chunkDelayMs: 50 };
   }
   if (lastUser.includes("MOCK_FAIL")) return { status: 400 };
+  // A multi-file React app with a second page.
+  if (lastUser.includes("MOCK_APP")) {
+    const file = (path: string, content: string) => `<file path="${path}">\n${content}\n</file>\n`;
+    return {
+      text:
+        'Here is the app.\n\n<artifact id="counter-app" type="app" title="Counter app">\n' +
+        file(
+          "index.html",
+          '<!doctype html><html><head><meta charset="utf-8"><title>Counter</title><link rel="stylesheet" href="/src/styles.css"></head>' +
+            '<body><div id="root"></div><a href="about.html">About</a><script type="module" src="/src/main.jsx"></script></body></html>',
+        ) +
+        file(
+          "about.html",
+          '<!doctype html><html><body><h1>About this app</h1><a href="index.html">Back</a></body></html>',
+        ) +
+        file(
+          "src/main.jsx",
+          'import { createRoot } from "react-dom/client";\nimport App from "./App";\ncreateRoot(document.getElementById("root")).render(<App />);',
+        ) +
+        file(
+          "src/App.jsx",
+          'import { useState } from "react";\nimport { label } from "./label.js";\n\nexport default function App() {\n  const [count, setCount] = useState(0);\n  return <button className="counter" onClick={() => setCount(count + 1)}>{label(count)}</button>;\n}',
+        ) +
+        file("src/label.js", "export const label = (count) => `Count is ${count}`;") +
+        file("src/styles.css", ".counter { color: rgb(31, 111, 100); }") +
+        file(
+          "package.json",
+          '{ "name": "counter-app", "private": true, "type": "module", "scripts": { "dev": "vite" } }',
+        ) +
+        "</artifact>",
+    };
+  }
   // Artifacts: a page, then a second version of it, and a React component.
   if (lastUser.includes("MOCK_ARTIFACT_REACT")) {
     return {
