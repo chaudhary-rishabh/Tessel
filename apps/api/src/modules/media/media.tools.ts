@@ -1,5 +1,11 @@
 import { defineTool, ToolError, type ToolDefinition } from "@tessel/ai";
-import { IMAGE_ASPECT_RATIOS, MEDIA_PROMPT_MAX, type MediaItem } from "@tessel/contracts";
+import {
+  IMAGE_ASPECT_RATIOS,
+  MEDIA_PROMPT_MAX,
+  VIDEO_ASPECT_RATIOS,
+  VIDEO_DURATIONS,
+  type MediaItem,
+} from "@tessel/contracts";
 import { z } from "zod";
 import { AppError } from "../../lib/errors";
 import type { Actor, MediaService } from "./media.service";
@@ -42,7 +48,67 @@ async function asToolError<T>(work: () => Promise<T>): Promise<T> {
   }
 }
 
-/** Making and editing images in chat. The images are saved to the user's gallery. */
+function videoTool(media: MediaService, actor: Actor, threadId: string): ToolDefinition {
+  return defineTool({
+    name: "generate_video",
+    title: "Make a video",
+    description:
+      "Make a short video clip (with sound) from a description, optionally starting from an image in the chat. It takes a minute or two and is made in the background. Write a detailed prompt: the scene, the motion, the camera, the light, and any sound. Only use it when the user asks for a video or animation.",
+    schema: z.object({
+      prompt: z
+        .string()
+        .min(1)
+        .max(MEDIA_PROMPT_MAX)
+        .describe("A detailed description of the clip"),
+      aspect_ratio: z
+        .enum(VIDEO_ASPECT_RATIOS)
+        .default("16:9")
+        .describe("16:9 landscape or 9:16 portrait"),
+      duration_seconds: z
+        .union(VIDEO_DURATIONS.map((value) => z.literal(value)))
+        .default(8)
+        .describe("Length in seconds"),
+      image_id: z
+        .string()
+        .uuid()
+        .optional()
+        .describe("An image in the chat for the video to start from"),
+    }),
+    // Videos cost noticeably more than other replies, so the user confirms each one.
+    risk: "write",
+    describeCall: ({ prompt, duration_seconds }) =>
+      `Make a ${duration_seconds}-second video: ${prompt.length > 160 ? `${prompt.slice(0, 157)}…` : prompt}`,
+    async run({ prompt, aspect_ratio, duration_seconds, image_id }) {
+      const video = await asToolError(() =>
+        media.startVideo(
+          actor,
+          {
+            prompt,
+            aspectRatio: aspect_ratio,
+            durationSeconds: duration_seconds,
+            ...(image_id ? { sourceId: image_id } : {}),
+          },
+          { threadId },
+        ),
+      );
+      return {
+        content: `Started video ${video.id}. It's being made in the background and will play under your reply when it's ready, usually in one to three minutes. Tell the user that briefly.`,
+        summary: "Started a video",
+        media: [
+          {
+            kind: "video" as const,
+            id: video.id,
+            ...(video.width ? { width: video.width } : {}),
+            ...(video.height ? { height: video.height } : {}),
+            alt: video.prompt.slice(0, 300),
+          },
+        ],
+      };
+    },
+  });
+}
+
+/** Making and editing images, and making videos, in chat. The images are saved to the user's gallery. */
 export function imageTools({
   media,
   actor,
@@ -52,7 +118,9 @@ export function imageTools({
   actor: Actor;
   threadId: string;
 }): ToolDefinition[] {
-  if (!media.status().images) return [];
+  const status = media.status();
+  const video = status.videos ? [videoTool(media, actor, threadId)] : [];
+  if (!status.images) return video;
 
   const generateImage = defineTool({
     name: "generate_image",
@@ -122,5 +190,5 @@ export function imageTools({
     },
   });
 
-  return [generateImage, editImage];
+  return [generateImage, editImage, ...video];
 }

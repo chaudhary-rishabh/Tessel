@@ -2,6 +2,7 @@
 
 import type {
   GenerateImageRequest,
+  GenerateVideoRequest,
   MediaItem,
   MediaListResponse,
   VoiceList,
@@ -817,6 +818,11 @@ export function useGallery(workspaceId: string | undefined, kind?: "image" | "vi
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (page: MediaListResponse) => page.nextCursor ?? undefined,
     enabled: Boolean(workspaceId),
+    // While a video is being made, the list follows its progress.
+    refetchInterval: (query) =>
+      query.state.data?.pages.some((page) => page.items.some((item) => item.status === "pending"))
+        ? 3_000
+        : false,
   });
 }
 
@@ -827,6 +833,8 @@ export function useMediaItem(workspaceId: string | undefined, mediaId: string | 
     queryFn: () => api.media.get(workspaceId!, mediaId!),
     enabled: Boolean(workspaceId && mediaId),
     staleTime: 60_000,
+    // A video being made is checked until it's done.
+    refetchInterval: (query) => (query.state.data?.status === "pending" ? 2_000 : false),
   });
 }
 
@@ -879,6 +887,10 @@ export function useMediaActions(workspaceId: string) {
   return {
     generateImage: useMutation<MediaItem, ApiClientError, GenerateImageRequest>({
       mutationFn: (input) => api.media.generateImage(workspaceId, input),
+      onSuccess: refresh,
+    }),
+    startVideo: useMutation<MediaItem, ApiClientError, GenerateVideoRequest>({
+      mutationFn: (input) => api.media.startVideo(workspaceId, input),
       onSuccess: refresh,
     }),
     remove: useMutation<void, ApiClientError, string>({

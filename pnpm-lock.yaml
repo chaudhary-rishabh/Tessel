@@ -544,6 +544,9 @@ importers:
       '@tessel/storage':
         specifier: workspace:*
         version: link:../../packages/storage
+      ai:
+        specifier: 7.0.160
+        version: 7.0.160(zod@4.6.7)
       bullmq:
         specifier: ^6.7.2
         version: 6.7.2(ioredis@5.11.1)(pg@8.23.1)

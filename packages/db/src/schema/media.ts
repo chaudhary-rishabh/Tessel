@@ -46,6 +46,8 @@ export const media = pgTable(
     sizeBytes: integer("size_bytes"),
     storageKey: text("storage_key"),
     previewKey: text("preview_key"),
+    /** A video job's handle at the model provider, checked until the video is ready. */
+    operation: jsonb("operation").$type<unknown>(),
     /** For a background job: how far along it is, in percent. */
     progress: integer("progress_percent").notNull().default(0),
     error: text("error"),

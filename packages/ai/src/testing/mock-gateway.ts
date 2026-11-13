@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { deflateSync } from "node:zlib";
+import { MOCK_VIDEO_MP4_BASE64 } from "./mock-video";
 
 /**
  * A local stand-in for the AI Gateway's OpenAI-compatible API (and Anthropic's
@@ -28,6 +29,8 @@ import { deflateSync } from "node:zlib";
  * Images (the AI SDK's /image-model): a solid PNG whose colour comes from
  * the prompt, sized by the aspect ratio; edits (with source images) come out
  * inverted. MOCK_IMAGE_FAIL in the prompt fails the request.
+ * Videos (/video-model/start and /status): pending for the first two status
+ * checks, then a one-second clip; MOCK_VIDEO_FAIL in the prompt ends in an error.
  * Artifacts: MOCK_ARTIFACT writes an HTML page, MOCK_ARTIFACT_V2 a second
  * version of it, and MOCK_ARTIFACT_REACT a React component.
  */
@@ -432,6 +435,32 @@ function mockImage(body: Record<string, unknown>): { status: number; body: unkno
   };
 }
 
+/** Video operations by ID: the prompt and how many times they were checked. */
+const videoOperations = new Map<string, { prompt: string; checks: number }>();
+
+function mockVideo(path: string, body: Record<string, unknown>): { status: number; body: unknown } {
+  if (path.endsWith("/start")) {
+    const id = `mock-video-${videoOperations.size + 1}-${Date.now()}`;
+    videoOperations.set(id, { prompt: String(body.prompt ?? ""), checks: 0 });
+    return { status: 200, body: { operation: { id } } };
+  }
+  const id = (body.operation as { id?: string } | undefined)?.id ?? "";
+  const operation = videoOperations.get(id);
+  if (!operation) return { status: 404, body: { error: { message: "No such operation" } } };
+  operation.checks += 1;
+  if (operation.checks <= 2) return { status: 200, body: { status: "pending" } };
+  if (operation.prompt.includes("MOCK_VIDEO_FAIL")) {
+    return { status: 200, body: { status: "error", error: "The mock video model declined." } };
+  }
+  return {
+    status: 200,
+    body: {
+      status: "completed",
+      videos: [{ type: "base64", data: MOCK_VIDEO_MP4_BASE64, mediaType: "video/mp4" }],
+    },
+  };
+}
+
 export async function startMockGateway({ port = 0 }: { port?: number } = {}): Promise<MockGateway> {
   const queue: MockReply[] = [];
   const requests: RecordedRequest[] = [];
@@ -445,6 +474,11 @@ export async function startMockGateway({ port = 0 }: { port?: number } = {}): Pr
 
       if (req.method === "GET" && path.endsWith("/health"))
         return sendJson(res, 200, { status: "ok" });
+
+      if (path.includes("/video-model/")) {
+        const video = mockVideo(path, body);
+        return sendJson(res, video.status, video.body);
+      }
 
       if (path.endsWith("/image-model")) {
         const image = mockImage(body);

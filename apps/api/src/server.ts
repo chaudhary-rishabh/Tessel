@@ -1,6 +1,7 @@
 import {
   aiOptionsFromEnv,
   createImageGenerator,
+  createVideoGenerator,
   createAi,
   createLiveModelRegistry,
   readModelsConfig,
@@ -17,7 +18,7 @@ import { createDatabase, createUsageLedger, loadModelConfig, pingDatabase } from
 import { createSecretBox } from "@tessel/mcp";
 import { graphStoreFromEnv } from "@tessel/graph";
 import { createQdrantEpisodeIndex } from "@tessel/memory";
-import { createMemoryQueue, createQueueConnection } from "@tessel/queue";
+import { createMediaQueue, createMemoryQueue, createQueueConnection } from "@tessel/queue";
 import { createS3ObjectStore, createSqsUploadQueue } from "@tessel/storage";
 import { createLogger } from "@tessel/logger";
 import { RedisStore } from "rate-limit-redis";
@@ -223,9 +224,18 @@ const transcribe = voiceCloning
       }
     : undefined;
 
+// Videos are made in the background; the worker checks on them.
+const videoGenerator = createVideoGenerator(env);
+
 const app = createApp({
   models: registry,
   images: createImageGenerator(env),
+  videos: videoGenerator
+    ? {
+        generator: videoGenerator,
+        queue: createMediaQueue(createQueueConnection(env.REDIS_QUEUE_URL)),
+      }
+    : undefined,
   voice: {
     rooms: voiceRooms,
     maxSessionMinutes: env.VOICE_MAX_SESSION_MINUTES,

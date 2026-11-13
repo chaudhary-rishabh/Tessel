@@ -1,4 +1,10 @@
-import { createGateway, generateImage } from "ai";
+import {
+  createGateway,
+  experimental_getVideoStatus as getVideoStatus,
+  experimental_startVideo as startVideo,
+  generateImage,
+  type JSONValue,
+} from "ai";
 import type { AiEnv } from "./env";
 import { usdToNano } from "./usage";
 
@@ -103,5 +109,72 @@ export function createImageGenerator(env: AiEnv): ImageGenerator | undefined {
         ),
       };
     },
+  };
+}
+
+export interface VideoRequest {
+  prompt: string;
+  aspectRatio: "16:9" | "9:16";
+  durationSeconds: number;
+  /** A still to start from, for image to video. */
+  image?: Uint8Array | undefined;
+}
+
+/** A finished video: its bytes, or a URL to download them from. */
+export type GeneratedVideo =
+  { data: Uint8Array; mediaType: string } | { url: string; mediaType: string };
+
+export type VideoStatus =
+  | { status: "pending" }
+  | { status: "completed"; video: GeneratedVideo }
+  | { status: "error"; error: string };
+
+/**
+ * Makes videos through the gateway as a background operation: `start`
+ * returns at once with an opaque reference, and `status` is checked until
+ * the video is ready.
+ */
+export interface VideoGenerator {
+  modelId: string;
+  start(request: VideoRequest): Promise<{ operation: JSONValue }>;
+  status(operation: JSONValue): Promise<VideoStatus>;
+  costNanoUsd(durationSeconds: number): number;
+}
+
+/** The gateway's video model, or undefined without a gateway key. */
+export function createVideoGenerator(env: AiEnv): VideoGenerator | undefined {
+  if (!env.AI_GATEWAY_API_KEY) return undefined;
+  const gateway = createGateway({
+    apiKey: env.AI_GATEWAY_API_KEY,
+    baseURL: env.AI_GATEWAY_SDK_URL,
+  });
+  const model = gateway.videoModel(env.AI_VIDEO_MODEL);
+  return {
+    modelId: env.AI_VIDEO_MODEL,
+    async start({ prompt, aspectRatio, durationSeconds, image }) {
+      const result = await startVideo({
+        model,
+        prompt: image ? { image, text: prompt } : prompt,
+        aspectRatio,
+        duration: durationSeconds,
+        generateAudio: true,
+        maxRetries: 1,
+      });
+      return { operation: result.operation };
+    },
+    async status(operation) {
+      const result = await getVideoStatus(model, { operation, maxRetries: 1 });
+      if (result.status === "pending") return { status: "pending" };
+      if (result.status === "error") return { status: "error", error: result.error };
+      const video = result.videos[0];
+      if (!video) return { status: "error", error: "The video model returned no video." };
+      if (video.type === "url") {
+        return { status: "completed", video: { url: video.url, mediaType: video.mediaType } };
+      }
+      const data =
+        video.type === "base64" ? Uint8Array.from(Buffer.from(video.data, "base64")) : video.data;
+      return { status: "completed", video: { data, mediaType: video.mediaType } };
+    },
+    costNanoUsd: (durationSeconds) => usdToNano(durationSeconds * env.AI_VIDEO_USD_PER_SECOND),
   };
 }

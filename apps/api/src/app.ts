@@ -5,9 +5,11 @@ import {
   type Ai,
   type ImageGenerator,
   type LiveModelRegistry,
+  type VideoGenerator,
   type VectorIndex,
 } from "@tessel/ai";
 import type { Database } from "@tessel/db";
+import type { MediaQueue } from "@tessel/queue";
 import type { Logger } from "@tessel/logger";
 import type { ObjectStore, UploadEventQueue } from "@tessel/storage";
 import cookieParser from "cookie-parser";
@@ -152,6 +154,8 @@ export interface AppDependencies {
   };
   /** The gateway's image model, for generating and editing images. Off when missing. */
   images?: ImageGenerator | undefined;
+  /** The gateway's video model and the queue the worker checks videos from. Off when missing. */
+  videos?: { generator: VideoGenerator; queue: MediaQueue } | undefined;
   /** Rate limit storage per limiter. Defaults to in-memory (single instance only). */
   rateLimitStoreFactory?: RateLimitStoreFactory;
   /** Override for tests, which use cheaper hashing settings. */
@@ -176,6 +180,7 @@ export function createApp({
   payments = {},
   voice = { maxSessionMinutes: 30 },
   images,
+  videos,
   signIn = { apiPublicUrl: "http://localhost:4000" },
   rateLimitStoreFactory,
   passwordHasher = createPasswordHasher(),
@@ -363,6 +368,7 @@ export function createApp({
     ai,
     objects: storage.objects,
     images,
+    videos,
     limits: usageLimits,
     logger,
   });

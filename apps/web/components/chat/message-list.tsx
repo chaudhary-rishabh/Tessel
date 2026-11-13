@@ -2,7 +2,7 @@
 
 import { imageReferences, parseMessageSegments, type ChatMessage } from "@tessel/contracts";
 import { MediaImage } from "@/components/media/media-image";
-import { ReplyImages } from "@/components/media/reply-images";
+import { ReplyMedia } from "@/components/media/reply-media";
 import { ArtifactCard } from "@/components/artifacts/artifact-card";
 import { useModels } from "@tessel/api-client/react";
 import { Button } from "@tessel/ui";
@@ -270,7 +270,7 @@ function AssistantMessage({
       ) : streaming && !busy ? (
         <Thinking searching={searching ?? false} />
       ) : null}
-      <ReplyImages workspaceId={workspaceId} calls={message.toolCalls} />
+      <ReplyMedia workspaceId={workspaceId} calls={message.toolCalls} />
       {pending ? (
         <ApprovalCard
           call={pending}

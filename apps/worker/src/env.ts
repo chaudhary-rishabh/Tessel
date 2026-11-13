@@ -24,6 +24,8 @@ export const envSchema = z.object({
   WORKER_CONCURRENCY: z.coerce.number().int().positive().default(5),
   /** Documents processed at once. Each holds a whole file in memory. */
   INGEST_CONCURRENCY: z.coerce.number().int().positive().default(2),
+  /** How often a video being made is checked. */
+  VIDEO_POLL_MS: z.coerce.number().int().positive().default(5_000),
   WORKER_HEALTH_PORT: z.coerce.number().int().positive().default(4200),
   ...aiEnvShape,
   ...storageEnvShape,

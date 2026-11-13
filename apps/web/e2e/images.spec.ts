@@ -52,7 +52,7 @@ test.describe("images", () => {
 
     // Both are in the gallery, newest first.
     await page.goto("/gallery");
-    await expect(page.getByRole("heading", { name: "Images", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Gallery" })).toBeVisible();
     const tiles = page.getByRole("button", { name: /^Open image:/ });
     await expect(tiles).toHaveCount(2);
     await expect(tiles.first()).toHaveAccessibleName("Open image: Make it night");

@@ -1,8 +1,15 @@
 import { randomUUID } from "node:crypto";
-import { AiError, ContentBlockedError, type Ai, type ImageGenerator } from "@tessel/ai";
+import {
+  AiError,
+  ContentBlockedError,
+  type Ai,
+  type ImageGenerator,
+  type VideoGenerator,
+} from "@tessel/ai";
 import {
   closestAspectRatio,
   generateImageRequestSchema,
+  generateVideoRequestSchema,
   mediaListQuerySchema,
   type MediaItem,
   type MediaListResponse,
@@ -20,6 +27,7 @@ import {
   type Transaction,
 } from "@tessel/db";
 import type { Logger } from "@tessel/logger";
+import type { MediaQueue } from "@tessel/queue";
 import { and, desc, eq } from "drizzle-orm";
 import { storageKeys, type ObjectStore } from "@tessel/storage";
 import sharp from "sharp";
@@ -80,6 +88,7 @@ export function createMediaService({
   ai,
   objects,
   images,
+  videos,
   limits,
   logger,
 }: {
@@ -88,6 +97,8 @@ export function createMediaService({
   objects: ObjectStore;
   /** The gateway's image model; image generation is off without it. */
   images?: ImageGenerator | undefined;
+  /** The gateway's video model and the queue the worker checks videos from; both needed. */
+  videos?: { generator: VideoGenerator; queue: MediaQueue } | undefined;
   limits?: UsageLimits | undefined;
   logger: Logger;
 }) {
@@ -144,7 +155,7 @@ export function createMediaService({
 
   return {
     status() {
-      return { images: Boolean(images), videos: false };
+      return { images: Boolean(images), videos: Boolean(videos) };
     },
 
     /**
@@ -279,6 +290,79 @@ export function createMediaService({
             costNanoUsd: generated.costNanoUsd,
           })
           .returning(),
+      );
+      return toMediaItem(row!);
+    },
+
+    /**
+     * Starts a video: a paid-plan feature, since a few seconds cost about a
+     * dollar. The model works in the background; the worker checks on it and
+     * saves it, and the row says how far along it is.
+     */
+    async startVideo(
+      actor: Actor,
+      input: unknown,
+      options: { threadId?: string; moderate?: boolean } = {},
+    ): Promise<MediaItem> {
+      const request = generateVideoRequestSchema.parse(input);
+      if (!videos) throw new AppError(503, "videos_unavailable", "Video generation isn't set up");
+      const source = await withUserContext(db, actor.userId, async (tx) => {
+        await requireMembership(tx, actor);
+        return request.sourceId ? sourceImage(tx, actor, request.sourceId) : undefined;
+      });
+      if (limits) {
+        const plan = limits.effectivePlan(await limits.account(actor.workspaceId));
+        if (plan.modelTier === "free") {
+          throw errors.forbidden(
+            "Making videos needs a paid plan. Upgrade in Settings.",
+            "video_requires_plan",
+          );
+        }
+        await limits.check(actor, "pro");
+      }
+      await ai.spend.assertWithinBudget(actor);
+      if (options.moderate) {
+        const verdict = await ai.moderator.check({ ...actor, feature: "video" }, request.prompt);
+        if (!verdict.allowed) throw new ContentBlockedError(verdict.categories);
+      }
+
+      let operation: unknown;
+      try {
+        ({ operation } = await videos.generator.start({
+          prompt: request.prompt,
+          aspectRatio: request.aspectRatio,
+          durationSeconds: request.durationSeconds,
+          ...(source ? { image: await asPng(source) } : {}),
+        }));
+      } catch (error) {
+        logger.warn({ err: error }, "Couldn't start a video");
+        if (error instanceof AiError) throw error;
+        throw new AppError(502, "video_failed", "The video couldn't be started. Try again.");
+      }
+      const landscape = request.aspectRatio === "16:9";
+      const [row] = await withUserContext(db, actor.userId, (tx) =>
+        tx
+          .insert(media)
+          .values({
+            workspaceId: actor.workspaceId,
+            userId: actor.userId,
+            threadId: options.threadId ?? null,
+            kind: "video",
+            status: "pending",
+            prompt: request.prompt,
+            modelId: videos.generator.modelId,
+            sourceIds: request.sourceId ? [request.sourceId] : [],
+            mediaType: "video/mp4",
+            width: landscape ? 1280 : 720,
+            height: landscape ? 720 : 1280,
+            durationMs: request.durationSeconds * 1000,
+            operation,
+          })
+          .returning(),
+      );
+      await videos.queue.enqueueVideo(
+        { workspaceId: actor.workspaceId, userId: actor.userId, mediaId: row!.id },
+        2_000,
       );
       return toMediaItem(row!);
     },

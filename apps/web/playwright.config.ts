@@ -126,7 +126,13 @@ export default defineConfig({
       reuseExistingServer: !isCI,
       // Worker logs go to the CI log, since ingestion failures only show there.
       stdout: isCI ? "pipe" : "ignore",
-      env: { AI_GATEWAY_API_KEY: "mock", AI_GATEWAY_URL: MOCK_GATEWAY_URL },
+      env: {
+        AI_GATEWAY_API_KEY: "mock",
+        AI_GATEWAY_URL: MOCK_GATEWAY_URL,
+        AI_GATEWAY_SDK_URL: "http://127.0.0.1:4300/v3/ai",
+        // Check videos often, so tests don't wait.
+        VIDEO_POLL_MS: "1000",
+      },
       timeout: 60_000,
     },
     ...(VOICE

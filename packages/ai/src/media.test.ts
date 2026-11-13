@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { aiEnvSchema } from "./env";
-import { createImageGenerator, imageCostNanoUsd } from "./media";
+import { createImageGenerator, createVideoGenerator, imageCostNanoUsd } from "./media";
 import { startMockGateway, type MockGateway } from "./testing";
 import { usdToNano } from "./usage";
 
@@ -71,5 +71,55 @@ describe("imageCostNanoUsd", () => {
       usdToNano(0.035),
     );
     expect(imageCostNanoUsd({ images: 2 }, pricing)).toBe(usdToNano(0.1));
+  });
+});
+
+describe("createVideoGenerator", () => {
+  const env = () =>
+    aiEnvSchema.parse({
+      AI_GATEWAY_API_KEY: "test",
+      AI_GATEWAY_SDK_URL: gateway.url.replace(/\/v1$/, "/v3/ai"),
+    });
+
+  it("starts a video, reports it pending, then returns the clip", async () => {
+    const generator = createVideoGenerator(env())!;
+    expect(generator.modelId).toBe("google/veo-3.1-fast-generate-001");
+    const { operation } = await generator.start({
+      prompt: "Waves at dusk",
+      aspectRatio: "16:9",
+      durationSeconds: 6,
+    });
+    const started = gateway.requests.at(-1)!;
+    expect(started.path).toBe("/v3/ai/video-model/start");
+    expect(started.body).toMatchObject({
+      prompt: "Waves at dusk",
+      aspectRatio: "16:9",
+      duration: 6,
+    });
+
+    expect(await generator.status(operation)).toEqual({ status: "pending" });
+    expect(await generator.status(operation)).toEqual({ status: "pending" });
+    const done = await generator.status(operation);
+    expect(done.status).toBe("completed");
+    if (done.status !== "completed" || !("data" in done.video)) throw new Error("No clip");
+    expect(done.video.mediaType).toBe("video/mp4");
+    // An MP4 starts with a file type box.
+    expect(Buffer.from(done.video.data).subarray(4, 8).toString("ascii")).toBe("ftyp");
+    expect(generator.costNanoUsd(6)).toBe(usdToNano(0.9));
+  });
+
+  it("reports a failed video", async () => {
+    const generator = createVideoGenerator(env())!;
+    const { operation } = await generator.start({
+      prompt: "MOCK_VIDEO_FAIL",
+      aspectRatio: "9:16",
+      durationSeconds: 4,
+    });
+    await generator.status(operation);
+    await generator.status(operation);
+    expect(await generator.status(operation)).toEqual({
+      status: "error",
+      error: "The mock video model declined.",
+    });
   });
 });

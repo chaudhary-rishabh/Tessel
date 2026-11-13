@@ -61,6 +61,19 @@ export const generateImageRequestSchema = z.object({
 });
 export type GenerateImageRequest = z.input<typeof generateImageRequestSchema>;
 
+export const VIDEO_ASPECT_RATIOS = ["16:9", "9:16"] as const;
+export const VIDEO_DURATIONS = [4, 6, 8] as const;
+
+/** Start a video from a prompt, optionally from a still image. It's made in the background. */
+export const generateVideoRequestSchema = z.object({
+  prompt: z.string().trim().min(1).max(MEDIA_PROMPT_MAX),
+  aspectRatio: z.enum(VIDEO_ASPECT_RATIOS).default("16:9"),
+  durationSeconds: z.union(VIDEO_DURATIONS.map((value) => z.literal(value))).default(8),
+  /** An image (generated or attached) for the video to start from. */
+  sourceId: z.uuid().optional(),
+});
+export type GenerateVideoRequest = z.input<typeof generateVideoRequestSchema>;
+
 export const mediaStatusResponseSchema = z.object({
   images: z.boolean(),
   videos: z.boolean(),

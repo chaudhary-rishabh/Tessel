@@ -211,7 +211,7 @@ async function drive(run: Drive): Promise<void> {
     workers: connectors?.names.length
       ? [
           ...teamWorkers,
-          ...(deps.media.status().images ? [designerWorker] : []),
+          ...(deps.media.status().images || deps.media.status().videos ? [designerWorker] : []),
           {
             name: "integrations",
             title: "Integrations specialist",
@@ -220,7 +220,10 @@ async function drive(run: Drive): Promise<void> {
             tools: connectors.names,
           },
         ]
-      : [...teamWorkers, ...(deps.media.status().images ? [designerWorker] : [])],
+      : [
+          ...teamWorkers,
+          ...(deps.media.status().images || deps.media.status().videos ? [designerWorker] : []),
+        ],
     context,
     signal,
     logger: deps.logger,

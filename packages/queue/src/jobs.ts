@@ -7,6 +7,8 @@ export const QUEUE_NAMES = {
   documents: "documents",
   /** Summary, long-term, and episodic memory after replies. */
   memory: "memory",
+  /** Videos being made: each job checks one video and comes back until it's done. */
+  media: "media",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -34,7 +36,20 @@ export const jobSchemas = {
       threadId: z.uuid(),
     }),
   },
+  media: {
+    video: z.object({
+      workspaceId: z.uuid(),
+      userId: z.uuid(),
+      mediaId: z.uuid(),
+    }),
+  },
 } as const;
+
+export type VideoJobData = z.infer<typeof jobSchemas.media.video>;
+/** How often a video being made is checked. */
+export const VIDEO_POLL_MS = 5_000;
+/** A video still not done after this long has failed. */
+export const VIDEO_TIMEOUT_MS = 15 * 60_000;
 
 export type ThreadMemoryJobData = z.infer<typeof jobSchemas.memory.thread>;
 

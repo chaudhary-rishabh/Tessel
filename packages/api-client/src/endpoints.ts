@@ -131,6 +131,7 @@ import {
   type UpdateProfileRequest,
   type Workspace,
   type GenerateImageRequest,
+  type GenerateVideoRequest,
   type MediaItem,
   type MediaListResponse,
   type MediaStatus,
@@ -652,6 +653,12 @@ export function createApi(client: ApiClient) {
               timeout: 240_000,
             })
           ).data,
+        ),
+      /** Starts a video; it's made in the background and the item says how far along it is. */
+      startVideo: async (workspaceId: string, input: GenerateVideoRequest): Promise<MediaItem> =>
+        parse(
+          mediaItemSchema,
+          (await http.post(`/workspaces/${workspaceId}/media/videos`, input)).data,
         ),
       /** The file (or its small preview) as a Blob: img tags can't send the auth header. */
       blob: async (
