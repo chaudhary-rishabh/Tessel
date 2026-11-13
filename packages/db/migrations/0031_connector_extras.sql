@@ -1,0 +1,1 @@
+ALTER TABLE "connector_connections" ADD COLUMN "extras" jsonb DEFAULT '{}'::jsonb NOT NULL;

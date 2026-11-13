@@ -61,6 +61,8 @@ function toConnection(row: ConnectorConnectionRow, userId?: string): ConnectorCo
   return {
     shared: row.shared,
     mine: userId === undefined || row.userId === userId,
+    resources: row.extras.resources ?? false,
+    prompts: (row.extras.prompts ?? []).map((prompt) => prompt.title ?? prompt.name),
     id: row.id,
     catalogId: row.catalogId,
     name: row.name,
@@ -206,10 +208,16 @@ export function createConnectorsService({
           })
         : await open(row);
       const tools = (await client.listTools()) as RemoteTool[];
+      // Resources and prompts are extras: a server that fails to list them still connects.
+      const [resources, prompts] = await Promise.all([
+        client.listResources().catch(() => []),
+        client.listPrompts().catch(() => []),
+      ]);
       return save(row.userId, row.id, {
         status: "connected",
         lastError: null,
         tools,
+        extras: { resources: resources.length > 0, prompts: prompts.slice(0, 20) },
         ...(credentials ? { credentials: box.seal(credentials) } : {}),
       });
     } catch (error) {
@@ -497,6 +505,8 @@ export function createConnectorsService({
             prefix: row.catalogId ?? row.name,
             tools: row.tools,
             policies: row.toolPolicies as Record<string, ToolPolicy>,
+            resources: row.extras.resources ?? false,
+            prompts: row.extras.prompts ?? [],
             client: async () => {
               let client = clients.get(row.id);
               if (!client) {

@@ -112,6 +112,33 @@ export async function startMockMcpServer({
         return { content: [{ type: "text", text: `Created issue #${issue.number}: ${title}` }] };
       },
     );
+    server.registerResource(
+      "readme",
+      "repo://mock/README.md",
+      { title: "README", description: "The repository's readme", mimeType: "text/markdown" },
+      async (uri) => ({
+        contents: [{ uri: uri.href, text: "# Mock repo\nREADME-OK: run npm test before merging." }],
+      }),
+    );
+    server.registerPrompt(
+      "triage",
+      {
+        title: "Triage an issue",
+        description: "How this team triages a new issue",
+        argsSchema: { number: z.string().describe("The issue number") },
+      },
+      ({ number }) => ({
+        messages: [
+          {
+            role: "user",
+            content: {
+              type: "text",
+              text: `TRIAGE-OK: label issue #${number}, then assign an owner.`,
+            },
+          },
+        ],
+      }),
+    );
     server.registerTool(
       "delete_repository",
       { description: "Delete the repository", inputSchema: { confirm: z.boolean() } },
