@@ -2,6 +2,7 @@ import {
   createGateway,
   experimental_getVideoStatus as getVideoStatus,
   experimental_startVideo as startVideo,
+  experimental_transcribe as transcribe,
   generateImage,
   type JSONValue,
 } from "ai";
@@ -176,5 +177,56 @@ export function createVideoGenerator(env: AiEnv): VideoGenerator | undefined {
       return { status: "completed", video: { data, mediaType: video.mediaType } };
     },
     costNanoUsd: (durationSeconds) => usdToNano(durationSeconds * env.AI_VIDEO_USD_PER_SECOND),
+  };
+}
+
+export interface TranscriptSegment {
+  text: string;
+  startSecond: number;
+  endSecond: number;
+}
+
+export interface Transcript {
+  text: string;
+  segments: TranscriptSegment[];
+  durationSeconds: number;
+}
+
+/** Turns a recording into text with timings, through the gateway. */
+export interface Transcriber {
+  modelId: string;
+  transcribe(audio: Uint8Array, signal?: AbortSignal): Promise<Transcript>;
+  costNanoUsd(durationSeconds: number): number;
+}
+
+/** The gateway's transcription model, or undefined without a gateway key. */
+export function createTranscriber(env: AiEnv): Transcriber | undefined {
+  if (!env.AI_GATEWAY_API_KEY) return undefined;
+  const gateway = createGateway({
+    apiKey: env.AI_GATEWAY_API_KEY,
+    baseURL: env.AI_GATEWAY_SDK_URL,
+  });
+  const model = gateway.transcription(env.AI_TRANSCRIPTION_MODEL);
+  return {
+    modelId: env.AI_TRANSCRIPTION_MODEL,
+    async transcribe(audio, signal) {
+      const result = await transcribe({
+        model,
+        audio,
+        maxRetries: 1,
+        ...(signal ? { abortSignal: signal } : {}),
+      });
+      const segments = result.segments.map((segment) => ({
+        text: segment.text,
+        startSecond: segment.startSecond,
+        endSecond: segment.endSecond,
+      }));
+      return {
+        text: result.text,
+        segments,
+        durationSeconds: result.durationInSeconds ?? segments.at(-1)?.endSecond ?? 0,
+      };
+    },
+    costNanoUsd: (seconds) => usdToNano((seconds / 60) * env.AI_TRANSCRIPTION_USD_PER_MINUTE),
   };
 }

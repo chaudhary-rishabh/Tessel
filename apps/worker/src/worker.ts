@@ -8,6 +8,7 @@ import {
   redisKeyValueCache,
   withSearchCache,
   createSpendGuard,
+  createTranscriber,
   createVideoGenerator,
   redisSpendStore,
   spendLimitsFromEnv,
@@ -117,6 +118,8 @@ await systemQueue
   .catch((error: unknown) => logger.error({ err: error }, "Could not schedule maintenance"));
 
 const store = createDocumentStore(database.db);
+// Audio and video uploads are transcribed before they're indexed.
+const transcriber = createTranscriber(env);
 const documentsWorker = new Worker(
   QUEUE_NAMES.documents,
   async (job) => {
@@ -124,7 +127,7 @@ const documentsWorker = new Worker(
     if (!parsed.success)
       throw new UnrecoverableError(`Invalid ingest payload: ${parsed.error.message}`);
     const isLastAttempt = job.attemptsMade + 1 >= (job.opts.attempts ?? 1);
-    return ingestDocument({ store, objects, index, ai, logger, graph }, parsed.data, {
+    return ingestDocument({ store, objects, index, ai, logger, graph, transcriber }, parsed.data, {
       isLastAttempt,
     });
   },

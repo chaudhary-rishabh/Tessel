@@ -2,7 +2,12 @@
 
 import { ApiClientError } from "@tessel/api-client";
 import { queryKeys, useApi } from "@tessel/api-client/react";
-import { DOCUMENT_TYPES, MAX_DOCUMENT_BYTES, type DocumentSummary } from "@tessel/contracts";
+import {
+  DOCUMENT_TYPES,
+  MAX_RECORDING_BYTES,
+  maxUploadBytes,
+  type DocumentSummary,
+} from "@tessel/contracts";
 import { cn } from "@tessel/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import { CircleAlert, Upload, X } from "lucide-react";
@@ -24,10 +29,15 @@ const ACCEPT = Object.keys(DOCUMENT_TYPES)
 function validate(file: File): string | undefined {
   const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
   if (!file.name.includes(".") || !Object.hasOwn(DOCUMENT_TYPES, extension)) {
-    return "Upload a PDF, Word, text, Markdown, CSV, JSON, or HTML file";
+    return "Upload a PDF, Word, text, Markdown, CSV, JSON, or HTML file, or an audio or video recording";
   }
   if (file.size === 0) return "The file is empty";
-  if (file.size > MAX_DOCUMENT_BYTES) return "Files can be up to 50 MB";
+  const max = maxUploadBytes(file.name);
+  if (file.size > max) {
+    return max === MAX_RECORDING_BYTES
+      ? "Recordings can be up to 500 MB"
+      : "Files can be up to 50 MB";
+  }
   return undefined;
 }
 
@@ -109,7 +119,8 @@ export function UploadZone({ workspaceId }: { workspaceId: string }) {
           <span className="text-muted"> or drop them here</span>
         </div>
         <p id={hintId} className="text-muted text-sm">
-          PDF, Word, text, Markdown, CSV, JSON, or HTML, up to 50 MB each
+          PDF, Word, text, Markdown, CSV, JSON, or HTML, up to 50 MB each. Audio and video
+          recordings, up to 500 MB, are transcribed.
         </p>
         <input
           ref={input}

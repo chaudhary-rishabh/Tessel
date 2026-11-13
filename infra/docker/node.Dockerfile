@@ -4,6 +4,7 @@
 #   ENTRY        bundled entry file inside the package, e.g. dist/server.mjs,
 #                plus any arguments (the voice agent's is "dist/main.mjs start")
 #   NODE_IMAGE   base image; Alpine unless a service needs glibc
+#   SYSTEM_PACKAGES  extra OS packages for the runtime image, e.g. ffmpeg for the worker
 
 ARG NODE_IMAGE=node:24-alpine
 
@@ -33,6 +34,11 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
 
 FROM ${NODE_IMAGE} AS runner
 ARG ENTRY
+ARG SYSTEM_PACKAGES=""
+RUN if [ -n "$SYSTEM_PACKAGES" ]; then \
+      if command -v apk >/dev/null; then apk add --no-cache $SYSTEM_PACKAGES; \
+      else apt-get update && apt-get install -y --no-install-recommends $SYSTEM_PACKAGES && rm -rf /var/lib/apt/lists/*; fi; \
+    fi
 ENV NODE_ENV=production ENTRY=${ENTRY}
 WORKDIR /app
 # The deployed package: its bundle in dist/, production node_modules, and any
