@@ -99,4 +99,15 @@ test.describe("workspace and settings", () => {
     // On phones the drawer closes after navigating.
     await expect(page.getByRole("dialog", { name: "Navigation" })).toBeHidden();
   });
+
+  test("scrolls a long page inside the app, never the window itself", async ({ page }) => {
+    await signUp(page);
+    await page.goto("/settings");
+    await expect(page.getByRole("heading", { name: "Where you're signed in" })).toBeVisible();
+    const sizes = await page.evaluate(() => ({
+      page: document.documentElement.scrollHeight,
+      window: window.innerHeight,
+    }));
+    expect(sizes.page).toBeLessThanOrEqual(sizes.window);
+  });
 });

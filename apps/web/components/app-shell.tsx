@@ -150,7 +150,7 @@ function SidebarContent({
       <section
         aria-labelledby={recentId}
         inert={collapsed}
-        className={cn("min-h-0 flex-1 overflow-x-hidden overflow-y-auto", labelFade)}
+        className={cn("relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto", labelFade)}
       >
         {/* A fixed width on wide screens, so the list is clipped as it folds rather than squeezed. */}
         <div className={cn("px-3", collapsible && "w-[16.75rem]")}>
@@ -232,7 +232,9 @@ export function AppShell({ children }: { children: ReactNode }) {
             <span className="font-display truncate font-semibold">{current?.name ?? "Tessel"}</span>
           </header>
           <EmailReminder />
-          <main className="min-h-0 flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)]">
+          {/* relative: hidden screen-reader text is placed against this scroll box, not the page,
+              so it can't stretch the page and give the window a second scrollbar. */}
+          <main className="relative min-h-0 flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)]">
             {children}
           </main>
         </div>

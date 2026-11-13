@@ -91,7 +91,7 @@ export default function ThreadPage() {
   return (
     <div className="flex h-full flex-col">
       <h1 className="sr-only">{thread.data.thread.title ?? "New chat"}</h1>
-      <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto">
+      <div ref={scrollRef} onScroll={onScroll} className="relative min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-3xl px-4 pt-6 pb-10 sm:px-6">
           <MessageList
             workspaceId={workspaceId}
