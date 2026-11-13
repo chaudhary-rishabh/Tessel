@@ -19,6 +19,7 @@
     "@tessel/api-client": "workspace:*",
     "@tessel/contracts": "workspace:*",
     "@tessel/ui": "workspace:*",
+    "fflate": "0.8.3",
     "livekit-client": "2.23.0",
     "lucide-react": "^1.70.0",
     "next": "^16.4.5",

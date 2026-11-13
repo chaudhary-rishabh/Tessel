@@ -443,6 +443,14 @@ sequenceDiagram
 - Endpoints: `GET /workspaces/:workspaceId/voice/status`, `POST …/voice/sessions`, `POST …/voice/sessions/:sessionId/end`. Starting a session ends the user's other open ones.
 - Tests: `apps/voice/test/conversation.test.ts` runs whole conversations through the real session, speech classes, gateway model client, and database, with scripted speech models and the mock gateway.
 
+## Artifacts and apps
+
+- The model writes substantial work inline as `<artifact id type title [language]>…</artifact>` (types `html`, `react`, `svg`, `mermaid`, `markdown`, `code`, `app`; the instructions are in `chat.history.ts`). `@tessel/contracts` parses replies into text and artifacts, including while they stream, so nothing new is stored: an artifact's versions are the chat's assistant messages that write the same id, and editing or retrying a message changes them the way it changes the chat.
+- The web app shows a card in the reply and opens the artifact in a side panel (full screen on a phone): preview or code, versions, copy, download, run again. While an artifact is written its code streams; the preview runs once it's complete.
+- Previews run in an `iframe` with `srcdoc` and `sandbox` without `allow-same-origin`, so the artifact has an opaque origin and can't reach the app's cookies, storage, or API. Errors inside are posted to the panel, which shows them.
+- React components are compiled in the frame with Sucrase; React comes from esm.sh through an import map, other packages from esm.sh sharing that React, and Tailwind's browser build styles them. Mermaid renders with `securityLevel: "strict"`.
+- An `app` artifact is a project of `<file path>` files. Its pages are its HTML files: local stylesheets and classic scripts are inlined, and module scripts go through a loader inside the frame that compiles each file, links relative imports (with or without extensions) as blob URLs, injects imported CSS, and turns JSON and SVG imports into modules. Links to the app's other pages open them in the panel. It downloads as a zip of its files (`fflate`).
+
 ## Caching
 
 | Layer          | Where                     | Key                                                  | Lifetime                        |
