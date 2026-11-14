@@ -40,5 +40,19 @@ export function createMemoryRouter({
     await service.remove(actorFor(req), memoryIdOf(req));
     res.status(204).end();
   });
+  // Team memory: shared by everyone in a team workspace.
+  router.get("/team", async (req, res) => {
+    res.json({ memories: await service.listTeam(actorFor(req)) });
+  });
+  router.post("/team", async (req, res) => {
+    res.status(201).json(await service.addTeam(actorFor(req), req.body));
+  });
+  router.patch("/team/:memoryId", async (req, res) => {
+    res.json(await service.updateTeam(actorFor(req), memoryIdOf(req), req.body));
+  });
+  router.delete("/team/:memoryId", async (req, res) => {
+    await service.removeTeam(actorFor(req), memoryIdOf(req));
+    res.status(204).end();
+  });
   return router;
 }

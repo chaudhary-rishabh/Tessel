@@ -413,6 +413,7 @@ flowchart LR
 - `@tessel/memory` holds the store, the summarizer and extractor (utility model), the episode index, the memory tools, and `processThreadMemory`, which the worker runs for each `memory` job.
 - Replies include up to 60 memories and the thread summary in the system prompt, and offer `remember` and `search_past_chats` when the user's settings allow.
 - Endpoints: `GET /workspaces/:workspaceId/memory`, `PUT …/memory/settings`, `POST|DELETE …/memory/memories`, `PATCH|DELETE …/memory/memories/:memoryId`. Settings has a Memory section for all of it.
+- Team workspaces also have team memory (`workspace_memories`): facts everyone shares, sent with every member's replies (up to 60) whatever their own memory setting. Members read and add; the author, owners, and admins change or delete, enforced by row-level security. `GET|POST …/memory/team`, `PATCH|DELETE …/memory/team/:memoryId`, and the agent's `remember_for_team` tool, which asks first.
 
 ## Voice
 

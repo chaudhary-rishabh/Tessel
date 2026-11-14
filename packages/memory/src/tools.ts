@@ -17,13 +17,34 @@ export interface PastChat {
  */
 export function memoryTools({
   remember,
+  rememberForTeam,
   searchPastChats,
 }: {
   /** Saves a memory and returns its ID, so the reply can offer to undo it. */
   remember?: (content: string) => Promise<string | void>;
+  /** Team workspaces: saves a fact to team memory, which everyone's replies use. */
+  rememberForTeam?: (content: string) => Promise<string | void>;
   searchPastChats?: (query: string) => Promise<PastChat[]>;
 }): ToolDefinition[] {
   const tools: ToolDefinition[] = [];
+  if (rememberForTeam) {
+    tools.push(
+      defineTool({
+        name: "remember_for_team",
+        title: "Remember for the team",
+        description:
+          "Save a fact to team memory, which everyone in this workspace shares and every reply uses: a project, a convention, or a decision. Only when the user asks to remember something for the team or the workspace; personal facts go to remember. One sentence.",
+        schema: z.object({ content: z.string().trim().min(1).max(MAX_MEMORY_CHARACTERS) }),
+        // Everyone sees it, so it asks first.
+        risk: "write",
+        describeCall: ({ content }) => `Add to team memory: "${content}"`,
+        async run({ content }) {
+          await rememberForTeam(content);
+          return { content: `Saved to team memory: ${content}`, summary: content };
+        },
+      }),
+    );
+  }
   if (remember) {
     tools.push(
       defineTool({

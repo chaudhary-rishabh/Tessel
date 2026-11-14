@@ -76,6 +76,8 @@ const size = (content: MessageContent): number =>
 /** What Tessel remembers for this reply: long-term memories and the chat's summary. */
 export interface ReplyMemory {
   memories?: string[];
+  /** Team memory, in a team workspace. */
+  teamMemories?: string[];
   /** Summary memory: older turns, folded into one text. */
   summary?: string | null;
   /** The last message the summary covers; only later messages are sent in full. */
@@ -124,6 +126,7 @@ export function buildModelMessages(
   while (ordered[0] instanceof AIMessage) ordered.shift();
   const remembered = memoryPrompt({
     memories: memory.memories ?? [],
+    teamMemories: memory.teamMemories ?? [],
     summary: summarized ? memory.summary : null,
   });
   return [

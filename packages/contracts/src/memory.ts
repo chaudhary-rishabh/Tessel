@@ -37,7 +37,23 @@ export const memoryParamsSchema = z.object({
   memoryId: z.uuid("Invalid memory ID"),
 });
 
+/** A fact everyone in a team workspace shares, used in every member's replies. */
+export const teamMemorySchema = z.object({
+  id: z.uuid(),
+  content: z.string(),
+  /** Who wrote it; null once they've left Tessel. */
+  authorName: z.string().nullable(),
+  mine: z.boolean(),
+  /** The author, owners, and admins can change or delete it. */
+  canEdit: z.boolean(),
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+});
+
+export const teamMemoryListResponseSchema = z.object({ memories: z.array(teamMemorySchema) });
+
 export type Memory = z.infer<typeof memorySchema>;
+export type TeamMemory = z.infer<typeof teamMemorySchema>;
 export type MemorySettings = z.infer<typeof memorySettingsSchema>;
 export type MemoryResponse = z.infer<typeof memoryResponseSchema>;
 export type UpdateMemorySettingsRequest = z.infer<typeof updateMemorySettingsRequestSchema>;

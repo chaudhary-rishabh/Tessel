@@ -409,6 +409,10 @@ export function createChatService({
       const memories = memorySettings.memoryEnabled
         ? (await memory.list(actor)).slice(0, MAX_PROMPT_MEMORIES).map((row) => row.content)
         : [];
+      // Team memory is the workspace's shared context, so it's used whatever the person's own setting.
+      const teamMemories = memorySettings.team
+        ? (await memory.team.list(actor)).slice(0, MAX_PROMPT_MEMORIES).map((row) => row.content)
+        : [];
       return {
         context,
         model,
@@ -421,6 +425,7 @@ export function createChatService({
         assistantMessageId: saved.assistantRow.id,
         history: buildModelMessages(saved.history, historyFiles, now, {
           memories,
+          teamMemories,
           summary: saved.thread.summary,
           summaryThrough: saved.thread.summaryThrough,
         }),

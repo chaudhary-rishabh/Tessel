@@ -15,7 +15,6 @@ Things noticed along the way that are not needed yet. Each item names the step w
 - **Stream moderation:** Check long replies in chunks while they stream, so a blocked reply stops early instead of being replaced at the end. (Phase 3)
 - **Key management:** Move the connector encryption key to AWS KMS with envelope encryption and rotation. (Phase 3)
 - **Relevant memories only:** Once users have many memories, send the most relevant to each message (by embedding) instead of the newest 60. (Phase 3)
-- **Project memory:** Memories shared by a team for a project, separate from personal ones. (Phase 2)
 - **Entity resolution:** Merge entities that are the same thing under different names ("Payments" and "Payments Team") with embeddings and a review step. (Phase 3)
 - **Community summaries:** Summaries of clusters of related entities for broad questions, as in GraphRAG. (Phase 3)
 - **New sign-in alerts:** Email the user when a new device signs in. (Phase 3)

@@ -23,6 +23,7 @@ import type {
   TwoFactorSetupResponse,
   Memory,
   MemoryResponse,
+  TeamMemory,
   UpdateMemorySettingsRequest,
   AccessToken,
   CreateAccessTokenRequest,
@@ -87,6 +88,7 @@ export const queryKeys = {
   connectors: (workspaceId: string) => ["workspaces", workspaceId, "connectors"] as const,
   accessTokens: (workspaceId: string) => ["workspaces", workspaceId, "access-tokens"] as const,
   memory: (workspaceId: string) => ["workspaces", workspaceId, "memory"] as const,
+  teamMemory: (workspaceId: string) => ["workspaces", workspaceId, "team-memory"] as const,
   graph: (workspaceId: string, entity: string) =>
     ["workspaces", workspaceId, "graph", entity] as const,
   threads: (workspaceId: string) => ["workspaces", workspaceId, "threads"] as const,
@@ -622,6 +624,47 @@ export function useMemoryActions(workspaceId: string) {
     clear: useMutation<void, ApiClientError, void>({
       mutationFn: () => api.memory.clear(workspaceId),
       onSuccess: () => patch((current) => ({ ...current, memories: [] })),
+    }),
+  };
+}
+
+/** Team memory, in a team workspace. */
+export function useTeamMemory(workspaceId: string, enabled: boolean) {
+  const api = useApi();
+  return useQuery({
+    queryKey: queryKeys.teamMemory(workspaceId),
+    queryFn: () => api.memory.team.list(workspaceId),
+    enabled,
+  });
+}
+
+export function useTeamMemoryActions(workspaceId: string) {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  const key = queryKeys.teamMemory(workspaceId);
+  const put = (memory: TeamMemory) =>
+    queryClient.setQueryData<TeamMemory[]>(key, (current = []) =>
+      current.some((item) => item.id === memory.id)
+        ? current.map((item) =>
+            item.id === memory.id ? { ...item, ...memory, authorName: item.authorName } : item,
+          )
+        : [memory, ...current],
+    );
+  return {
+    add: useMutation<TeamMemory, ApiClientError, string>({
+      mutationFn: (content) => api.memory.team.add(workspaceId, content),
+      onSuccess: () => void queryClient.invalidateQueries({ queryKey: key }),
+    }),
+    update: useMutation<TeamMemory, ApiClientError, { memoryId: string; content: string }>({
+      mutationFn: ({ memoryId, content }) => api.memory.team.update(workspaceId, memoryId, content),
+      onSuccess: put,
+    }),
+    remove: useMutation<void, ApiClientError, string>({
+      mutationFn: (memoryId) => api.memory.team.remove(workspaceId, memoryId),
+      onSuccess: (_result, memoryId) =>
+        queryClient.setQueryData<TeamMemory[]>(key, (current = []) =>
+          current.filter((item) => item.id !== memoryId),
+        ),
     }),
   };
 }
