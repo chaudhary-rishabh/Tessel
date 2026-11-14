@@ -4,6 +4,9 @@ import {
   portalResponseSchema,
   type BillingSummary,
   type CheckoutRequest,
+  type Invoice,
+  invoiceListResponseSchema,
+  type UpdateTaxDetailsRequest,
   type UpdateExtraUsageRequest,
   adminModelsResponseSchema,
   adminOverviewSchema,
@@ -316,6 +319,20 @@ export function createApi(client: ApiClient) {
           billingSummarySchema,
           (await http.post(`/workspaces/${workspaceId}/billing/cancel`, { cancel })).data,
         ),
+      /** The business's name and GSTIN, for tax invoices. */
+      updateTax: async (
+        workspaceId: string,
+        input: UpdateTaxDetailsRequest,
+      ): Promise<BillingSummary> =>
+        parse(
+          billingSummarySchema,
+          (await http.put(`/workspaces/${workspaceId}/billing/tax`, input)).data,
+        ),
+      invoices: async (workspaceId: string): Promise<Invoice[]> =>
+        parse(
+          invoiceListResponseSchema,
+          (await http.get(`/workspaces/${workspaceId}/billing/invoices`)).data,
+        ).invoices,
     },
     /** Platform admins only; the API checks the role on every call. */
     admin: {

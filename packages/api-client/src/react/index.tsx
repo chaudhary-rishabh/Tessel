@@ -74,6 +74,7 @@ export const queryKeys = {
   signInOptions: ["auth", "options"] as const,
   connectedApps: ["users", "me", "connected-apps"] as const,
   billing: (workspaceId: string) => ["workspaces", workspaceId, "billing"] as const,
+  invoices: (workspaceId: string) => ["workspaces", workspaceId, "billing", "invoices"] as const,
   members: (workspaceId: string) => ["workspaces", workspaceId, "members"] as const,
   invitations: (workspaceId: string) => ["workspaces", workspaceId, "invitations"] as const,
   auditLog: (workspaceId: string) => ["workspaces", workspaceId, "audit-log"] as const,
@@ -965,5 +966,16 @@ export function useBilling(workspaceId: string | undefined) {
     queryKey: queryKeys.billing(workspaceId ?? "none"),
     queryFn: () => api.billing.summary(workspaceId!),
     enabled: Boolean(workspaceId),
+  });
+}
+
+/** Invoices from the payment provider; owners and admins only. */
+export function useInvoices(workspaceId: string, enabled: boolean) {
+  const api = useApi();
+  return useQuery({
+    queryKey: queryKeys.invoices(workspaceId),
+    queryFn: () => api.billing.invoices(workspaceId),
+    enabled,
+    staleTime: 60_000,
   });
 }

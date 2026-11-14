@@ -68,6 +68,10 @@ export const envSchema = z
     STRIPE_PRICE_PRO: optional,
     STRIPE_PRICE_MAX: optional,
     STRIPE_PRICE_TEAM: optional,
+    /** Yearly prices; yearly billing is offered for the plans that have one. */
+    STRIPE_PRICE_PRO_YEARLY: optional,
+    STRIPE_PRICE_MAX_YEARLY: optional,
+    STRIPE_PRICE_TEAM_YEARLY: optional,
     /** Razorpay, for payments in India. Off without a key. */
     RAZORPAY_KEY_ID: optional,
     RAZORPAY_KEY_SECRET: optional,
@@ -75,6 +79,9 @@ export const envSchema = z
     RAZORPAY_PLAN_PRO: optional,
     RAZORPAY_PLAN_MAX: optional,
     RAZORPAY_PLAN_TEAM: optional,
+    RAZORPAY_PLAN_PRO_YEARLY: optional,
+    RAZORPAY_PLAN_MAX_YEARLY: optional,
+    RAZORPAY_PLAN_TEAM_YEARLY: optional,
     /** Rupees per US dollar, for charging extra usage through Razorpay. */
     RAZORPAY_USD_TO_INR: z.coerce.number().positive().default(85),
     /** Development and tests: a mock Stripe and Razorpay (src/testing/mock-payments.ts). */

@@ -101,4 +101,20 @@ export const emails = {
       ? `From now on, signing in to Tessel asks for a code from your authenticator app. Keep your recovery codes somewhere safe.${signature}`
       : `Signing in to Tessel no longer asks for an authenticator code. If this wasn't you, change your password right away.${signature}`,
   }),
+  weeklyLimitNear: (
+    to: string,
+    input: { workspace: string; percent: number; resets: string; link: string; canExtra: boolean },
+  ): MailMessage => ({
+    to,
+    subject: `You've used ${input.percent}% of your weekly Tessel limit`,
+    text: `You've used ${input.percent}% of your weekly usage limit in ${input.workspace}. It resets ${input.resets}.\n\n${input.canExtra ? "To keep going past the limit, an owner or admin can turn on extra usage" : "For higher limits, upgrade your plan"}: ${input.link}\n\nWe send this once a week at most.${signature}`,
+  }),
+  extraUsageCapNear: (
+    to: string,
+    input: { workspace: string; spent: string; cap: string; link: string },
+  ): MailMessage => ({
+    to,
+    subject: `${input.workspace} has used most of its extra usage cap`,
+    text: `${input.workspace} has spent ${input.spent} of its ${input.cap} monthly extra usage cap on Tessel. When it reaches the cap, people who are past their limits wait for them to reset.\n\nRaise the cap or turn extra usage off: ${input.link}\n\nWe send this once a month at most.${signature}`,
+  }),
 };

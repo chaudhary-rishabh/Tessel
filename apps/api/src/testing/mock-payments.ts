@@ -15,7 +15,11 @@ export interface MockPayments {
     subscriptionId: string;
     amount: number;
     currency: string;
+    /** Stripe: billed at once on its own invoice, not with the next renewal. */
+    invoiceId?: string;
   }[];
+  /** Customers' names and tax IDs, as Tessel set them. */
+  customers: Map<string, { name?: string; email?: string; taxIds: string[] }>;
   /** Starts a new billing period for a subscription, as a renewal would. */
   renew(provider: "stripe" | "razorpay", subscriptionId: string): Promise<void>;
   close(): Promise<void>;
@@ -46,6 +50,8 @@ interface Subscription {
 }
 
 const DAY = 86_400;
+/** A yearly price or plan has "yearly" in its ID in the mock. */
+const periodOf = (plan: string) => (plan.includes("yearly") ? 365 * DAY : 30 * DAY);
 const id = (prefix: string) => `${prefix}_${randomBytes(8).toString("hex")}`;
 const nowSeconds = () => Math.floor(Date.now() / 1000);
 
@@ -77,6 +83,25 @@ export async function startMockPayments(options: MockPaymentsOptions): Promise<M
     }
   >();
   const charges: MockPayments["charges"] = [];
+  const customers: MockPayments["customers"] = new Map();
+  const invoices: {
+    id: string;
+    provider: "stripe" | "razorpay";
+    customer: string;
+    subscription?: string;
+    amount: number;
+    currency: string;
+    status: string;
+    created: number;
+  }[] = [];
+  const customer = (key: string) => {
+    let found = customers.get(key);
+    if (!found) {
+      found = { taxIds: [] };
+      customers.set(key, found);
+    }
+    return found;
+  };
 
   function stripeSubscription(sub: Subscription) {
     return {
@@ -196,12 +221,23 @@ export async function startMockPayments(options: MockPaymentsOptions): Promise<M
           quantity: session.quantity,
           metadata: session.metadata,
           periodStart: nowSeconds(),
-          periodEnd: nowSeconds() + 30 * DAY,
+          periodEnd: nowSeconds() + periodOf(session.price),
           cancelAtPeriodEnd: false,
           itemId: id("si"),
         };
         subscriptions.set(sub.id, sub);
         sessions.delete(rest[1]);
+        customer(sub.customer).email = session.email ?? "";
+        invoices.push({
+          id: id("in"),
+          provider: "stripe",
+          customer: sub.customer,
+          subscription: sub.id,
+          amount: sub.quantity * 2000,
+          currency: "usd",
+          status: "paid",
+          created: nowSeconds(),
+        });
         await sendStripe("checkout.session.completed", { id: rest[1], subscription: sub.id });
         await sendStripe("customer.subscription.created", stripeSubscription(sub));
         return redirect(session.success);
@@ -218,6 +254,67 @@ export async function startMockPayments(options: MockPaymentsOptions): Promise<M
       if (!(req.headers.authorization ?? "").startsWith("Bearer "))
         return json(401, { error: { message: "No key" } });
       const fields = form(req.method === "POST" ? await readBody(req) : "");
+      if (rest[0] === "v1" && rest[1] === "customers" && rest[2]) {
+        const found = customer(rest[2]);
+        if (req.method === "POST" && rest[3] === undefined) {
+          if (fields.name) found.name = fields.name;
+          return json(200, { id: rest[2], name: found.name });
+        }
+        if (rest[3] === "tax_ids") {
+          if (req.method === "GET") {
+            return json(200, {
+              data: found.taxIds.map((value, index) => ({
+                id: `txi_${index}`,
+                type: "in_gst",
+                value,
+              })),
+            });
+          }
+          if (req.method === "POST") {
+            found.taxIds.push(fields.value ?? "");
+            return json(200, { id: `txi_${found.taxIds.length - 1}` });
+          }
+          if (req.method === "DELETE" && rest[4]) {
+            found.taxIds.splice(Number(rest[4].slice(4)), 1);
+            return json(200, { deleted: true });
+          }
+        }
+      }
+      if (req.method === "GET" && path === "v1/invoices") {
+        const owner = url.searchParams.get("customer");
+        return json(200, {
+          data: invoices
+            .filter((invoice) => invoice.provider === "stripe" && invoice.customer === owner)
+            .reverse()
+            .map((invoice) => ({
+              id: invoice.id,
+              number: invoice.id.toUpperCase(),
+              created: invoice.created,
+              total: invoice.amount,
+              currency: invoice.currency,
+              status: invoice.status,
+              hosted_invoice_url: `${url.origin}/stripe/invoices/${invoice.id}`,
+            })),
+        });
+      }
+      if (req.method === "POST" && path === "v1/invoices") {
+        const invoice = {
+          id: id("in"),
+          provider: "stripe" as const,
+          customer: fields.customer ?? "",
+          amount: 0,
+          currency: "usd",
+          status: "draft",
+          created: nowSeconds(),
+        };
+        invoices.push(invoice);
+        return json(200, { id: invoice.id });
+      }
+      if (req.method === "POST" && rest[1] === "invoices" && rest[3] === "finalize") {
+        const invoice = invoices.find((item) => item.id === rest[2]);
+        if (invoice) invoice.status = "open";
+        return json(200, { id: rest[2], status: "open" });
+      }
       if (req.method === "POST" && path === "v1/checkout/sessions") {
         const sessionId = id("cs");
         const metadata: Record<string, string> = {};
@@ -260,11 +357,16 @@ export async function startMockPayments(options: MockPaymentsOptions): Promise<M
       }
       if (req.method === "POST" && path === "v1/invoiceitems") {
         const sub = [...subscriptions.values()].find((item) => item.customer === fields.customer);
+        const own = invoices.find(
+          (invoice) => invoice.id === fields.invoice && invoice.status === "draft",
+        );
+        if (own) own.amount += Number(fields.amount);
         charges.push({
           provider: "stripe",
           subscriptionId: sub?.id ?? "",
           amount: Number(fields.amount),
           currency: fields.currency ?? "usd",
+          ...(own ? { invoiceId: own.id } : {}),
         });
         return json(200, { id: id("ii") });
       }
@@ -286,9 +388,19 @@ export async function startMockPayments(options: MockPaymentsOptions): Promise<M
         const sub = subscriptions.get(rest[1]);
         if (!sub) return json(404, { error: "no subscription" });
         sub.status = "active";
-        sub.customer = id("cust");
+        sub.customer ||= id("cust");
         sub.periodStart = nowSeconds();
-        sub.periodEnd = nowSeconds() + 30 * DAY;
+        sub.periodEnd = nowSeconds() + periodOf(sub.plan);
+        invoices.push({
+          id: id("inv"),
+          provider: "razorpay",
+          customer: sub.customer,
+          subscription: sub.id,
+          amount: sub.quantity * 195_000,
+          currency: "INR",
+          status: "paid",
+          created: nowSeconds(),
+        });
         await sendRazorpay("subscription.activated", sub);
         await sendRazorpay("subscription.charged", sub);
         return html(
@@ -307,11 +419,45 @@ export async function startMockPayments(options: MockPaymentsOptions): Promise<M
         req.method === "GET"
           ? {}
           : (JSON.parse((await readBody(req)) || "{}") as Record<string, unknown>);
+      if (req.method === "POST" && path === "v1/customers") {
+        const customerId = id("cust");
+        const found = customer(customerId);
+        found.name = String(body.name ?? "");
+        found.email = String(body.email ?? "");
+        if (body.gstin) found.taxIds = [String(body.gstin)];
+        return json(200, { id: customerId, name: found.name, gstin: body.gstin ?? null });
+      }
+      if (req.method === "PUT" && rest[1] === "customers" && rest[2]) {
+        const found = customer(rest[2]);
+        if (body.name) found.name = String(body.name);
+        found.taxIds = body.gstin ? [String(body.gstin)] : [];
+        return json(200, { id: rest[2] });
+      }
+      if (req.method === "GET" && path === "v1/invoices") {
+        const subscription = url.searchParams.get("subscription_id");
+        return json(200, {
+          items: invoices
+            .filter(
+              (invoice) => invoice.provider === "razorpay" && invoice.subscription === subscription,
+            )
+            .reverse()
+            .map((invoice) => ({
+              id: invoice.id,
+              invoice_number: `TSL/${invoice.id.slice(-6)}`,
+              created_at: invoice.created,
+              issued_at: invoice.created,
+              amount: invoice.amount,
+              currency: invoice.currency,
+              status: invoice.status,
+              short_url: `${url.origin}/razorpay/invoices/${invoice.id}`,
+            })),
+        });
+      }
       if (req.method === "POST" && path === "v1/subscriptions") {
         const sub: Subscription = {
           id: id("sub"),
           provider: "razorpay",
-          customer: "",
+          customer: typeof body.customer_id === "string" ? body.customer_id : "",
           status: "created",
           plan: String(body.plan_id),
           quantity: Number(body.quantity ?? 1),
@@ -364,13 +510,14 @@ export async function startMockPayments(options: MockPaymentsOptions): Promise<M
   return {
     url: `http://${options.host ?? "127.0.0.1"}:${address.port}`,
     charges,
+    customers,
     async renew(provider, subscriptionId) {
       const sub = subscriptions.get(subscriptionId);
       if (!sub) throw new Error(`No subscription ${subscriptionId}`);
       const closedStart = sub.periodStart;
       const closedEnd = nowSeconds() + 1;
       sub.periodStart = closedEnd;
-      sub.periodEnd = closedEnd + 30 * DAY;
+      sub.periodEnd = closedEnd + periodOf(sub.plan);
       if (provider === "stripe") {
         await sendStripe("invoice.created", {
           id: id("in"),

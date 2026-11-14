@@ -447,3 +447,13 @@ Tokens and OAuth sign-ins can carry `documents:write` (add a text document) and 
 `ask_tessel` posts to the same chat endpoint as the app and reads its stream to the end, so answers search the documents, cite them, count toward the user's limits, and are saved as a chat the user can open. A follow-up passes the chat's ID. An action that needs approval stops the answer with a note to open the chat in Tessel, since an outside client can't be trusted to approve on the user's behalf. Text documents go through the agent's `create_document` path, so they're indexed like uploads.
 
 Connected MCP servers' resources and prompts become agent tools too (`<prefix>_list_resources`, `<prefix>_read_resource`, `<prefix>_prompt_<name>`), recorded when a connector is verified.
+
+## D-103 Yearly plans, GST invoices, and usage emails
+
+Each paid plan can be billed yearly at ten months' price, when the deployment sets a yearly price (Stripe) or plan (Razorpay). The interval comes from the price the subscription is on, as the plan does, so a switch made at the provider shows up correctly. Switching interval goes through the same prorated plan change as switching plans.
+
+Extra usage stays monthly on yearly plans: its cap counts each month from the day the year began, and every API server checks hourly for a month that has ended and bills it on its own Stripe invoice. A server claims the month by moving `extra_charged_through` with a compare-and-set before charging, and the charge has an idempotency key, so several servers and retries never bill twice. The year's own renewal bills only what's left after the last monthly charge. Razorpay adds add-ons to the next subscription charge, a year away on a yearly plan, so extra usage there needs monthly billing.
+
+Owners and admins can give a legal name and GSTIN for invoices. The GSTIN's format and check character are verified, and its first two digits give the state (place of supply). Razorpay customers are created with both, so Razorpay's GST invoices carry them; Stripe checkout collects tax IDs, and a GSTIN saved in Tessel is added to the Stripe customer. Settings lists the provider's invoices with links to them.
+
+Usage emails go out once per window: to a person when they pass 80% of their weekly limit, and to a workspace's owners and admins when extra usage passes 80% of its monthly cap. The five-hour limit sends nothing, since it resets too quickly for an email to help. Alerts are sent without waiting, so a slow email never slows a request, and a `usage_alerts` row per window makes each one go out once across all servers.

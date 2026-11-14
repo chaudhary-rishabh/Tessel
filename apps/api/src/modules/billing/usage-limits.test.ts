@@ -1,7 +1,14 @@
 import type { BillingAccountRow } from "@tessel/db";
 import { PLANS } from "@tessel/contracts";
 import { describe, expect, it } from "vitest";
-import { effectivePlan, modelTier, PAST_DUE_GRACE_MS } from "./usage-limits";
+import {
+  addMonths,
+  effectivePlan,
+  extraUsageUnavailable,
+  modelTier,
+  PAST_DUE_GRACE_MS,
+  periodStart,
+} from "./usage-limits";
 
 const DAY = 86_400_000;
 const now = new Date("2026-11-09T12:00:00Z");
@@ -59,5 +66,42 @@ describe("modelTier", () => {
     };
     expect(modelTier(registry, "big")).toBe("pro");
     expect(modelTier(registry, "missing")).toBe("free");
+  });
+});
+
+describe("periodStart", () => {
+  it("is the billing period's start on monthly plans", () => {
+    const value = account({ interval: "month" });
+    expect(periodStart(value, now)).toEqual(value.currentPeriodStart);
+  });
+
+  it("counts months from the start of the year on yearly plans", () => {
+    const value = account({
+      interval: "year",
+      currentPeriodStart: new Date("2026-01-31T08:00:00Z"),
+    });
+    expect(periodStart(value, now)).toEqual(new Date("2026-10-31T08:00:00Z"));
+    expect(periodStart(value, new Date("2026-03-01T00:00:00Z"))).toEqual(
+      new Date("2026-02-28T08:00:00Z"),
+    );
+  });
+
+  it("keeps the day, or the month's last day when it's shorter", () => {
+    expect(addMonths(new Date("2026-01-31T00:00:00Z"), 1)).toEqual(
+      new Date("2026-02-28T00:00:00Z"),
+    );
+    expect(addMonths(new Date("2026-05-15T10:00:00Z"), 12)).toEqual(
+      new Date("2027-05-15T10:00:00Z"),
+    );
+  });
+});
+
+describe("extraUsageUnavailable", () => {
+  it("needs a paid plan, and monthly billing with Razorpay", () => {
+    expect(extraUsageUnavailable(PLANS.free, undefined)).toBe("plan");
+    expect(extraUsageUnavailable(PLANS.pro, account({ interval: "year" }))).toBeNull();
+    expect(
+      extraUsageUnavailable(PLANS.pro, account({ provider: "razorpay", interval: "year" })),
+    ).toBe("razorpay_yearly");
   });
 });
