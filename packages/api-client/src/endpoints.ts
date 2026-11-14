@@ -87,6 +87,9 @@ import {
   type VoiceSession,
   type VoiceStatus,
   memorySchema,
+  teamMemoryListResponseSchema,
+  teamMemorySchema,
+  type TeamMemory,
   memorySettingsSchema,
   accessTokenListResponseSchema,
   createAccessTokenResponseSchema,
@@ -538,6 +541,32 @@ export function createApi(client: ApiClient) {
       },
       clear: async (workspaceId: string): Promise<void> => {
         await http.delete(`/workspaces/${workspaceId}/memory/memories`);
+      },
+      /** Team memory, shared by everyone in a team workspace. */
+      team: {
+        list: async (workspaceId: string): Promise<TeamMemory[]> =>
+          parse(
+            teamMemoryListResponseSchema,
+            (await http.get(`/workspaces/${workspaceId}/memory/team`)).data,
+          ).memories,
+        add: async (workspaceId: string, content: string): Promise<TeamMemory> =>
+          parse(
+            teamMemorySchema,
+            (await http.post(`/workspaces/${workspaceId}/memory/team`, { content })).data,
+          ),
+        update: async (
+          workspaceId: string,
+          memoryId: string,
+          content: string,
+        ): Promise<TeamMemory> =>
+          parse(
+            teamMemorySchema,
+            (await http.patch(`/workspaces/${workspaceId}/memory/team/${memoryId}`, { content }))
+              .data,
+          ),
+        remove: async (workspaceId: string, memoryId: string): Promise<void> => {
+          await http.delete(`/workspaces/${workspaceId}/memory/team/${memoryId}`);
+        },
       },
     },
     accessTokens: {

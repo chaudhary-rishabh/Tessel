@@ -1,5 +1,15 @@
-import { expect, test } from "@playwright/test";
-import { signUp } from "./helpers";
+import { expect, test, type Page } from "@playwright/test";
+import { openNavigation, signUp } from "./helpers";
+
+async function createTeamWorkspace(page: Page, name: string) {
+  await openNavigation(page);
+  await page.getByRole("button", { name: "Switch workspace" }).click();
+  await page.getByRole("menuitem", { name: "New workspace" }).click();
+  const dialog = page.getByRole("dialog", { name: "New workspace" });
+  await dialog.getByLabel("Workspace name").fill(name);
+  await dialog.getByRole("button", { name: "Create workspace" }).click();
+  await expect(dialog).toBeHidden();
+}
 
 test.describe("memory", () => {
   test("what Tessel is asked to remember shows in Settings, where it can be edited", async ({
@@ -79,5 +89,49 @@ test.describe("memory", () => {
       "aria-checked",
       "false",
     );
+  });
+
+  test("a team workspace shares team memory, which replies use", async ({ page }) => {
+    await signUp(page);
+    await page.goto("/settings");
+    // A personal workspace has only personal memory.
+    await expect(page.getByRole("region", { name: "Team memory" })).toHaveCount(0);
+
+    await createTeamWorkspace(page, "Payments");
+    await page.goto("/settings");
+    const section = page.getByRole("region", { name: "Team memory" });
+    await section.getByLabel("Add to team memory").fill("Releases ship on Thursdays.");
+    await section.getByRole("button", { name: "Add for the team" }).click();
+    const list = section.getByRole("list", { name: "Team memory" });
+    await expect(list).toContainText("Releases ship on Thursdays.");
+    await expect(list).toContainText("Added by you");
+
+    // Asking in a chat adds to it once allowed.
+    await page.goto("/chat");
+    await page
+      .getByRole("textbox", { name: "Message" })
+      .fill(
+        `MOCK_TOOLS ${JSON.stringify([{ name: "remember_for_team", args: { content: "Staging is at staging.acme.dev." } }])}`,
+      );
+    await page.getByRole("button", { name: "Send message" }).click();
+    await expect(
+      page.getByText('Add to team memory: "Staging is at staging.acme.dev."'),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Allow" }).click();
+    await expect(
+      page
+        .getByRole("list", { name: "Messages" })
+        .getByText("Tool result: Saved to team memory: Staging is at staging.acme.dev."),
+    ).toBeVisible();
+
+    await page.goto("/settings");
+    await expect(page.getByRole("list", { name: "Team memory" })).toContainText(
+      "Staging is at staging.acme.dev.",
+    );
+    await page
+      .getByRole("list", { name: "Team memory" })
+      .getByRole("button", { name: 'Delete "Releases ship on Thursdays."' })
+      .click();
+    await expect(page.getByRole("list", { name: "Team memory" })).not.toContainText("Thursdays");
   });
 });

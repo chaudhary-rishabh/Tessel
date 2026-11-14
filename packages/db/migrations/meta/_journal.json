@@ -232,6 +232,13 @@
       "when": 1794612306716,
       "tag": "0032_billing_extras",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1794613738805,
+      "tag": "0033_team_memory",
+      "breakpoints": true
     }
   ]
 }

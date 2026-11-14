@@ -382,6 +382,7 @@ export function createApp({
     ai,
     logger,
     memory: { store: memoryStore, ...memory },
+    audit,
   });
   const policiesService = createPoliciesService({ db, audit });
   const mediaService = createMediaService({

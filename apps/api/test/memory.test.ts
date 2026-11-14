@@ -274,3 +274,119 @@ describe("memory", () => {
     expect(report).toMatchObject({ added: 0, indexed: false });
   });
 });
+
+describe("team memory", () => {
+  async function team() {
+    const owner = await signUp(app);
+    const created = await request(app)
+      .post("/workspaces")
+      .set("Authorization", bearer(owner))
+      .send({ name: "Payments" });
+    const workspaceId = created.body.id as string;
+    const member = await signUp(app);
+    await ownerDb()
+      .insert(workspaceMembers)
+      .values({ workspaceId, userId: member.auth.user.id, role: "member" });
+    return { owner, member, workspaceId, base: `/workspaces/${workspaceId}` };
+  }
+
+  it("is shared by the team; its author, owners, and admins change it", async () => {
+    const { owner, member, base } = await team();
+    const added = await request(app)
+      .post(`${base}/memory/team`)
+      .set("Authorization", bearer(owner))
+      .send({ content: "Releases ship on Thursdays." });
+    expect(added.status).toBe(201);
+    const fromMember = await request(app)
+      .post(`${base}/memory/team`)
+      .set("Authorization", bearer(member))
+      .send({ content: "The API is called Ledger." });
+    expect(fromMember.status).toBe(201);
+
+    const seen = await request(app).get(`${base}/memory/team`).set("Authorization", bearer(member));
+    expect(seen.body.memories).toEqual([
+      expect.objectContaining({ content: "The API is called Ledger.", mine: true, canEdit: true }),
+      expect.objectContaining({
+        content: "Releases ship on Thursdays.",
+        authorName: owner.auth.user.name,
+        mine: false,
+        canEdit: false,
+      }),
+    ]);
+
+    const denied = await request(app)
+      .delete(`${base}/memory/team/${added.body.id}`)
+      .set("Authorization", bearer(member));
+    expect(denied.status).toBe(403);
+    const edited = await request(app)
+      .patch(`${base}/memory/team/${fromMember.body.id}`)
+      .set("Authorization", bearer(owner))
+      .send({ content: "The billing API is called Ledger." });
+    expect(edited.body).toMatchObject({ content: "The billing API is called Ledger." });
+    expect(
+      (
+        await request(app)
+          .delete(`${base}/memory/team/${fromMember.body.id}`)
+          .set("Authorization", bearer(owner))
+      ).status,
+    ).toBe(204);
+
+    const outsider = await signUp(app);
+    expect(
+      (await request(app).get(`${base}/memory/team`).set("Authorization", bearer(outsider))).status,
+    ).toBe(404);
+    const personal = await setup();
+    const own = await request(app)
+      .post(`${personal.base}/memory/team`)
+      .set("Authorization", bearer(personal.user))
+      .send({ content: "Nope" });
+    expect(own.body.error.code).toBe("team_memory_personal");
+  });
+
+  it("goes into every member's replies, even with their own memory off", async () => {
+    const { owner, member, base } = await team();
+    await request(app)
+      .post(`${base}/memory/team`)
+      .set("Authorization", bearer(owner))
+      .send({ content: "Releases ship on Thursdays." });
+    await request(app)
+      .put(`${base}/memory/settings`)
+      .set("Authorization", bearer(member))
+      .send({ memoryEnabled: false });
+    await chat(member, base, { content: "When do we ship?" });
+    expect(replySystemPrompt()).toContain(
+      "<team_memory>\n- Releases ship on Thursdays.\n</team_memory>",
+    );
+    expect(offeredTools()).toContain("remember_for_team");
+    expect(offeredTools()).not.toContain("remember");
+
+    const personal = await setup();
+    await chat(personal.user, personal.base, { content: "Hello" });
+    expect(offeredTools()).not.toContain("remember_for_team");
+  });
+
+  it("asks before the agent adds to team memory", async () => {
+    const { member, base } = await team();
+    const { threadId, message } = await chat(member, base, {
+      content: `MOCK_TOOLS ${JSON.stringify([{ name: "remember_for_team", args: { content: "Staging is at staging.acme.dev." } }])}`,
+    });
+    expect(message.status).toBe("waiting");
+    expect(message.toolCalls[0]).toMatchObject({
+      name: "remember_for_team",
+      status: "waiting",
+      description: 'Add to team memory: "Staging is at staging.acme.dev."',
+    });
+    await readEvents(
+      request(app)
+        .post(`${base}/threads/${threadId}/tool-calls/${message.toolCalls[0]!.id}/decision`)
+        .set("Authorization", bearer(member))
+        .send({ approved: true }),
+    );
+    const listed = await request(app)
+      .get(`${base}/memory/team`)
+      .set("Authorization", bearer(member));
+    expect(listed.body.memories).toEqual([
+      expect.objectContaining({ content: "Staging is at staging.acme.dev.", mine: true }),
+    ]);
+  });
+});

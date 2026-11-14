@@ -457,3 +457,9 @@ Extra usage stays monthly on yearly plans: its cap counts each month from the da
 Owners and admins can give a legal name and GSTIN for invoices. The GSTIN's format and check character are verified, and its first two digits give the state (place of supply). Razorpay customers are created with both, so Razorpay's GST invoices carry them; Stripe checkout collects tax IDs, and a GSTIN saved in Tessel is added to the Stripe customer. Settings lists the provider's invoices with links to them.
 
 Usage emails go out once per window: to a person when they pass 80% of their weekly limit, and to a workspace's owners and admins when extra usage passes 80% of its monthly cap. The five-hour limit sends nothing, since it resets too quickly for an email to help. Alerts are sent without waiting, so a slow email never slows a request, and a `usage_alerts` row per window makes each one go out once across all servers.
+
+## D-104 Team memory belongs to the workspace
+
+A team workspace is where a team keeps a project, so team memory is per workspace rather than a separate "project" object: facts about the work (names, conventions, decisions) that everyone's replies should know. It sits next to personal memory, never merged with it. Personal memory stays private; team memory is visible to every member and marked with who added it.
+
+Every member can add to it, because the person who knows a convention is often not an admin. Changing or deleting is for the author, owners, and admins, enforced by row-level security as well as the API. Replies use it even when someone has turned their own memory off, since it is the workspace's shared context rather than something learned about them. The prompt presents it as context, not instructions, so a member can't use it to override the system prompt for everyone. The agent can add to it with `remember_for_team`, which asks for approval because everyone will see the result; nothing is added to it automatically from chats.

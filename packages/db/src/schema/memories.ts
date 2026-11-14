@@ -62,5 +62,31 @@ export const memorySettings = pgTable(
   (table) => [primaryKey({ columns: [table.userId, table.workspaceId] })],
 );
 
+/**
+ * Team memory: facts everyone in a team workspace shares (its projects,
+ * conventions, decisions), sent with every member's replies. Members read
+ * and add them; the author, owners, and admins change or delete them (RLS in
+ * 0033_team_memory.sql).
+ */
+export const workspaceMemories = pgTable(
+  "workspace_memories",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    content: text("content").notNull(),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [index("workspace_memories_workspace_idx").on(table.workspaceId, table.updatedAt)],
+);
+
 export type MemoryRow = typeof memories.$inferSelect;
+export type WorkspaceMemoryRow = typeof workspaceMemories.$inferSelect;
 export type MemorySettingsRow = typeof memorySettings.$inferSelect;

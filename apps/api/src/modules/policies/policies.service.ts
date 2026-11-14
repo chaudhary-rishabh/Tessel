@@ -26,6 +26,7 @@ export const GOVERNABLE_TOOLS: { name: string; title: string; asksByDefault: boo
   { name: "edit_image", title: "Edit an image", asksByDefault: false },
   { name: "generate_video", title: "Make a video", asksByDefault: true },
   { name: "remember", title: "Remember", asksByDefault: false },
+  { name: "remember_for_team", title: "Remember for the team", asksByDefault: true },
   { name: "search_past_chats", title: "Search past chats", asksByDefault: false },
   { name: "calculator", title: "Calculate", asksByDefault: false },
   { name: "current_time", title: "Check the time", asksByDefault: false },

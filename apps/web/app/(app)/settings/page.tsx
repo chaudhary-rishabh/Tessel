@@ -18,6 +18,7 @@ import { AppearanceSection } from "@/components/settings/appearance-section";
 import { ConnectedAppsSection } from "@/components/settings/connected-apps-section";
 import { DeleteWorkspace } from "@/components/settings/delete-workspace";
 import { MemorySection } from "@/components/settings/memory-section";
+import { TeamMemorySection } from "@/components/settings/team-memory-section";
 import { PoliciesSection } from "@/components/settings/policies-section";
 import { BillingReturnNotice, PlanSection } from "@/components/settings/plan-section";
 import { SessionsSection } from "@/components/settings/sessions-section";
@@ -321,6 +322,20 @@ function MemorySettings() {
   );
 }
 
+function TeamMemorySettings() {
+  const { current } = useCurrentWorkspace();
+  if (!current || current.isPersonal) return null;
+  return (
+    <Section
+      id="team-memory"
+      title="Team memory"
+      description={`What everyone in ${current.name} shares with Tessel: it's used in every member's replies. Anyone here can add to it; the person who wrote something, owners, and admins can change it.`}
+    >
+      <TeamMemorySection workspaceId={current.id} />
+    </Section>
+  );
+}
+
 function VoiceSettings() {
   const { current } = useCurrentWorkspace();
   const status = useVoiceStatus(current?.id);
@@ -429,6 +444,7 @@ export default function SettingsPage() {
         <AppearanceSettings />
         <WorkspaceSection />
         <MemorySettings />
+        <TeamMemorySettings />
         <VoiceSettings />
         <PolicySettings />
         <PlanSettings />

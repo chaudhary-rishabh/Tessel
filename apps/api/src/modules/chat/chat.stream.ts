@@ -202,6 +202,12 @@ async function drive(run: Drive): Promise<void> {
                         (await deps.memory.add(actor, { content }, "tool", run.threadId)).id,
                     }
                   : {}),
+                ...(run.memorySettings.team
+                  ? {
+                      rememberForTeam: async (content: string) =>
+                        (await deps.memory.addTeam(actor, { content }, "tool")).id,
+                    }
+                  : {}),
                 ...(run.memorySettings.chatSearchEnabled
                   ? {
                       searchPastChats: (query: string) =>

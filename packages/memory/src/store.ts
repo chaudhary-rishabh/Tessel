@@ -3,9 +3,13 @@ import {
   memorySettings,
   messages,
   threads,
+  users,
   withUserContext,
+  workspaceMemories,
+  workspaces,
   type Database,
   type MemoryRow,
+  type WorkspaceMemoryRow,
 } from "@tessel/db";
 import { and, asc, count, desc, eq } from "drizzle-orm";
 import type { MemoryUpdates } from "./model";
@@ -18,14 +22,21 @@ export interface MemoryActor {
 export interface MemorySettingsValue {
   memoryEnabled: boolean;
   chatSearchEnabled: boolean;
+  /** A team workspace, which has team memory too. */
+  team?: boolean;
 }
+
+/** A team memory, with who wrote it. */
+export type TeamMemoryRow = WorkspaceMemoryRow & { authorName: string | null };
 
 /** Most memories a user keeps per workspace; the oldest automatic ones make room. */
 export const MAX_MEMORIES = 200;
+/** Most team memories a workspace keeps. */
+export const MAX_TEAM_MEMORIES = 100;
 
 export class MemoryLimitError extends Error {
-  constructor() {
-    super("Memory is full. Delete some memories to add more.");
+  constructor(message = "Memory is full. Delete some memories to add more.") {
+    super(message);
     this.name = "MemoryLimitError";
   }
 }
@@ -35,10 +46,12 @@ export function createMemoryStore(db: Database) {
   const owner = (actor: MemoryActor) =>
     and(eq(memories.userId, actor.userId), eq(memories.workspaceId, actor.workspaceId));
 
+  const teamOf = (actor: MemoryActor) => eq(workspaceMemories.workspaceId, actor.workspaceId);
+
   return {
     async settings(actor: MemoryActor): Promise<MemorySettingsValue> {
-      const [row] = await withUserContext(db, actor.userId, (tx) =>
-        tx
+      const { row, workspace } = await withUserContext(db, actor.userId, async (tx) => {
+        const [settings] = await tx
           .select()
           .from(memorySettings)
           .where(
@@ -46,12 +59,91 @@ export function createMemoryStore(db: Database) {
               eq(memorySettings.userId, actor.userId),
               eq(memorySettings.workspaceId, actor.workspaceId),
             ),
-          ),
-      );
+          );
+        const [found] = await tx
+          .select({ isPersonal: workspaces.isPersonal })
+          .from(workspaces)
+          .where(eq(workspaces.id, actor.workspaceId));
+        return { row: settings, workspace: found };
+      });
       return {
         memoryEnabled: row?.memoryEnabled ?? true,
         chatSearchEnabled: row?.chatSearchEnabled ?? true,
+        team: workspace ? !workspace.isPersonal : false,
       };
+    },
+
+    /** Team memory, shared by everyone in a team workspace. */
+    team: {
+      list(actor: MemoryActor): Promise<TeamMemoryRow[]> {
+        return withUserContext(db, actor.userId, (tx) =>
+          tx
+            .select({ memory: workspaceMemories, authorName: users.name })
+            .from(workspaceMemories)
+            .leftJoin(users, eq(users.id, workspaceMemories.createdBy))
+            .where(teamOf(actor))
+            .orderBy(desc(workspaceMemories.updatedAt))
+            .then((rows) => rows.map((item) => ({ ...item.memory, authorName: item.authorName }))),
+        );
+      },
+
+      async add(actor: MemoryActor, content: string): Promise<WorkspaceMemoryRow> {
+        return withUserContext(db, actor.userId, async (tx) => {
+          const [total] = await tx
+            .select({ value: count() })
+            .from(workspaceMemories)
+            .where(teamOf(actor));
+          if ((total?.value ?? 0) >= MAX_TEAM_MEMORIES) {
+            throw new MemoryLimitError("Team memory is full. Delete some to add more.");
+          }
+          const [row] = await tx
+            .insert(workspaceMemories)
+            .values({
+              workspaceId: actor.workspaceId,
+              content,
+              createdBy: actor.userId,
+              updatedBy: actor.userId,
+            })
+            .returning();
+          return row!;
+        });
+      },
+
+      /** Undefined when it doesn't exist or the person may not change it. */
+      async update(
+        actor: MemoryActor,
+        id: string,
+        content: string,
+      ): Promise<WorkspaceMemoryRow | undefined> {
+        const [row] = await withUserContext(db, actor.userId, (tx) =>
+          tx
+            .update(workspaceMemories)
+            .set({ content, updatedBy: actor.userId })
+            .where(and(teamOf(actor), eq(workspaceMemories.id, id)))
+            .returning(),
+        );
+        return row;
+      },
+
+      async remove(actor: MemoryActor, id: string): Promise<boolean> {
+        const rows = await withUserContext(db, actor.userId, (tx) =>
+          tx
+            .delete(workspaceMemories)
+            .where(and(teamOf(actor), eq(workspaceMemories.id, id)))
+            .returning({ id: workspaceMemories.id }),
+        );
+        return rows.length > 0;
+      },
+
+      async exists(actor: MemoryActor, id: string): Promise<boolean> {
+        const rows = await withUserContext(db, actor.userId, (tx) =>
+          tx
+            .select({ id: workspaceMemories.id })
+            .from(workspaceMemories)
+            .where(and(teamOf(actor), eq(workspaceMemories.id, id))),
+        );
+        return rows.length > 0;
+      },
     },
 
     async saveSettings(
