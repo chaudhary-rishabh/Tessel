@@ -269,6 +269,58 @@
   opacity: clamp(0.16, calc(var(--progress, 0) * var(--count) - var(--index)), 1);
 }
 
+/*
+ * The account modal (log in, sign up, reset): the site's shapes on the
+ * shared form pieces. Unlayered, so it wins over their utility classes.
+ */
+.auth-form h1 {
+  font-size: 2rem;
+  font-weight: 500;
+  line-height: 1.08;
+  letter-spacing: -0.04em;
+}
+
+.auth-form input:not([type="checkbox"], [type="radio"]) {
+  height: 3rem;
+  border-radius: 0.9rem;
+  border-color: transparent;
+  background: var(--color-paper);
+  padding-inline: 1rem;
+  transition:
+    background-color 0.15s,
+    border-color 0.15s;
+}
+
+.auth-form input:not([type="checkbox"], [type="radio"]):hover {
+  border-color: var(--color-line);
+}
+
+.auth-form input:not([type="checkbox"], [type="radio"]):focus {
+  border-color: var(--color-accent);
+  background: var(--color-surface);
+}
+
+.auth-form input[aria-invalid="true"],
+.auth-form input[aria-invalid="true"]:focus {
+  border-color: var(--color-danger);
+}
+
+.auth-form button[type="submit"] {
+  height: 3rem;
+  border-radius: 999px;
+  background: var(--color-forest);
+  color: #ffffff;
+}
+
+.auth-form button[type="submit"]:hover {
+  background: var(--color-forest-soft);
+}
+
+.auth-form a[href*="/oauth/"] {
+  height: 3rem;
+  border-radius: 999px;
+}
+
 /* A sideways scroller without a scrollbar. */
 .no-scrollbar {
   scrollbar-width: none;
