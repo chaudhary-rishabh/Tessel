@@ -12,8 +12,8 @@ export function LegalPage({
   children: ReactNode;
 }) {
   return (
-    <article className="mx-auto max-w-3xl px-5 pt-16 pb-24 sm:px-6 sm:pt-24">
-      <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">{title}</h1>
+    <article className="mx-auto max-w-3xl px-5 pt-32 pb-24 sm:px-6 sm:pt-40">
+      <h1 className="text-4xl font-medium tracking-[-0.04em] sm:text-5xl">{title}</h1>
       <p className="text-muted mt-4">
         Last updated{" "}
         <time dateTime={updated}>

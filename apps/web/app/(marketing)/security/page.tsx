@@ -1,7 +1,7 @@
 import { cn } from "@tessel/ui";
 import type { Metadata } from "next";
 import { PageIntro } from "@/components/marketing/page-intro";
-import { COLUMN } from "@/components/marketing/styles";
+import { COLUMN, SERIF } from "@/components/marketing/styles";
 import { pageMetadata, site } from "@/lib/site";
 
 export const metadata: Metadata = pageMetadata({
@@ -59,20 +59,29 @@ const sections = [
 export default function SecurityPage() {
   return (
     <>
-      <PageIntro title="Security built into every layer">
+      <PageIntro
+        title={
+          <>
+            Security built into <em className={SERIF}>every layer</em>
+          </>
+        }
+      >
         <p>
           Your team&apos;s knowledge is the most valuable thing in Tessel. Here&apos;s how we
           protect it.
         </p>
       </PageIntro>
-      <section aria-label="How Tessel protects your data" className={cn(COLUMN, "pb-24 sm:pb-32")}>
-        <div className="divide-line border-line divide-y border-y">
+      <section
+        aria-label="How Tessel protects your data"
+        className={cn(COLUMN, "pt-8 pb-24 sm:pt-12 sm:pb-32")}
+      >
+        <div className="divide-line border-line divide-y border-b">
           {sections.map((section) => (
             <div
               key={section.title}
               className="grid gap-6 py-12 md:grid-cols-[1fr_1.5fr] md:gap-12"
             >
-              <h2 className="text-2xl font-semibold tracking-[-0.02em] sm:text-[1.75rem]">
+              <h2 className="text-2xl font-medium tracking-[-0.03em] sm:text-[2rem]">
                 {section.title}
               </h2>
               <ul className="flex flex-col gap-4 leading-relaxed">
@@ -91,8 +100,8 @@ export default function SecurityPage() {
         </div>
 
         <div className="mt-12 grid gap-4 md:grid-cols-2">
-          <div className="bg-surface border-line rounded-2xl border p-7 sm:p-8">
-            <h2 className="text-xl font-semibold tracking-tight">Read the code</h2>
+          <div className="bg-paper rounded-[1.75rem] p-7 sm:p-9">
+            <h2 className="text-xl font-medium tracking-tight">Read the code</h2>
             <p className="text-muted mt-2.5 leading-relaxed">
               Tessel&apos;s source is public, so you can check how any of this works for yourself.
             </p>
@@ -103,8 +112,8 @@ export default function SecurityPage() {
               Tessel on GitHub
             </a>
           </div>
-          <div className="bg-surface border-line rounded-2xl border p-7 sm:p-8">
-            <h2 className="text-xl font-semibold tracking-tight">Found a problem?</h2>
+          <div className="bg-paper rounded-[1.75rem] p-7 sm:p-9">
+            <h2 className="text-xl font-medium tracking-tight">Found a problem?</h2>
             <p className="text-muted mt-2.5 leading-relaxed">
               Tell us what you found and how to reproduce it. We read every report.
             </p>

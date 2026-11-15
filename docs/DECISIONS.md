@@ -464,10 +464,12 @@ A team workspace is where a team keeps a project, so team memory is per workspac
 
 Every member can add to it, because the person who knows a convention is often not an admin. Changing or deleting is for the author, owners, and admins, enforced by row-level security as well as the API. Replies use it even when someone has turned their own memory off, since it is the workspace's shared context rather than something learned about them. The prompt presents it as context, not instructions, so a member can't use it to override the system prompt for everyone. The agent can add to it with `remember_for_team`, which asks for approval because everyone will see the result; nothing is added to it automatically from chats.
 
-## D-105 The public site is light, quiet, and built on the mark
+## D-105 The public site is white and green, with grain and motion
 
-The home, features, pricing, and security pages share one look: the app's own paper and ink, hairline rules, and squared corners, so the site and the product feel like the same thing and both follow the light and dark themes. The one piece of decoration is the brand itself: a faint grid of square cells with the Tessel mark's five tiles set into it at page size, which settle into place once when the home page loads. Voice mode's deep green appears only where voice is shown.
+The home, features, pricing, and security pages are white with deep green panels, whatever the device's theme: the site sets the light palette itself (`.site` in `globals.css`), so the brand looks the same for everyone, while the app keeps following the theme. Green panels share one lit gradient and a film-grain overlay (an inline SVG noise filter, no image files).
 
-The web app uses one typeface, Schibsted Grotesk, for headings and text; size, weight, and letter spacing do the work two families did before. Main actions on the site are ink buttons rather than the accent green, which is kept for marks inside the product pictures.
+Type is Geist throughout the web app, with Instrument Serif italic for the word or two a headline leans on. Main actions are pills: white on green, green on white.
 
-The hero's product picture has four tabs (Ask, Act, Talk, Make), one per thing Tessel does; it changes only when someone picks a tab. The header has links to the three pages, with a menu on phones. Pricing adds a plan comparison table whose usage and model rows are computed from the plan definitions, so they can't drift from what is charged.
+Motion is hand-rolled in `components/marketing/motion.tsx` rather than a library: `Parallax` (glass tiles and the hero's product picture move at different speeds), `Reveal` (sections fade up once, by IntersectionObserver), and `ScrollWords` (a statement darkens word by word). The feature slider is a scroll-snap list with arrows and a progress bar, so it also works by touch, trackpad, and keyboard. The steps are sticky cards that stack. All of it is skipped with reduced motion, and hidden-until-revealed content only applies when scripting is on.
+
+The header is a floating white pill with links to the pages and a menu on phones. Pricing has a plan comparison table whose usage and model rows are computed from the plan definitions, so they can't drift from what is charged.

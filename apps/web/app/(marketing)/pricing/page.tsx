@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { Faq } from "@/components/marketing/faq";
 import { PageIntro } from "@/components/marketing/page-intro";
 import { PricingPlans } from "@/components/marketing/pricing-plans";
-import { COLUMN, HEADING } from "@/components/marketing/styles";
+import { COLUMN, HEADING, SERIF } from "@/components/marketing/styles";
 import { pageMetadata } from "@/lib/site";
 
 export const metadata: Metadata = pageMetadata({
@@ -48,10 +48,16 @@ const questions = [
 export default function PricingPage() {
   return (
     <>
-      <PageIntro title="Simple plans that grow with your team">
+      <PageIntro
+        title={
+          <>
+            Simple plans that grow <em className={SERIF}>with your team</em>
+          </>
+        }
+      >
         <p>Start free. Upgrade when Tessel becomes part of your day.</p>
       </PageIntro>
-      <section aria-label="Plans" className={cn(COLUMN, "pb-24 sm:pb-32")}>
+      <section aria-label="Plans" className={cn(COLUMN, "pt-14 pb-24 sm:pt-16 sm:pb-32")}>
         <PricingPlans />
       </section>
       <section className="border-line border-t">

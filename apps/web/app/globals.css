@@ -1,5 +1,7 @@
 @import "tailwindcss";
-@import "@fontsource-variable/schibsted-grotesk";
+@import "@fontsource-variable/geist";
+@import "@fontsource/instrument-serif/latin-400.css";
+@import "@fontsource/instrument-serif/latin-400-italic.css";
 
 /* Shared UI components live in a workspace package; scan them for classes. */
 @source "../../../packages/ui/src";
@@ -17,9 +19,10 @@
 }
 
 @theme {
-  /* One family for everything: headings and text differ by size, weight, and spacing. */
-  --font-sans: "Schibsted Grotesk Variable", ui-sans-serif, system-ui, sans-serif;
-  --font-display: "Schibsted Grotesk Variable", ui-sans-serif, system-ui, sans-serif;
+  /* Geist for everything; Instrument Serif italic for the words a headline leans on. */
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Instrument Serif", ui-serif, Georgia, serif;
 
   /* Mineral palette: cool paper, green-black ink, verdigris accent. */
   --color-paper: #f6f7f5;
@@ -123,34 +126,156 @@
   }
 }
 
-/* The public site: a faint grid of square cells that the brand's tiles sit in. */
-.tile-grid {
-  --cell: 4rem;
-  background-image:
-    linear-gradient(to right, var(--color-line) 1px, transparent 1px),
-    linear-gradient(to bottom, var(--color-line) 1px, transparent 1px);
-  background-size: var(--cell) var(--cell);
-  background-position: 50% 0;
+/*
+ * The public site is white and green whatever the device's theme, so it
+ * sets the light palette itself (a little cooler and cleaner than the app's).
+ */
+.site {
+  --color-paper: #f2f7f4;
+  --color-surface: #ffffff;
+  --color-ink: #0c211c;
+  --color-muted: #55665f;
+  --color-line: #dfe8e3;
+  --color-accent: #1f6f64;
+  --color-accent-strong: #185a51;
+  --color-accent-ink: #ffffff;
+  --color-danger: #b4352b;
+  background: #ffffff;
+  color: var(--color-ink);
+  color-scheme: light;
 }
 
-/* The hero's tiles settle into their cells once, when the page loads. */
-@keyframes tile-in {
+/* Deep green lit from three sides; the base of every green panel on the site. */
+.green-panel {
+  background:
+    radial-gradient(70% 90% at 12% 0%, #2c8f79 0%, transparent 60%),
+    radial-gradient(55% 75% at 96% 8%, #1f6f64 0%, transparent 62%),
+    radial-gradient(60% 55% at 50% 118%, #86dcae 0%, transparent 62%), #0a3129;
+}
+
+/* Film grain over a panel. The panel needs `relative isolate overflow-hidden`. */
+.grain::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.6 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  mix-blend-mode: overlay;
+  opacity: 0.55;
+}
+
+/* The same grain, darker, for white and pale surfaces. */
+.grain-soft::after {
+  mix-blend-mode: multiply;
+  opacity: 0.22;
+  filter: invert(1);
+}
+
+/* Headline lines rise into place once, when the page loads. */
+@keyframes rise {
   from {
     opacity: 0;
-    translate: var(--from-x, 0) var(--from-y, 0);
-    scale: 0.9;
+    translate: 0 0.6em;
+    filter: blur(8px);
   }
 }
 
-.tile-in {
-  animation: tile-in 0.9s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+.rise {
+  animation: rise 1s cubic-bezier(0.2, 0.7, 0.2, 1) both;
   animation-delay: var(--delay, 0s);
 }
 
+/* Things that float: a slow drift up and down. */
+@keyframes drift {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+  50% {
+    translate: 0 -10px;
+  }
+}
+
+.drift {
+  animation: drift 7s ease-in-out infinite;
+  animation-delay: var(--delay, 0s);
+}
+
+/* Voice bars, rising and falling like speech. */
+@keyframes speak {
+  0%,
+  100% {
+    scale: 1 0.45;
+  }
+  50% {
+    scale: 1 1;
+  }
+}
+
+.speak {
+  transform-origin: center;
+  animation: speak 1.3s ease-in-out infinite;
+  animation-delay: var(--delay, 0s);
+}
+
+/* A row that slides sideways for ever; its content is written twice. */
+@keyframes marquee {
+  to {
+    translate: -50% 0;
+  }
+}
+
+.marquee {
+  animation: marquee 36s linear infinite;
+}
+
+.marquee-box:hover .marquee {
+  animation-play-state: paused;
+}
+
+/* Sections fade up as they scroll into view (set by Reveal). */
+@media (scripting: enabled) and (prefers-reduced-motion: no-preference) {
+  .reveal {
+    opacity: 0;
+    translate: 0 28px;
+    filter: blur(6px);
+    transition:
+      opacity 0.9s cubic-bezier(0.2, 0.7, 0.2, 1),
+      translate 0.9s cubic-bezier(0.2, 0.7, 0.2, 1),
+      filter 0.9s cubic-bezier(0.2, 0.7, 0.2, 1);
+    transition-delay: var(--delay, 0s);
+  }
+
+  .reveal[data-shown] {
+    opacity: 1;
+    translate: 0 0;
+    filter: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .tile-in {
+  .rise,
+  .drift,
+  .speak,
+  .marquee {
     animation: none;
   }
+}
+
+/* A statement whose words darken in turn as it scrolls (set by ScrollWords). */
+.scroll-words[data-live] > span {
+  opacity: clamp(0.16, calc(var(--progress, 0) * var(--count) - var(--index)), 1);
+}
+
+/* A sideways scroller without a scrollbar. */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
 }
 
 /* Voice mode: tiles lifting off the mark while Tessel thinks, and pulsing while it connects. */
