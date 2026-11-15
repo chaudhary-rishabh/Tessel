@@ -211,7 +211,8 @@ export function Home() {
           </p>
         </Reveal>
 
-        <Reveal className="mt-12">
+        {/* Not inside Reveal: the slider pins itself to the screen and is far taller than it. */}
+        <div className="mt-12">
           <FeatureSlider label="What Tessel does">
             <Slide tone="white" label="Documents" title={feature("documents").title}>
               <div className="bg-paper rounded-2xl p-5 text-sm leading-relaxed">
@@ -362,7 +363,7 @@ export function Home() {
               </ol>
             </Slide>
           </FeatureSlider>
-        </Reveal>
+        </div>
 
         <ul className={cn(COLUMN, "mt-24 grid gap-x-10 gap-y-10 sm:grid-cols-2 lg:grid-cols-4")}>
           {["skills", "memory", "teams", "security"].map(feature).map((item, index) => (

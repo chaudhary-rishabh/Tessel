@@ -57,17 +57,31 @@ export function Modal({
   onClose,
   children,
   className,
+  overlayClassName,
+  bodyClassName,
+  aside,
 }: {
   /** The modal's accessible name; the content shows its own visible heading. */
   label: string;
   onClose: () => void;
   children: ReactNode;
   className?: string;
+  /** Classes for the layer behind the modal. */
+  overlayClassName?: string;
+  /** Classes for the scrolling area that holds the children. */
+  bodyClassName?: string;
+  /** A panel beside the content on wide screens; pass `className` a wider `max-w` with it. */
+  aside?: ReactNode;
 }) {
   return (
     <DialogPrimitive.Root open onOpenChange={(open) => (open ? undefined : onClose())}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="bg-tile-ink/45 fixed inset-0 z-40 backdrop-blur-[3px] data-[state=open]:animate-[fade-in_200ms_ease-out] motion-reduce:animate-none" />
+        <DialogPrimitive.Overlay
+          className={cn(
+            "bg-tile-ink/45 fixed inset-0 z-40 backdrop-blur-[3px] data-[state=open]:animate-[fade-in_200ms_ease-out] motion-reduce:animate-none",
+            overlayClassName,
+          )}
+        />
         <DialogPrimitive.Content
           aria-describedby={undefined}
           // Focus the modal itself: its content may still be loading, which would
@@ -88,7 +102,28 @@ export function Modal({
         >
           <DialogPrimitive.Title className="sr-only">{label}</DialogPrimitive.Title>
           <div className="bg-line mx-auto mt-3 h-1.5 w-10 shrink-0 rounded-full sm:hidden" />
-          <div className="overflow-y-auto px-6 pt-4 pb-7 sm:px-9 sm:pt-9 sm:pb-9">{children}</div>
+          {aside ? (
+            <div className="flex min-h-0 flex-1">
+              {aside}
+              <div
+                className={cn(
+                  "min-w-0 flex-1 overflow-y-auto px-6 pt-4 pb-7 sm:px-9 sm:pt-9 sm:pb-9",
+                  bodyClassName,
+                )}
+              >
+                {children}
+              </div>
+            </div>
+          ) : (
+            <div
+              className={cn(
+                "overflow-y-auto px-6 pt-4 pb-7 sm:px-9 sm:pt-9 sm:pb-9",
+                bodyClassName,
+              )}
+            >
+              {children}
+            </div>
+          )}
           <DialogPrimitive.Close
             aria-label="Close"
             className="text-muted hover:bg-ink/6 hover:text-ink focus-visible:outline-accent absolute top-3 right-3 grid size-10 place-items-center rounded-full transition-colors focus-visible:outline-2 sm:top-4 sm:right-4"
