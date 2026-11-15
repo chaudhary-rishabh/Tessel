@@ -1,9 +1,12 @@
 import {
+  AudioLines,
   BookOpenCheck,
   Bot,
   Brain,
   Cable,
+  Images,
   type LucideIcon,
+  PanelsTopLeft,
   ShieldCheck,
   Sparkles,
   Users,
@@ -12,6 +15,8 @@ import {
 
 export interface Feature {
   id: string;
+  /** A short name for lists of features. */
+  nav: string;
   icon: LucideIcon;
   title: string;
   summary: string;
@@ -22,18 +27,21 @@ export interface Feature {
 export const FEATURES: readonly Feature[] = [
   {
     id: "documents",
+    nav: "Documents",
     icon: BookOpenCheck,
     title: "Answers from your documents",
     summary:
       "Upload handbooks, specs, contracts, and notes. Tessel finds the right passages and answers with citations you can open and check.",
     points: [
-      "Hybrid search with reranking finds the passages that matter",
       "Every answer cites its sources, and each citation opens the passage",
+      "Reads PDFs, Word, Excel, PowerPoint, and scanned pages",
+      "Transcribes audio and video, and cites the moment something was said",
       "A knowledge graph answers who works on what, across all your files",
     ],
   },
   {
     id: "agents",
+    nav: "Agents",
     icon: Bot,
     title: "Agents that ask before they act",
     summary:
@@ -45,7 +53,47 @@ export const FEATURES: readonly Feature[] = [
     ],
   },
   {
+    id: "voice",
+    nav: "Voice",
+    icon: AudioLines,
+    title: "Talk it through",
+    summary:
+      "Have a spoken conversation with Tessel, hands free. It answers out loud in under a second, and you can cut in at any point.",
+    points: [
+      "Everything said lands in the chat as text",
+      "Choose a voice, or record your own on a paid plan",
+      "Dictate a message, or have any reply read aloud",
+    ],
+  },
+  {
+    id: "create",
+    nav: "Pages and apps",
+    icon: PanelsTopLeft,
+    title: "Pages, apps, and diagrams beside the chat",
+    summary:
+      "Ask for a web page, a working app, a diagram, or a document, and it opens next to the conversation, running live.",
+    points: [
+      "Ask for a change and step back through every version",
+      "Multi-page apps with a live preview, downloadable as a zip",
+      "Runs in a sandbox that can't reach your workspace",
+    ],
+  },
+  {
+    id: "media",
+    nav: "Images and video",
+    icon: Images,
+    title: "Images and video",
+    summary:
+      "Describe an image and Tessel makes it, then edits it as you ask. Paid plans can generate short video clips with sound.",
+    points: [
+      "Edit any image you made or attached, in plain words",
+      "Video runs in the background and shows its progress",
+      "Everything you make is kept in your gallery",
+    ],
+  },
+  {
     id: "modes",
+    nav: "Ways of working",
     icon: Workflow,
     title: "Pick how it works",
     summary:
@@ -58,6 +106,7 @@ export const FEATURES: readonly Feature[] = [
   },
   {
     id: "connectors",
+    nav: "Connected apps",
     icon: Cable,
     title: "Your apps, connected through MCP",
     summary:
@@ -70,6 +119,7 @@ export const FEATURES: readonly Feature[] = [
   },
   {
     id: "skills",
+    nav: "Skills",
     icon: Sparkles,
     title: "Skills for repeat work",
     summary:
@@ -82,6 +132,7 @@ export const FEATURES: readonly Feature[] = [
   },
   {
     id: "memory",
+    nav: "Memory",
     icon: Brain,
     title: "Memory you control",
     summary:
@@ -94,18 +145,21 @@ export const FEATURES: readonly Feature[] = [
   },
   {
     id: "teams",
+    nav: "Teams",
     icon: Users,
     title: "Built for teams",
     summary:
       "Shared workspaces with owners, admins, and members. Invite people by email and share documents, skills, and connected apps.",
     points: [
       "Roles, invitations, and member controls",
-      "An audit log of who did what",
+      "Team memory for the projects and conventions everyone shares",
+      "Admin policies for tools and apps, and an audit log of who did what",
       "Usage limits per person, with a clear meter",
     ],
   },
   {
     id: "security",
+    nav: "Privacy",
     icon: ShieldCheck,
     title: "Private by design",
     summary:

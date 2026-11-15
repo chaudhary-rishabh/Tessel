@@ -1,17 +1,26 @@
-import { Button } from "@tessel/ui";
+import { Button, cn } from "@tessel/ui";
 import { Check } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { FEATURES } from "@/components/marketing/features-data";
 import { PageIntro } from "@/components/marketing/page-intro";
+import { COLUMN, CTA, HEADING } from "@/components/marketing/styles";
 import { pageMetadata } from "@/lib/site";
 
 export const metadata: Metadata = pageMetadata({
   title: "Features",
   description:
-    "Cited answers from your documents, agents that ask before they act, MCP connectors, skills, memory, and shared team workspaces. Everything Tessel does.",
+    "Cited answers from your documents, agents that ask before they act, voice conversations, pages and apps beside the chat, MCP connectors, skills, memory, and shared team workspaces.",
   path: "/features",
 });
+
+/** The brand's tile colors, one after another down the page. */
+const TILE_COLORS = [
+  "bg-tile-verdigris text-white",
+  "bg-tile-ochre text-tile-ink",
+  "bg-tile-iris text-tile-ink",
+  "bg-tile-moss text-tile-ink",
+] as const;
 
 export default function FeaturesPage() {
   return (
@@ -23,22 +32,46 @@ export default function FeaturesPage() {
         </p>
       </PageIntro>
 
-      <section aria-label="Features" className="mx-auto max-w-6xl px-5 pb-24 sm:px-6">
-        <ul className="grid gap-4 md:grid-cols-2">
-          {FEATURES.map((feature) => (
+      <div className={cn(COLUMN, "grid gap-12 pb-24 sm:pb-32 lg:grid-cols-[13rem_1fr]")}>
+        <nav aria-label="Features" className="hidden lg:block">
+          <ul className="border-line sticky top-24 flex flex-col border-l text-[0.95rem]">
+            {FEATURES.map((feature) => (
+              <li key={feature.id}>
+                <a
+                  href={`#${feature.id}`}
+                  className="text-muted hover:text-ink hover:border-ink -ml-px block border-l border-transparent py-1.5 pl-4 transition-colors"
+                >
+                  {feature.nav}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </nav>
+
+        <ul className="divide-line border-line divide-y border-y">
+          {FEATURES.map((feature, index) => (
             <li
               key={feature.id}
               id={feature.id}
-              className="border-line bg-surface scroll-mt-24 rounded-[1.75rem] border p-7 sm:p-9"
+              className="grid scroll-mt-24 gap-8 py-12 md:grid-cols-[1.1fr_1fr] md:gap-12"
             >
-              <span className="bg-accent/10 text-accent grid size-12 place-items-center rounded-2xl">
-                <feature.icon aria-hidden="true" className="size-6" />
-              </span>
-              <h2 className="mt-6 text-2xl font-semibold tracking-tight">{feature.title}</h2>
-              <p className="text-muted mt-3">{feature.summary}</p>
-              <ul className="mt-6 flex flex-col gap-3 text-[0.95rem]">
+              <div>
+                <span
+                  className={cn(
+                    "grid size-11 place-items-center rounded-xl",
+                    TILE_COLORS[index % TILE_COLORS.length],
+                  )}
+                >
+                  <feature.icon aria-hidden="true" className="size-5" />
+                </span>
+                <h2 className="mt-6 text-2xl font-semibold tracking-[-0.02em] sm:text-[1.75rem]">
+                  {feature.title}
+                </h2>
+                <p className="text-muted mt-3 leading-relaxed">{feature.summary}</p>
+              </div>
+              <ul className="flex flex-col gap-3.5 text-[0.95rem] md:pt-[4.25rem]">
                 {feature.points.map((point) => (
-                  <li key={point} className="flex gap-2.5">
+                  <li key={point} className="flex gap-3">
                     <Check aria-hidden="true" className="text-accent mt-0.5 size-4.5 shrink-0" />
                     {point}
                   </li>
@@ -47,15 +80,20 @@ export default function FeaturesPage() {
             </li>
           ))}
         </ul>
-      </section>
+      </div>
 
-      <section className="mx-auto max-w-6xl px-5 pb-24 sm:px-6">
-        <div className="bg-tile-deep flex flex-col items-start gap-6 rounded-[2rem] px-8 py-12 text-white sm:px-12 md:flex-row md:items-center md:justify-between">
+      <section className="border-line border-t">
+        <div
+          className={cn(
+            COLUMN,
+            "flex flex-col items-start gap-8 py-24 sm:py-28 md:flex-row md:items-end md:justify-between",
+          )}
+        >
           <div>
-            <h2 className="text-3xl font-semibold tracking-tight">Try it on your own documents</h2>
-            <p className="mt-2 text-white/75">Free to start. No card needed.</p>
+            <h2 className={HEADING}>Try it on your own documents</h2>
+            <p className="text-muted mt-4 text-lg">Free to start. No card needed.</p>
           </div>
-          <Button asChild className="text-tile-deep rounded-full bg-white px-6 hover:bg-white/90">
+          <Button asChild className={CTA}>
             <Link href="/signup">Get started free</Link>
           </Button>
         </div>

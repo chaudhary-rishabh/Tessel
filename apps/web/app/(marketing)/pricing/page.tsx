@@ -1,7 +1,9 @@
+import { cn } from "@tessel/ui";
 import type { Metadata } from "next";
 import { Faq } from "@/components/marketing/faq";
 import { PageIntro } from "@/components/marketing/page-intro";
 import { PricingPlans } from "@/components/marketing/pricing-plans";
+import { COLUMN, HEADING } from "@/components/marketing/styles";
 import { pageMetadata } from "@/lib/site";
 
 export const metadata: Metadata = pageMetadata({
@@ -49,12 +51,14 @@ export default function PricingPage() {
       <PageIntro title="Simple plans that grow with your team">
         <p>Start free. Upgrade when Tessel becomes part of your day.</p>
       </PageIntro>
-      <section aria-label="Plans" className="mx-auto max-w-6xl px-5 pb-20 sm:px-6">
+      <section aria-label="Plans" className={cn(COLUMN, "pb-24 sm:pb-32")}>
         <PricingPlans />
       </section>
-      <section className="mx-auto max-w-4xl px-5 pb-24 sm:px-6">
-        <h2 className="mb-8 text-3xl font-semibold tracking-tight">Questions about plans</h2>
-        <Faq items={questions} />
+      <section className="border-line border-t">
+        <div className={cn(COLUMN, "grid gap-10 py-24 sm:py-32 lg:grid-cols-[1fr_1.6fr]")}>
+          <h2 className={HEADING}>Questions about plans</h2>
+          <Faq items={questions} />
+        </div>
       </section>
     </>
   );
