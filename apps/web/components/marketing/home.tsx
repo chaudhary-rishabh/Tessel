@@ -8,7 +8,7 @@ import { FEATURES } from "./features-data";
 import { Parallax, Reveal, ScrollWords } from "./motion";
 import { GlassTile } from "./page-intro";
 import { ProductPreview } from "./product-preview";
-import { COLUMN, CTA, CTA_ON_GREEN, CTA_QUIET, HEADING, SERIF } from "./styles";
+import { COLUMN, CTA_ON_GREEN, CTA_QUIET, HEADING, SERIF } from "./styles";
 
 const WORKS_WITH = ["GitHub", "Notion", "Linear", "Claude Desktop", "Cursor", "Any MCP server"];
 
