@@ -1,6 +1,5 @@
 @import "tailwindcss";
-@import "@fontsource-variable/bricolage-grotesque";
-@import "@fontsource-variable/atkinson-hyperlegible-next";
+@import "@fontsource-variable/schibsted-grotesk";
 
 /* Shared UI components live in a workspace package; scan them for classes. */
 @source "../../../packages/ui/src";
@@ -18,8 +17,9 @@
 }
 
 @theme {
-  --font-sans: "Atkinson Hyperlegible Next Variable", ui-sans-serif, system-ui, sans-serif;
-  --font-display: "Bricolage Grotesque Variable", ui-sans-serif, system-ui, sans-serif;
+  /* One family for everything: headings and text differ by size, weight, and spacing. */
+  --font-sans: "Schibsted Grotesk Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Schibsted Grotesk Variable", ui-sans-serif, system-ui, sans-serif;
 
   /* Mineral palette: cool paper, green-black ink, verdigris accent. */
   --color-paper: #f6f7f5;
@@ -120,6 +120,36 @@
 @keyframes slide-out {
   to {
     transform: translateX(-100%);
+  }
+}
+
+/* The public site: a faint grid of square cells that the brand's tiles sit in. */
+.tile-grid {
+  --cell: 4rem;
+  background-image:
+    linear-gradient(to right, var(--color-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--color-line) 1px, transparent 1px);
+  background-size: var(--cell) var(--cell);
+  background-position: 50% 0;
+}
+
+/* The hero's tiles settle into their cells once, when the page loads. */
+@keyframes tile-in {
+  from {
+    opacity: 0;
+    translate: var(--from-x, 0) var(--from-y, 0);
+    scale: 0.9;
+  }
+}
+
+.tile-in {
+  animation: tile-in 0.9s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation-delay: var(--delay, 0s);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tile-in {
+    animation: none;
   }
 }
 

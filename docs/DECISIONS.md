@@ -463,3 +463,11 @@ Usage emails go out once per window: to a person when they pass 80% of their wee
 A team workspace is where a team keeps a project, so team memory is per workspace rather than a separate "project" object: facts about the work (names, conventions, decisions) that everyone's replies should know. It sits next to personal memory, never merged with it. Personal memory stays private; team memory is visible to every member and marked with who added it.
 
 Every member can add to it, because the person who knows a convention is often not an admin. Changing or deleting is for the author, owners, and admins, enforced by row-level security as well as the API. Replies use it even when someone has turned their own memory off, since it is the workspace's shared context rather than something learned about them. The prompt presents it as context, not instructions, so a member can't use it to override the system prompt for everyone. The agent can add to it with `remember_for_team`, which asks for approval because everyone will see the result; nothing is added to it automatically from chats.
+
+## D-105 The public site is light, quiet, and built on the mark
+
+The home, features, pricing, and security pages share one look: the app's own paper and ink, hairline rules, and squared corners, so the site and the product feel like the same thing and both follow the light and dark themes. The one piece of decoration is the brand itself: a faint grid of square cells with the Tessel mark's five tiles set into it at page size, which settle into place once when the home page loads. Voice mode's deep green appears only where voice is shown.
+
+The web app uses one typeface, Schibsted Grotesk, for headings and text; size, weight, and letter spacing do the work two families did before. Main actions on the site are ink buttons rather than the accent green, which is kept for marks inside the product pictures.
+
+The hero's product picture has four tabs (Ask, Act, Talk, Make), one per thing Tessel does; it changes only when someone picks a tab. The header has links to the three pages, with a menu on phones. Pricing adds a plan comparison table whose usage and model rows are computed from the plan definitions, so they can't drift from what is charged.

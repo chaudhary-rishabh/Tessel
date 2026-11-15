@@ -1,6 +1,8 @@
+import { cn } from "@tessel/ui";
 import type { Metadata } from "next";
 import { PageIntro } from "@/components/marketing/page-intro";
-import { pageMetadata } from "@/lib/site";
+import { COLUMN } from "@/components/marketing/styles";
+import { pageMetadata, site } from "@/lib/site";
 
 export const metadata: Metadata = pageMetadata({
   title: "Security",
@@ -42,6 +44,14 @@ const sections = [
       "An audit log of sign-ins, member changes, tokens, connected apps, and deleted documents, kept for a year.",
       "Removing someone ends their access tokens and connected apps in that workspace.",
       "Owners can delete a team workspace and everything in it.",
+      "Admins choose which tools ask first and which connected apps are allowed.",
+    ],
+  },
+  {
+    title: "Things it makes are fenced in",
+    points: [
+      "Pages and apps Tessel builds run in a sandbox that can't reach your workspace, your session, or your files.",
+      "A copy of your voice is made only from a recording of you reading a one-time code, and you can delete it.",
     ],
   },
 ] as const;
@@ -55,24 +65,56 @@ export default function SecurityPage() {
           protect it.
         </p>
       </PageIntro>
-      <section
-        aria-label="How Tessel protects your data"
-        className="mx-auto max-w-4xl px-5 pb-24 sm:px-6"
-      >
-        <div className="flex flex-col gap-4">
+      <section aria-label="How Tessel protects your data" className={cn(COLUMN, "pb-24 sm:pb-32")}>
+        <div className="divide-line border-line divide-y border-y">
           {sections.map((section) => (
             <div
               key={section.title}
-              className="border-line bg-surface rounded-[1.75rem] border p-7 sm:p-9"
+              className="grid gap-6 py-12 md:grid-cols-[1fr_1.5fr] md:gap-12"
             >
-              <h2 className="text-2xl font-semibold tracking-tight">{section.title}</h2>
-              <ul className="text-muted marker:text-accent mt-5 flex list-disc flex-col gap-3 pl-5">
+              <h2 className="text-2xl font-semibold tracking-[-0.02em] sm:text-[1.75rem]">
+                {section.title}
+              </h2>
+              <ul className="flex flex-col gap-4 leading-relaxed">
                 {section.points.map((point) => (
-                  <li key={point}>{point}</li>
+                  <li key={point} className="flex gap-3.5">
+                    <span
+                      aria-hidden="true"
+                      className="bg-tile-verdigris mt-[0.55rem] size-2 shrink-0 rounded-[2px]"
+                    />
+                    {point}
+                  </li>
                 ))}
               </ul>
             </div>
           ))}
+        </div>
+
+        <div className="mt-12 grid gap-4 md:grid-cols-2">
+          <div className="bg-surface border-line rounded-2xl border p-7 sm:p-8">
+            <h2 className="text-xl font-semibold tracking-tight">Read the code</h2>
+            <p className="text-muted mt-2.5 leading-relaxed">
+              Tessel&apos;s source is public, so you can check how any of this works for yourself.
+            </p>
+            <a
+              href={site.repository}
+              className="decoration-line hover:decoration-ink mt-5 inline-block font-medium underline underline-offset-[6px] transition-colors"
+            >
+              Tessel on GitHub
+            </a>
+          </div>
+          <div className="bg-surface border-line rounded-2xl border p-7 sm:p-8">
+            <h2 className="text-xl font-semibold tracking-tight">Found a problem?</h2>
+            <p className="text-muted mt-2.5 leading-relaxed">
+              Tell us what you found and how to reproduce it. We read every report.
+            </p>
+            <a
+              href={`mailto:${site.contactEmail}`}
+              className="decoration-line hover:decoration-ink mt-5 inline-block font-medium underline underline-offset-[6px] transition-colors"
+            >
+              {site.contactEmail}
+            </a>
+          </div>
         </div>
       </section>
     </>
