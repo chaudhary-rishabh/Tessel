@@ -59,7 +59,7 @@ export function PricingPlans() {
         <div
           role="radiogroup"
           aria-label="Currency"
-          className="bg-ink/6 inline-flex rounded-[0.7rem] p-1"
+          className="bg-paper inline-flex rounded-full p-1"
         >
           {(
             [
@@ -74,8 +74,8 @@ export function PricingPlans() {
               aria-checked={currency === value}
               onClick={() => setCurrency(value)}
               className={cn(
-                "focus-visible:outline-accent rounded-lg px-4 py-2 text-sm font-medium transition-colors focus-visible:outline-2",
-                currency === value ? "bg-surface text-ink shadow-sm" : "text-muted hover:text-ink",
+                "focus-visible:outline-accent rounded-full px-4 py-2 text-sm font-medium transition-colors focus-visible:outline-2",
+                currency === value ? "bg-forest text-white" : "text-muted hover:text-ink",
               )}
             >
               {label}
@@ -96,39 +96,62 @@ export function PricingPlans() {
             <li
               key={plan.id}
               className={cn(
-                "bg-surface flex flex-col rounded-2xl border p-7",
-                featured ? "border-ink shadow-[0_0_0_1px_var(--color-ink)]" : "border-line",
+                "relative isolate flex flex-col overflow-hidden rounded-[1.75rem] p-7",
+                featured ? "green-panel grain text-white" : "bg-paper",
               )}
             >
               <div className="flex items-center justify-between gap-3">
-                <h2 className="text-lg font-semibold tracking-tight">{plan.name}</h2>
+                <h2 className="text-lg font-medium tracking-tight">{plan.name}</h2>
                 {featured ? (
-                  <span className="bg-tile-ochre/25 rounded-md px-2.5 py-1 text-xs font-medium">
+                  <span className="bg-mint text-forest rounded-full px-2.5 py-1 text-xs font-medium">
                     Most popular
                   </span>
                 ) : null}
               </div>
-              <p className="text-muted mt-1.5 min-h-[4.2rem] text-[0.95rem] leading-snug">
+              <p
+                className={cn(
+                  "mt-1.5 text-[0.95rem] leading-snug md:min-h-[4.2rem]",
+                  featured ? "text-white/75" : "text-muted",
+                )}
+              >
                 {plan.description}
               </p>
-              <p className="mt-6 text-5xl font-semibold tracking-[-0.04em]">
+              <p className="mt-6 text-5xl font-medium tracking-[-0.05em]">
                 {formatPrice(plan, currency)}
               </p>
-              <p className="text-muted mt-2 text-sm">{priceNote(plan)}</p>
+              <p
+                className={cn(
+                  "mt-2 text-sm md:min-h-10",
+                  featured ? "text-white/65" : "text-muted",
+                )}
+              >
+                {priceNote(plan)}
+              </p>
               <Button
                 asChild
                 variant="secondary"
                 className={cn(
-                  "mt-7 rounded-xl",
-                  featured && "bg-ink text-paper hover:bg-ink/85 border-transparent",
+                  "mt-7 rounded-full bg-white",
+                  featured && "text-forest hover:bg-mint border-transparent",
                 )}
               >
                 <Link href="/signup">{plan.id === "free" ? "Start free" : `Get ${plan.name}`}</Link>
               </Button>
-              <ul className="border-line mt-7 flex flex-col gap-3 border-t pt-6 text-[0.95rem]">
+              <ul
+                className={cn(
+                  "mt-7 flex flex-col gap-3 border-t pt-6 text-[0.95rem]",
+                  featured ? "border-white/15" : "border-line",
+                )}
+              >
                 {plan.features.map((feature) => (
                   <li key={feature} className="flex gap-2.5">
-                    <Check aria-hidden="true" className="text-accent mt-0.5 size-4.5 shrink-0" />
+                    <Check
+                      aria-hidden="true"
+                      className={cn(
+                        "mt-0.5 size-4.5 shrink-0",
+                        featured ? "text-mint" : "text-accent",
+                      )}
+                    />
                     {feature}
                   </li>
                 ))}
@@ -139,7 +162,7 @@ export function PricingPlans() {
       </ul>
 
       <div className="mt-24">
-        <h2 className="text-3xl font-semibold tracking-[-0.03em] sm:text-4xl">Compare plans</h2>
+        <h2 className="text-3xl font-medium tracking-[-0.04em] sm:text-5xl">Compare plans</h2>
         <div className="mt-8 overflow-x-auto">
           <table className="w-full min-w-[40rem] border-collapse text-left text-[0.95rem]">
             <thead>

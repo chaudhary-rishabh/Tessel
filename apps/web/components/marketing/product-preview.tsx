@@ -34,7 +34,7 @@ export function ProductPreview() {
   }
 
   return (
-    <div className="bg-surface border-line overflow-hidden rounded-2xl border text-left shadow-[0_40px_80px_-48px_rgba(24,32,29,0.45)]">
+    <div className="bg-surface overflow-hidden rounded-[1.5rem] border border-white/60 text-left shadow-[0_36px_70px_-34px_rgba(6,36,30,0.5),0_10px_24px_-12px_rgba(6,36,30,0.18)] ring-1 ring-black/5">
       <div className="border-line flex items-center gap-3 border-b px-3 py-2.5 sm:px-4">
         <div
           role="tablist"
@@ -125,7 +125,7 @@ function Composer() {
     <div className="border-line mt-auto flex items-center gap-3 rounded-xl border px-4 py-3">
       <Paperclip className="text-muted size-4" />
       <span className="text-muted flex-1">Reply to Tessel</span>
-      <span className="bg-ink text-paper grid size-7 place-items-center rounded-lg">
+      <span className="bg-forest grid size-7 place-items-center rounded-full text-white">
         <ArrowUp className="size-4" />
       </span>
     </div>
@@ -169,8 +169,8 @@ function Ask() {
         <p className="text-muted text-xs">Launch plan.pdf, page 4</p>
         <p className="mt-1.5 leading-relaxed">
           &ldquo;Legal sign-off on the revised terms is{" "}
-          <mark className="bg-tile-ochre/30 text-ink rounded px-0.5">due 14 August</mark>, two weeks
-          ahead of launch.&rdquo;
+          <mark className="bg-mint text-ink rounded px-0.5">due 14 August</mark>, two weeks ahead of
+          launch.&rdquo;
         </p>
       </div>
       <Composer />
@@ -199,10 +199,10 @@ function Act() {
           LAU-112, LAU-118, and LAU-131. Each gets a comment saying why it was closed.
         </p>
         <div className="mt-3.5 flex gap-2">
-          <span className="bg-ink text-paper rounded-lg px-4 py-1.5 text-xs font-medium">
+          <span className="bg-forest rounded-full px-4 py-1.5 text-xs font-medium text-white">
             Allow
           </span>
-          <span className="border-line rounded-lg border px-4 py-1.5 text-xs font-medium">
+          <span className="border-line rounded-full border px-4 py-1.5 text-xs font-medium">
             Decline
           </span>
         </div>

@@ -30,8 +30,8 @@ const columns = [
 
 export function SiteFooter() {
   return (
-    <footer className="border-line border-t">
-      <div className="mx-auto grid w-full max-w-6xl gap-10 px-5 py-16 sm:px-8 md:grid-cols-[1.6fr_repeat(3,1fr)]">
+    <footer className="overflow-hidden">
+      <div className="mx-auto grid w-full max-w-6xl gap-10 px-5 pt-20 pb-12 sm:px-8 md:grid-cols-[1.6fr_repeat(3,1fr)]">
         <div className="max-w-xs">
           <Link
             href="/"
@@ -62,7 +62,7 @@ export function SiteFooter() {
           </nav>
         ))}
       </div>
-      <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-3 px-5 pb-10 sm:px-8">
+      <div className="border-line mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-3 border-t px-5 py-6 sm:px-8">
         <p className="text-muted text-sm">© {new Date().getFullYear()} Tessel</p>
         <a
           href={`mailto:${site.contactEmail}`}
@@ -71,6 +71,13 @@ export function SiteFooter() {
           {site.contactEmail}
         </a>
       </div>
+      {/* The name, very large, sinking below the bottom of the page. */}
+      <p
+        aria-hidden="true"
+        className="text-accent/[0.09] -mb-[0.24em] text-center text-[27vw] leading-none font-semibold tracking-[-0.06em] select-none"
+      >
+        Tessel
+      </p>
     </footer>
   );
 }

@@ -4,7 +4,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { FEATURES } from "@/components/marketing/features-data";
 import { PageIntro } from "@/components/marketing/page-intro";
-import { COLUMN, CTA, HEADING } from "@/components/marketing/styles";
+import { COLUMN, CTA, HEADING, SERIF } from "@/components/marketing/styles";
 import { pageMetadata } from "@/lib/site";
 
 export const metadata: Metadata = pageMetadata({
@@ -14,27 +14,27 @@ export const metadata: Metadata = pageMetadata({
   path: "/features",
 });
 
-/** The brand's tile colors, one after another down the page. */
-const TILE_COLORS = [
-  "bg-tile-verdigris text-white",
-  "bg-tile-ochre text-tile-ink",
-  "bg-tile-iris text-tile-ink",
-  "bg-tile-moss text-tile-ink",
-] as const;
-
 export default function FeaturesPage() {
   return (
     <>
-      <PageIntro title="Everything your team needs from AI, in one place">
+      <PageIntro
+        title={
+          <>
+            Everything your team needs from AI, <em className={SERIF}>in one place</em>
+          </>
+        }
+      >
         <p>
           Tessel brings your documents, your apps, and capable AI models together, with you in
           control of every step.
         </p>
       </PageIntro>
 
-      <div className={cn(COLUMN, "grid gap-12 pb-24 sm:pb-32 lg:grid-cols-[13rem_1fr]")}>
+      <div
+        className={cn(COLUMN, "grid gap-12 pt-16 pb-24 sm:pt-20 sm:pb-32 lg:grid-cols-[13rem_1fr]")}
+      >
         <nav aria-label="Features" className="hidden lg:block">
-          <ul className="border-line sticky top-24 flex flex-col border-l text-[0.95rem]">
+          <ul className="border-line sticky top-28 flex flex-col border-l text-[0.95rem]">
             {FEATURES.map((feature) => (
               <li key={feature.id}>
                 <a
@@ -49,22 +49,17 @@ export default function FeaturesPage() {
         </nav>
 
         <ul className="divide-line border-line divide-y border-y">
-          {FEATURES.map((feature, index) => (
+          {FEATURES.map((feature) => (
             <li
               key={feature.id}
               id={feature.id}
-              className="grid scroll-mt-24 gap-8 py-12 md:grid-cols-[1.1fr_1fr] md:gap-12"
+              className="grid scroll-mt-28 gap-8 py-12 md:grid-cols-[1.1fr_1fr] md:gap-12"
             >
               <div>
-                <span
-                  className={cn(
-                    "grid size-11 place-items-center rounded-xl",
-                    TILE_COLORS[index % TILE_COLORS.length],
-                  )}
-                >
+                <span className="bg-paper text-forest grid size-12 place-items-center rounded-full">
                   <feature.icon aria-hidden="true" className="size-5" />
                 </span>
-                <h2 className="mt-6 text-2xl font-semibold tracking-[-0.02em] sm:text-[1.75rem]">
+                <h2 className="mt-6 text-2xl font-medium tracking-[-0.03em] sm:text-[2rem]">
                   {feature.title}
                 </h2>
                 <p className="text-muted mt-3 leading-relaxed">{feature.summary}</p>
