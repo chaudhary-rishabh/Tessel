@@ -78,6 +78,13 @@ jobs:
           AWS_ACCESS_KEY_ID: tessel-local
           AWS_SECRET_ACCESS_KEY: tessel-local-secret
 
+      # Offline evals: the mock gateway checks the code around the models, and
+      # recorded live responses check model behaviour, without spending anything.
+      - name: Evals (mock and replay)
+        run: |
+          pnpm evals --mode mock
+          pnpm evals --mode replay
+
       - name: Build
         run: pnpm build
         env:

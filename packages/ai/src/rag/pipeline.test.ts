@@ -95,7 +95,7 @@ describe("RAG pipeline", () => {
   it("answers directly when the router says documents won't help", async () => {
     const { pipeline, ledger } = await setup();
     const result = await pipeline.prepare(context, request("MOCK_DIRECT tell me a joke"));
-    expect(result).toEqual({ route: "direct", queries: [], sources: [] });
+    expect(result).toEqual({ route: "direct", queries: [], sources: [], candidates: [] });
     expect(ledger.events).toHaveLength(1);
   });
 

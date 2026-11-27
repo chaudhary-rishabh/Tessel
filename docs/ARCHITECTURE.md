@@ -560,6 +560,24 @@ sequenceDiagram
 
 Setup steps: [infra/aws/README.md](../infra/aws/README.md).
 
+## Evaluations
+
+`packages/evals` measures the AI features against fixed question sets, the way unit tests measure code. `pnpm evals` runs every suite; `--suite`, `--filter`, `--trials`, and `--list` narrow it.
+
+- **Suites** are `*.eval.ts` files: the shared packages' suites in `packages/evals/suites` (the evals package depends on `@tessel/ai`, so they can't live inside it), and each app's in `apps/<app>/evals`. A suite has cases, a `run` that calls the real code, and a `score` that turns the output into metric values.
+- **Three modes:**
+  - `mock` (the default, and in CI): the mock gateway. Free and deterministic. It checks the code around the models (retrieval, fusion, filtering, workspace isolation, approvals, turn-taking), not the models.
+  - `live`: the real AI gateway, with `AI_GATEWAY_API_KEY`. The source of truth for quality, latency, and cost.
+  - `replay` (also in CI): responses recorded from live runs (`--mode live --record`), stored as cassettes next to each suite and served by a local proxy keyed on a hash of each request. Free and deterministic, and measures real model behaviour as of the recording. A request the cassette doesn't have fails with "re-record", so a prompt change can't pass silently; suites with no recordings yet are skipped. Prompts are built with a fixed clock (`EVAL_CLOCK`) so recordings stay valid.
+- **Scoring:**
+  - Deterministic scorers: retrieval (recall@k, precision@k, MRR, nDCG, citation precision and recall), text (phrases, spoken style), tool use (choice, arguments, declined actions not retried), and latency percentiles.
+  - Free-form answers are graded by a judge model (the registry's chat model by default, `--judge` to change it) with a rubric and a forced tool call at temperature 0. Its cost counts toward the suite's.
+- **Gates and baselines:** every metric can have a gate per mode (a floor, or a ceiling for timings). Runs also compare against the baseline in `<suite folder>/baselines/<suite>.<mode>.json` and fail on a regression beyond the metric's tolerance (0.02 for ratios, 15% for counts). Timings are held to their gates only. `--update-baseline` accepts a run.
+- **Reports:** a line per suite in the terminal, and Markdown plus JSON in `.evals/<mode>/` (also the GitHub run summary).
+- **CI:** the check job runs `--mode mock` and `--mode replay` on every pull request. `.github/workflows/evals.yml` runs `--mode live` nightly and on demand, only when the `AI_GATEWAY_API_KEY` secret is set, and uploads the report.
+- **Suites:**
+  - `rag`: an eleven-document knowledge base for a fictional company (`suites/fixtures/kestrel-docs.ts`) and 35 questions: lookups, paraphrases, follow-ups that need the history, a multi-hop question, Hindi, questions the documents can't answer, messages that shouldn't search, a planted prompt injection, and a second workspace whose conflicting document must never be retrieved. Passages that answer a question are found by evidence phrases, so the gold labels survive chunking changes.
+
 ## Conventions
 
 - **Configuration:** Each app validates its environment with Zod at startup (`parseEnv`) and fails fast with every problem listed. Locally, `.env` at the repo root is loaded; in containers, variables come from the environment.

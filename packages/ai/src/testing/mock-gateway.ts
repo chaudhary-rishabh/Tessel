@@ -34,6 +34,7 @@ import { MOCK_VIDEO_MP4_BASE64 } from "./mock-video";
  * Videos (/video-model/start and /status): pending for the first two status
  * checks, then a one-second clip; MOCK_VIDEO_FAIL in the prompt ends in an error.
  * Text recognition: a user turn with a PDF file part gets two pages of text.
+ * Evaluation judge (record_grade): rates 5, or n for MOCK_GRADE_<n> in the request.
  * Artifacts: MOCK_ARTIFACT writes an HTML page, MOCK_ARTIFACT_V2 a second
  * version of it, and MOCK_ARTIFACT_REACT a React component.
  */
@@ -146,6 +147,11 @@ function defaultReply(body: Record<string, unknown>): MockReply {
     return {
       toolCall: { name: "extract_graph", args: { entities: [...entities.values()], relations } },
     };
+  }
+  if (forced === "record_grade") {
+    // Evaluation judge: MOCK_GRADE_<1-5> in the answer sets the rating.
+    const rating = Number(/MOCK_GRADE_([1-5])/.exec(requestText)?.[1] ?? 5);
+    return { toolCall: { name: "record_grade", args: { reasoning: "Mock grade", rating } } };
   }
   if (forced === "update_memories") {
     const turns = /<turns>\n([\s\S]*?)\n<\/turns>/.exec(requestText)?.[1] ?? "";

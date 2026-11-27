@@ -27,6 +27,7 @@ next-env.d.ts
 
 # Test output
 coverage/
+.evals/
 playwright-report/
 test-results/
 
