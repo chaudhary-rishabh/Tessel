@@ -20,7 +20,7 @@ import pg from "pg";
 import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
 import { envSchema } from "../src/env";
 import type { VoiceRuntime } from "../src/runtime";
-import { runVoiceSession, SPEND_LIMIT_MESSAGE } from "../src/session";
+import { CANCELLED_LINE, runVoiceSession, SPEND_LIMIT_MESSAGE } from "../src/session";
 import { GatewaySTT } from "../src/speech/gateway-stt";
 import { gatewayTTS, TTS_SAMPLE_RATE } from "../src/speech/gateway-tts";
 import { createMockSpeech, MOCK_TRANSCRIPT } from "../src/speech/mock";
@@ -103,7 +103,7 @@ class Speaker extends voice.AudioOutput {
  * the transcriber hears the question after half a second of audio, and the
  * speech model answers each sentence with a fifth of a second of audio.
  */
-function scriptedSpeech(): SpeechProviders & { spoken: string[] } {
+function scriptedSpeech(utterance = QUESTION): SpeechProviders & { spoken: string[] } {
   const spoken: string[] = [];
   const transcriber = new MockTranscriptionModelV4({
     modelId: "mock-stt",
@@ -120,16 +120,19 @@ function scriptedSpeech(): SpeechProviders & { spoken: string[] } {
             bytes += typeof value === "string" ? 0 : value.byteLength;
             if (!heard && bytes >= 16_000) {
               heard = true; // half a second of 16-bit audio at 16 kHz
-              controller.enqueue({ type: "transcript-partial", text: "What's the" });
+              controller.enqueue({
+                type: "transcript-partial",
+                text: utterance.split(" ").slice(0, 2).join(" "),
+              });
               controller.enqueue({
                 type: "transcript-final",
-                text: QUESTION,
+                text: utterance,
                 startSecond: 0,
                 endSecond: 0.5,
               });
             }
           }
-          controller.enqueue({ type: "finish", text: QUESTION, segments: [] });
+          controller.enqueue({ type: "finish", text: utterance, segments: [] });
           controller.close();
         },
       }) as unknown as globalThis.ReadableStream<never>,
@@ -325,6 +328,8 @@ describe("a voice conversation", () => {
       providerOptions: { gateway: { caching: "auto" } },
     });
     expect(JSON.stringify(call?.body.messages)).toContain("Their name is Ada.");
+    // Every turn of the conversation goes to the provider holding its cached prompt.
+    expect(call?.headers["x-session-affinity"]).toBe(seeded.threadId);
 
     // A timing row for the reply, and usage for the model and the speech.
     const turns = await eventually(
@@ -385,6 +390,33 @@ describe("a voice conversation", () => {
       userId: seeded.userId,
       threadId: seeded.threadId,
     });
+  });
+
+  it.each([
+    { utterance: "Never mind.", says: [CANCELLED_LINE] },
+    { utterance: "Stop.", says: [] },
+  ])("answers $utterance without calling the model", async ({ utterance, says }) => {
+    const seeded = await seedSession();
+    gateway.reset();
+    const speech = scriptedSpeech(utterance);
+    const microphone = new Microphone();
+    const session = await runVoiceSession(job(seeded.sessionId), runtimeWith(), {
+      speech,
+      turnDetection: "stt",
+      io: { input: microphone, output: new Speaker() },
+    });
+    microphone.start();
+    // The transcriber hears it after half a second; then long enough for a reply to start.
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+    microphone.stop();
+    await session?.close();
+    expect(speech.spoken).toEqual(says);
+    // Commands aren't saved to the chat, and the model is never asked.
+    const { rows } = await owner.query("select role from messages where thread_id = $1", [
+      seeded.threadId,
+    ]);
+    expect(rows).toEqual([]);
+    expect(gateway.requests.filter((r) => r.path.endsWith("/chat/completions"))).toHaveLength(0);
   });
 
   it("tells a user over today's limit, and ends the call", async () => {

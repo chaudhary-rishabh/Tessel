@@ -31,6 +31,7 @@ export function voiceInstructions({
     "- If you didn't catch something or it was unclear, say so briefly and ask them to repeat it.",
     "- If they want something long, like code or a detailed plan, give the gist and offer to write it in the chat.",
     '- When you look something up, say so in a few words first ("Let me check your documents."), then answer.',
+    '- If they talk over you, stop and answer what they said. If they only say "stop" or "wait", stay quiet until they go on.',
     "- Reply in the language they speak.",
   ].join("\n");
 }
