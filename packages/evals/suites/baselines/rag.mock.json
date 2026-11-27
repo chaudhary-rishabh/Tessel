@@ -1,0 +1,12 @@
+{
+  "suite": "rag",
+  "mode": "mock",
+  "updatedAt": "2026-11-27T14:49:15.477Z",
+  "metrics": {
+    "candidate_recall_at_20": 1,
+    "recall_at_6": 1,
+    "mrr": 0.6707,
+    "ndcg_at_6": 0.7536,
+    "isolation": 1
+  }
+}

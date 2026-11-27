@@ -45,6 +45,8 @@ export interface RagResult {
   route: "direct" | "documents";
   queries: string[];
   sources: Source[];
+  /** The fused search results before reranking, best first (for evaluations and debugging). */
+  candidates: { documentId: string; chunkIndex: number }[];
 }
 
 export const ROUTE_TOOL = "route_message";
@@ -340,6 +342,10 @@ export function createRagPipeline({
         route: state.decision,
         queries: state.decision === "documents" ? state.queries : [],
         sources: state.sources,
+        candidates: state.candidates.map((hit) => ({
+          documentId: hit.payload.document_id,
+          chunkIndex: hit.payload.chunk_index,
+        })),
       };
     },
   };
