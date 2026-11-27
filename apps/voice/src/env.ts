@@ -47,6 +47,14 @@ export const envSchema = z
     VOICE_ENDPOINTING_MIN_MS: z.coerce.number().int().nonnegative().default(250),
     /** The longest the agent waits for more when the user seems mid-sentence. */
     VOICE_ENDPOINTING_MAX_MS: z.coerce.number().int().positive().default(2500),
+    /**
+     * How the user cuts the agent off. "smart" reads the live transcript: "mm-hmm" and
+     * "yeah" don't interrupt, "stop" and "never mind" do at once, other speech once it has
+     * VOICE_MIN_INTERRUPTION_WORDS words. "vad" pauses on any speech and resumes if no words follow.
+     */
+    VOICE_INTERRUPTION_MODE: z.enum(["smart", "vad"]).default("smart"),
+    /** Words (not counting fillers) the user must say over the agent before it stops, in smart mode. */
+    VOICE_MIN_INTERRUPTION_WORDS: z.coerce.number().int().positive().default(2),
     /** Silence the voice activity detector needs before it reports the end of speech. */
     VOICE_VAD_SILENCE_MS: z.coerce.number().int().positive().default(300),
     /** The longest one conversation can run. Matches the API's setting. */

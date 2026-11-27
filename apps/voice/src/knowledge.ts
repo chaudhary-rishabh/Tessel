@@ -9,11 +9,15 @@ const SEARCH_RESULTS = 4;
 /** A spoken answer needs the gist; long passages only slow the reply. */
 const PASSAGE_CHARACTERS = 1_200;
 
+/** What a tool returns when the user cut the agent off while it ran; the model never sees it. */
+export const CANCELLED_TOOL_RESULT = "Cancelled by the user.";
+
 /**
  * What the agent knows beyond the conversation, as chat does: the user's
  * memories and the chat's older summary in its instructions, plus tools to
  * remember something they ask it to and to look things up in the
- * workspace's documents.
+ * workspace's documents. Both tools stop when the user interrupts ("never
+ * mind"): a memory isn't saved and a search's results are dropped.
  */
 export async function voiceKnowledge(
   runtime: VoiceRuntime,
@@ -46,11 +50,12 @@ export async function voiceKnowledge(
           required: ["content"],
           additionalProperties: false,
         },
-        execute: async ({ content }: { content: string }) => {
+        execute: async ({ content }: { content: string }, { abortSignal }) => {
           const text = String(content ?? "")
             .trim()
             .slice(0, 500);
           if (!text) return "Nothing to remember.";
+          if (abortSignal.aborted) return CANCELLED_TOOL_RESULT;
           try {
             await runtime.memories.add(subject, {
               content: text,
@@ -81,13 +86,15 @@ export async function voiceKnowledge(
           required: ["query"],
           additionalProperties: false,
         },
-        execute: async ({ query }: { query: string }) => {
+        execute: async ({ query }: { query: string }, { abortSignal }) => {
+          if (abortSignal.aborted) return CANCELLED_TOOL_RESULT;
           try {
             const hits = await documents.search(
               { ...subject, requestId: session.id },
               String(query ?? "").slice(0, 500),
               SEARCH_RESULTS,
             );
+            if (abortSignal.aborted) return CANCELLED_TOOL_RESULT;
             if (hits.length === 0) return "Nothing in their documents matched.";
             return hits
               .map(

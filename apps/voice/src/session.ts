@@ -8,11 +8,14 @@ import { voiceInstructions } from "./prompt";
 import type { VoiceRuntime } from "./runtime";
 import { createSpeechProviders, type SpeechProviders } from "./speech/providers";
 import type { VoiceSessionContext } from "./store";
+import { attachTurnTaking, interruptionFor, type TurnCommand } from "./turn-taking";
 import { createVoiceUsage } from "./usage";
 
 /** Said when today's spend cap is reached mid-conversation, before the call ends. */
 export const SPEND_LIMIT_MESSAGE =
   "You've reached today's AI limit, so I have to stop here. You can carry on tomorrow, or upgrade in Settings.";
+/** Said after "never mind" or "cancel that": the agent dropped what it was doing. */
+export const CANCELLED_LINE = "Okay.";
 /** Said when the conversation reaches its time limit. */
 export const TIME_LIMIT_MESSAGE =
   "We've reached the time limit for one voice chat. Start a new one whenever you like.";
@@ -34,19 +37,36 @@ function endReasonFor(reason: string): string {
 }
 
 /**
- * The agent: the voice prompt and the conversation so far, plus a spend-cap
- * check before every reply (a capped user hears why and the call ends).
+ * The agent: the voice prompt and the conversation so far, plus two checks
+ * before every reply. A spoken command ends the turn without a reply ("stop"
+ * stays quiet, "never mind" only says "Okay."), and a backchannel that
+ * outlasted the reply gets none; then the spend cap (a capped user hears why
+ * and the call ends).
  */
 class TesselVoiceAgent extends voice.Agent {
   readonly #beforeReply: () => Promise<boolean>;
+  readonly #commandFor: (text: string) => TurnCommand | undefined;
 
-  constructor(options: voice.AgentOptions<unknown> & { beforeReply: () => Promise<boolean> }) {
-    const { beforeReply, ...agentOptions } = options;
+  constructor(
+    options: voice.AgentOptions<unknown> & {
+      beforeReply: () => Promise<boolean>;
+      commandFor: (text: string) => TurnCommand | undefined;
+    },
+  ) {
+    const { beforeReply, commandFor, ...agentOptions } = options;
     super(agentOptions);
     this.#beforeReply = beforeReply;
+    this.#commandFor = commandFor;
   }
 
-  override async onUserTurnCompleted(): Promise<void> {
+  override async onUserTurnCompleted(
+    _chatCtx: llm.ChatContext,
+    newMessage: llm.ChatMessage,
+  ): Promise<void> {
+    const command = this.#commandFor(newMessage.textContent ?? "");
+    // Commands aren't part of the conversation: neither they nor the "Okay." are saved.
+    if (command === "cancel") this.session.say(CANCELLED_LINE, { addToChatCtx: false });
+    if (command) throw new voice.StopResponse();
     if (!(await this.#beforeReply())) throw new voice.StopResponse();
   }
 }
@@ -116,6 +136,7 @@ export async function runVoiceSession(
       baseURL: env.AI_GATEWAY_URL,
       modelId: model.id,
       reasons: model.capabilities.includes("reasoning"),
+      sessionId: saved.threadId,
     });
 
   const chatCtx = llm.ChatContext.empty();
@@ -141,6 +162,7 @@ export async function runVoiceSession(
       },
       // Start the reply on the transcript before the turn is confirmed; dropped if they keep talking.
       preemptiveGeneration: { enabled: true },
+      interruption: interruptionFor(env.VOICE_INTERRUPTION_MODE),
     },
     // A long silence isn't a reason to talk; the time limit ends abandoned calls.
     userAwayTimeout: null,
@@ -159,12 +181,18 @@ export async function runVoiceSession(
     session.shutdown({ reason, drain: true });
   };
 
+  const turnTaking =
+    env.VOICE_INTERRUPTION_MODE === "smart"
+      ? attachTurnTaking(session, { minWords: env.VOICE_MIN_INTERRUPTION_WORDS, logger: log })
+      : undefined;
+
   const knowledge = await voiceKnowledge(runtime, saved, summary);
   const instructions = voiceInstructions({ userName: saved.userName });
   const agent = new TesselVoiceAgent({
     instructions: knowledge.prompt ? `${instructions}\n\n${knowledge.prompt}` : instructions,
     tools: knowledge.tools,
     chatCtx,
+    commandFor: (text) => turnTaking?.commandFor(text),
     beforeReply: async () => {
       try {
         await spend.assertWithinBudget(subject);

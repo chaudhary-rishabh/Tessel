@@ -443,8 +443,15 @@ sequenceDiagram
 - Latency (target: under 600 ms from the end of speech to the first sound, p95 under 900 ms):
   - End of turn: voice activity detection plus LiveKit's audio end-of-turn model, both on-device (`inference.VAD`, `inference.TurnDetector`, native, weights included). Endpointing is dynamic (`VOICE_ENDPOINTING_MIN_MS`, 250 by default, to `VOICE_ENDPOINTING_MAX_MS`), so a confident end of turn commits fast and a trailing "um" waits.
   - The model starts on the transcript before the turn is confirmed (preemptive generation) and the draft is dropped if the user keeps talking.
-  - Prompt caching is on, reasoning models run at the lowest effort, replies are short by instruction, and speech starts on the first sentence.
+  - Prompt caching is on, and every request of a call carries the chat's thread ID as `x-session-affinity`, so the gateway keeps the call on the provider that holds its cached prompt. Reasoning models run at the lowest effort, replies are short by instruction, and speech starts on the first sentence.
   - Every reply's end-of-turn, model first token, first audio, and total delay are saved in `voice_turns`, and p50 and p95 per session in `voice_sessions`.
+- Turn-taking (`apps/voice/src/turn-taking.ts`, `VOICE_INTERRUPTION_MODE=smart`, the default): what the user says over the agent is judged from the live transcript, not from sound alone.
+  - Backchannels ("mm-hmm", "yeah", "okay", "haan", "achha", "theek hai", in English, Hindi in both scripts, and Spanish) don't stop the agent, and they don't get a reply of their own.
+  - "Stop", "wait", "hold on", "ruko", "bas" stop it on the first word of the interim transcript; it stays quiet until they go on.
+  - "Never mind", "cancel that", "forget it", "rehne do", "chhodo" stop it too, cancel a lookup or `remember` still running (both tools honour the abort signal, so nothing is saved after a cancel), and it says "Okay.". Commands aren't saved to the chat.
+  - Anything else interrupts once it has `VOICE_MIN_INTERRUPTION_WORDS` (2) words that aren't fillers, and the agent answers it. "Stop the meeting at five" stops the agent on "stop" and is then answered as a request.
+  - LiveKit's own interruption by audio activity is turned off (its word threshold set out of reach), so a cough or a "mm" never pauses the agent and nothing needs resuming. `VOICE_INTERRUPTION_MODE=vad` restores LiveKit's behaviour: any speech pauses the agent, which resumes if no words follow.
+  - Tapping the visual interrupts too (the `VOICE_INTERRUPT_RPC` method).
 - Speech: ElevenLabs directly when `ELEVENLABS_API_KEY` is set (Scribe v2 Realtime and Flash v2.5; also the only path for users' own voices), otherwise the same models through the AI gateway (`apps/voice/src/speech/gateway-*.ts`, the AI SDK's streaming speech).
 - Voices: six ElevenLabs default voices, chosen in Settings → Voice (`users.voice_preference`), and on paid plans with ElevenLabs set up, the user's own voice (`user_voices`):
   - The user agrees, then reads a passage ending in a one-time code (signed with HMAC, valid ten minutes).
@@ -458,7 +465,7 @@ sequenceDiagram
 - What's said goes into the chat (`messages.voice_session_id` marks it), the first thing said names a new chat, and the memory job runs when the call ends. Usage rows (feature `voice`) cover model tokens, transcribed minutes, and spoken characters.
 - The agent finds a session's owner through `app.voice_session_owner` (security definer, open sessions only) and does everything else as that user, so row-level security applies to it like to the API.
 - Endpoints: `GET /workspaces/:workspaceId/voice/status`, `POST …/voice/sessions`, `POST …/voice/sessions/:sessionId/end`. Starting a session ends the user's other open ones.
-- Tests: `apps/voice/test/conversation.test.ts` runs whole conversations through the real session, speech classes, gateway model client, and database, with scripted speech models and the mock gateway.
+- Tests: `apps/voice/test/conversation.test.ts` runs whole conversations through the real session, speech classes, gateway model client, and database, with scripted speech models and the mock gateway (including spoken commands that get no model call). `apps/voice/src/turn-taking.test.ts` covers the classifier and the controller.
 
 ## Artifacts and apps
 
@@ -578,6 +585,8 @@ Setup steps: [infra/aws/README.md](../infra/aws/README.md).
 - **Suites:**
   - `rag`: an eleven-document knowledge base for a fictional company (`suites/fixtures/kestrel-docs.ts`) and 35 questions: lookups, paraphrases, follow-ups that need the history, a multi-hop question, Hindi, questions the documents can't answer, messages that shouldn't search, a planted prompt injection, and a second workspace whose conflicting document must never be retrieved. Passages that answer a question are found by evidence phrases, so the gold labels survive chunking changes.
   - `agent` (`apps/api/evals`): the chat agent with the API's real tools and system prompt over fake workspace data (`evals/fakes.ts`), with the clock fixed. Scores tool choice, arguments, approval before any change (and nothing written before it), declined actions not retried, harmful guesses avoided, prompt injection in tool results, answers, steps, and run time.
+  - `turn-taking` (`apps/voice/evals`, mock): 58 utterances played into the turn-taking controller word by word, as a streaming transcriber reports them, while the agent speaks, thinks, or listens. Gates: no backchannel interrupts, every stop and cancel is caught within three words (fillers first included), every real barge-in interrupts, and every finished turn is replied to, ignored, kept quiet, or acknowledged as it should be. Also reports words heard before a barge-in.
+  - `voice-replies` (`apps/voice/evals`): spoken replies through the agent's own model class (`GatewayLLM`), prompt, and tools over the fixture company, run tool by tool as a turn runs. Scores speakable output (no markup or code), brevity, the right lookups, saying a few words before one, correct answers (checks and judge), the user's language, injection in a document, offering the chat for long content, and time to the first spoken token (live gates: p50 1.5 s, p95 3 s).
   - `chat` (`apps/api/evals`): streamed replies with the real system prompt. Scores exact instructions (counts, limits, JSON, tables), replying in the user's language, refusing harmful requests without refusing benign ones that sound risky, injection in attachments, artifacts for substantial work only, memory use, honesty without data, quality, and time to first token.
 
 ## Conventions
