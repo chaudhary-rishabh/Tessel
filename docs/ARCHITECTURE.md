@@ -577,6 +577,8 @@ Setup steps: [infra/aws/README.md](../infra/aws/README.md).
 - **CI:** the check job runs `--mode mock` and `--mode replay` on every pull request. `.github/workflows/evals.yml` runs `--mode live` nightly and on demand, only when the `AI_GATEWAY_API_KEY` secret is set, and uploads the report.
 - **Suites:**
   - `rag`: an eleven-document knowledge base for a fictional company (`suites/fixtures/kestrel-docs.ts`) and 35 questions: lookups, paraphrases, follow-ups that need the history, a multi-hop question, Hindi, questions the documents can't answer, messages that shouldn't search, a planted prompt injection, and a second workspace whose conflicting document must never be retrieved. Passages that answer a question are found by evidence phrases, so the gold labels survive chunking changes.
+  - `agent` (`apps/api/evals`): the chat agent with the API's real tools and system prompt over fake workspace data (`evals/fakes.ts`), with the clock fixed. Scores tool choice, arguments, approval before any change (and nothing written before it), declined actions not retried, harmful guesses avoided, prompt injection in tool results, answers, steps, and run time.
+  - `chat` (`apps/api/evals`): streamed replies with the real system prompt. Scores exact instructions (counts, limits, JSON, tables), replying in the user's language, refusing harmful requests without refusing benign ones that sound risky, injection in attachments, artifacts for substantial work only, memory use, honesty without data, quality, and time to first token.
 
 ## Conventions
 

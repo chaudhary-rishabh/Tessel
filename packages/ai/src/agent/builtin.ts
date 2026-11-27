@@ -20,28 +20,34 @@ export const calculatorTool = defineTool({
   },
 });
 
-export const currentTimeTool = defineTool({
-  name: "current_time",
-  title: "Check the time",
-  description:
-    "Get the current date and time, optionally in an IANA time zone such as Asia/Kolkata or Europe/London.",
-  schema: z.object({ timezone: z.string().max(64).optional() }),
-  risk: "read",
-  async run({ timezone }) {
-    const zone = timezone ?? "UTC";
-    let formatted: string;
-    try {
-      formatted = new Intl.DateTimeFormat("en-GB", {
-        timeZone: zone,
-        dateStyle: "full",
-        timeStyle: "long",
-      }).format(new Date());
-    } catch {
-      throw new Error(`Unknown time zone "${zone}"`);
-    }
-    return {
-      content: `${formatted} (${zone}). ISO: ${new Date().toISOString()}`,
-      summary: `${formatted}`,
-    };
-  },
-});
+/** The current-time tool, reading the clock from `now` (fixed in evaluations, so recordings stay valid). */
+export function createCurrentTimeTool(now: () => Date = () => new Date()) {
+  return defineTool({
+    name: "current_time",
+    title: "Check the time",
+    description:
+      "Get the current date and time, optionally in an IANA time zone such as Asia/Kolkata or Europe/London.",
+    schema: z.object({ timezone: z.string().max(64).optional() }),
+    risk: "read",
+    async run({ timezone }) {
+      const zone = timezone ?? "UTC";
+      const date = now();
+      let formatted: string;
+      try {
+        formatted = new Intl.DateTimeFormat("en-GB", {
+          timeZone: zone,
+          dateStyle: "full",
+          timeStyle: "long",
+        }).format(date);
+      } catch {
+        throw new Error(`Unknown time zone "${zone}"`);
+      }
+      return {
+        content: `${formatted} (${zone}). ISO: ${date.toISOString()}`,
+        summary: `${formatted}`,
+      };
+    },
+  });
+}
+
+export const currentTimeTool = createCurrentTimeTool();
