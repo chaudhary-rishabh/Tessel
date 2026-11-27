@@ -101,6 +101,22 @@ export function createChatService({
     if (failed) logger.warn({ failed }, "Couldn't delete some attachment files");
   }
 
+  /**
+   * The memory settings and the memories that go in the prompt. Team memory is
+   * the workspace's shared context, so it's used whatever the person's own
+   * setting; the two lists load at once.
+   */
+  async function loadPromptMemories(actor: Actor) {
+    const memorySettings = await memory.settings(actor);
+    const [memories, teamMemories] = await Promise.all([
+      memorySettings.memoryEnabled ? memory.list(actor) : [],
+      memorySettings.team ? memory.team.list(actor) : [],
+    ]);
+    const contents = (rows: { content: string }[]) =>
+      rows.slice(0, MAX_PROMPT_MEMORIES).map((row) => row.content);
+    return { memorySettings, memories: contents(memories), teamMemories: contents(teamMemories) };
+  }
+
   async function requireMembership(actor: Actor) {
     const workspace = await withUserContext(db, actor.userId, (tx) =>
       workspacesRepository.findForUser(tx, actor.workspaceId, actor.userId),
@@ -313,6 +329,10 @@ export function createChatService({
         hasImages: [...files, ...keptFiles].some((file) => file.kind === "image"),
       });
 
+      // Memories don't depend on the writes below, so they load while those run.
+      const promptMemories = loadPromptMemories(actor);
+      promptMemories.catch(() => undefined);
+
       const now = new Date();
       const saved = await withUserContext(db, actor.userId, async (tx) => {
         // A new message moves on from any action still waiting for approval.
@@ -402,17 +422,15 @@ export function createChatService({
       await removeFiles(saved.removedFiles);
 
       // Files are read after the transaction, so storage latency never holds a connection.
-      const historyFiles: AttachmentFile[] = await Promise.all(
-        saved.historyRows.map(async (row) => ({ ...row, data: await objects.get(row.storageKey) })),
-      );
-      const memorySettings = await memory.settings(actor);
-      const memories = memorySettings.memoryEnabled
-        ? (await memory.list(actor)).slice(0, MAX_PROMPT_MEMORIES).map((row) => row.content)
-        : [];
-      // Team memory is the workspace's shared context, so it's used whatever the person's own setting.
-      const teamMemories = memorySettings.team
-        ? (await memory.team.list(actor)).slice(0, MAX_PROMPT_MEMORIES).map((row) => row.content)
-        : [];
+      const [historyFiles, { memorySettings, memories, teamMemories }] = await Promise.all([
+        Promise.all(
+          saved.historyRows.map(async (row): Promise<AttachmentFile> => ({
+            ...row,
+            data: await objects.get(row.storageKey),
+          })),
+        ),
+        promptMemories,
+      ]);
       return {
         context,
         model,

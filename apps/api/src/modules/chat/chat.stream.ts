@@ -121,9 +121,39 @@ interface Drive {
   initialToolCalls: ToolCallRecord[];
   initialActivity: ActivityItem[];
   start: (options: OrchestratorOptions) => Promise<OrchestratorResult>;
+  /** Connectors and policies already loading (alongside document search); loaded here otherwise. */
+  toolSetup?: Promise<ToolSetup>;
   /** After the reply ends, e.g. to name a new thread. */
   after?: () => Promise<void>;
   runId?: string;
+}
+
+interface ToolSetup {
+  connectors: Awaited<ReturnType<ConnectorsService["forAgent"]>> | undefined;
+  policies: Awaited<ReturnType<PoliciesService["forWorkspace"]>> | undefined;
+}
+
+/**
+ * The workspace's connectors and tool policies, loaded together. A failure
+ * to load either costs the reply that part only, so this never rejects.
+ */
+async function loadToolSetup(
+  deps: ReplyDependencies,
+  actor: Actor,
+  canUseTools: boolean,
+): Promise<ToolSetup> {
+  if (!canUseTools) return { connectors: undefined, policies: undefined };
+  const [connectors, policies] = await Promise.all([
+    deps.connectors.forAgent(actor).catch((error: unknown) => {
+      deps.logger.warn({ err: error }, "Connectors failed to load, answering without them");
+      return undefined;
+    }),
+    deps.policies.forWorkspace(actor).catch((error: unknown) => {
+      deps.logger.warn({ err: error }, "Workspace policies failed to load");
+      return { toolPolicies: {}, blockedConnectors: [], disabledSkills: [] };
+    }),
+  ]);
+  return { connectors, policies };
 }
 
 /** Adds the sources to the system prompt; one system message keeps every provider happy. */
@@ -163,18 +193,8 @@ async function drive(run: Drive): Promise<void> {
   let content = run.initialText;
   let activity = run.initialActivity;
   const toolCalls = new Map(run.initialToolCalls.map((call) => [call.id, call]));
-  const connectors = run.canUseTools
-    ? await deps.connectors.forAgent(actor).catch((error: unknown) => {
-        deps.logger.warn({ err: error }, "Connectors failed to load, answering without them");
-        return undefined;
-      })
-    : undefined;
-  const policies = run.canUseTools
-    ? await deps.policies.forWorkspace(actor).catch((error: unknown) => {
-        deps.logger.warn({ err: error }, "Workspace policies failed to load");
-        return { toolPolicies: {}, blockedConnectors: [], disabledSkills: [] };
-      })
-    : undefined;
+  const { connectors, policies } = await (run.toolSetup ??
+    loadToolSetup(deps, actor, run.canUseTools));
   const tools = run.canUseTools
     ? createToolRegistry(
         applyToolPolicies(
@@ -440,6 +460,10 @@ async function replyOnStream({
   const sources: Source[] = [];
   let history = prepared.history;
   const { knowledge } = prepared;
+  const canUseTools = prepared.model.capabilities.includes("tools");
+  // Skills, connectors, and policies load while the documents are searched, not after.
+  const skillsLoad = canUseTools || prepared.skill ? loadSkills(deps, actor) : Promise.resolve([]);
+  const toolSetup = loadToolSetup(deps, actor, canUseTools);
   try {
     if (knowledge.hasDocuments && knowledge.mode !== "off") {
       stream.send({ type: "status", stage: "searching" });
@@ -469,6 +493,7 @@ async function replyOnStream({
     }
   } catch (error) {
     // A spend cap hit during search ends the reply like any other failure.
+    void toolSetup.then(({ connectors }) => connectors?.close());
     await drive({
       deps,
       actor,
@@ -490,14 +515,12 @@ async function replyOnStream({
     return;
   }
 
-  const canUseTools = prepared.model.capabilities.includes("tools");
-  const skills = canUseTools ? await loadSkills(deps, actor) : [];
+  const loaded = await skillsLoad;
+  const skills = canUseTools ? loaded : [];
   if (skills.length) history = withSources(history, skillsPrompt(skills));
   if (prepared.skill) {
     // A skill picked in the composer is followed even by models without tools.
-    const picked = (skills.length ? skills : await loadSkills(deps, actor)).find(
-      (skill) => skill.name === prepared.skill,
-    );
+    const picked = loaded.find((skill) => skill.name === prepared.skill);
     if (picked) history = withSources(history, pickedSkillPrompt(picked));
   }
   const finalHistory = history;
@@ -521,6 +544,7 @@ async function replyOnStream({
     initialText: "",
     initialToolCalls: [],
     initialActivity: [],
+    toolSetup,
     start: (options) => runOrchestrator(options, mode, finalHistory),
     ...(prepared.isNewThread
       ? {
