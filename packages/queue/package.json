@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "bullmq": "^6.7.2",
+    "bullmq": "^6.7.10",
     "ioredis": "^5.10.1",
     "zod": "^4.6.7"
   },
