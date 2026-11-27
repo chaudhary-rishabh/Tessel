@@ -10,7 +10,6 @@ Things noticed along the way that are not needed yet. Each item names the step w
 - **Resume a stream after reconnecting:** Buffer live tokens in Redis so a dropped connection or a second tab can pick up a reply in progress, and stop it from any API instance. (Phase 3)
 - **Upload scanning:** Malware scanning of uploaded files before they are parsed. (Phase 3)
 - **Dedicated reranker:** Try a reranking model through the gateway and compare cost and quality with the utility model (D-041), using the `rag` eval suite. (Phase 3)
-- **Agent evaluations:** Scenarios checking tool choice, argument quality, and that declined actions aren't retried. (Phase 3)
 - **Stream moderation:** Check long replies in chunks while they stream, so a blocked reply stops early instead of being replaced at the end. (Phase 3)
 - **Key management:** Move the connector encryption key to AWS KMS with envelope encryption and rotation. (Phase 3)
 - **Relevant memories only:** Once users have many memories, send the most relevant to each message (by embedding) instead of the newest 60. (Phase 3)
