@@ -251,6 +251,11 @@ flowchart LR
 - The composer's documents setting chooses when to search: when it helps (the router decides), always, or never. Workspaces with nothing indexed skip search without any model call.
 - The answer cites sources as `[n]`. Each reply is saved with its sources and which ones it cited (`messages.sources`).
 - Router, query embeddings, and reranker are recorded in the ledger as feature `rag`.
+- Time to first token: nothing waits on anything it doesn't need.
+  - The prompt's memories load while the user's message is written (`prepareReply`), and the two memory lists load together.
+  - Skills, connectors, and tool policies load while the documents are searched, so a slow connector no longer adds its time after the search.
+  - The graph lookup (`relate`) needs only the router's entities, so it runs alongside retrieval and reranking; its facts are numbered after the passages once both finish.
+  - The reply's model calls carry the thread ID as `x-session-affinity`, so follow-ups hit the provider's prompt cache.
 
 Endpoints: `GET|POST /workspaces/:workspaceId/documents`, `GET|DELETE …/documents/:documentId`, `POST …/documents/:documentId/complete`, `POST …/documents/:documentId/reprocess`, `GET …/documents/:documentId/download`, `POST /workspaces/:workspaceId/search`.
 
@@ -262,7 +267,7 @@ flowchart LR
   windows --> extract["utility model<br/>extract_graph"]
   extract --> neo[("Neo4j<br/>Entity, MENTIONED_IN, RELATES")]
   q["Relationship question"] --> router["router: graph_entities"]
-  router --> relate["relate: find entities,<br/>walk 2 hops"]
+  router --> relate["relate: find entities,<br/>walk 2 hops<br/>(alongside retrieval)"]
   neo --> relate
   relate --> sources["numbered sources<br/>(one per document)"]
 ```

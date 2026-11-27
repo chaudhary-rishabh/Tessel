@@ -163,16 +163,19 @@ export function citedSourceIds(text: string, sources: Source[]): number[] {
 /**
  * Retrieval-augmented generation, before the answer is written:
  *
- *   route ─┬─ direct ─────────────────────────────────────▶ end
- *          ├─ entities only ───────────────────▶ relate ─▶ end
- *          └─ documents ─▶ retrieve ─▶ rerank ─▶ relate ─▶ end
+ *   route ─┬─ direct ─────────────────────────▶ end
+ *          ├─ entities only ─▶ relate ───────────▶ end
+ *          └─ documents ─┬─▶ retrieve ─▶ rerank ─▶ end
+ *                        └─▶ relate ─────────────▶ end
  *
  * route asks a small model whether the documents can help and rewrites the
  * message into standalone queries; retrieve runs hybrid search per query and
  * fuses the lists; rerank asks the small model to score each passage and
  * keeps the best few; relate adds relationships around entities the message
- * names from the knowledge graph (graph RAG), as citable sources too. Every
- * model call is capped and recorded like any other.
+ * names from the knowledge graph (graph RAG), as citable sources too, after
+ * the passages. relate needs only the router's entities, so it runs alongside
+ * retrieval rather than after it. Every model call is capped and recorded
+ * like any other.
  * Failures degrade instead of failing the reply: a broken router searches
  * with the raw message, a broken reranker keeps the fused order.
  */
@@ -204,6 +207,8 @@ export function createRagPipeline({
     entities: Annotation<string[]>({ reducer: (_, next) => next, default: () => [] }),
     candidates: Annotation<SearchHit[]>({ reducer: (_, next) => next, default: () => [] }),
     sources: Annotation<Source[]>({ reducer: (_, next) => next, default: () => [] }),
+    /** Relationships from the graph, numbered from 1 until they're put after the passages. */
+    facts: Annotation<Source[]>({ reducer: (_, next) => next, default: () => [] }),
   });
   type RagState = typeof State.State;
 
@@ -301,12 +306,11 @@ export function createRagPipeline({
     };
   }
 
-  /** Adds relationships around the named entities as sources, after the passages. */
-  async function relate({ context, entities, sources }: RagState): Promise<Partial<RagState>> {
+  /** Looks up relationships around the named entities. */
+  async function relate({ context, entities }: RagState): Promise<Partial<RagState>> {
     if (!graph || entities.length === 0) return {};
     try {
-      const facts = await graph(context, entities, sources.length + 1);
-      return facts.length ? { sources: [...sources, ...facts], decision: "documents" } : {};
+      return { facts: await graph(context, entities, 1) };
     } catch (error) {
       if (error instanceof AiError) throw error;
       logger.warn({ err: error }, "Graph lookup failed, answering without it");
@@ -323,11 +327,17 @@ export function createRagPipeline({
     .addConditionalEdges(
       "route",
       (state) =>
-        state.decision === "documents" ? "retrieve" : state.entities.length ? "relate" : END,
+        state.decision === "documents"
+          ? state.entities.length && graph
+            ? ["retrieve", "relate"]
+            : ["retrieve"]
+          : state.entities.length
+            ? ["relate"]
+            : [END],
       ["retrieve", "relate", END],
     )
     .addEdge("retrieve", "rerank")
-    .addEdge("rerank", "relate")
+    .addEdge("rerank", END)
     .addEdge("relate", END)
     .compile();
 
@@ -338,10 +348,15 @@ export function createRagPipeline({
       signal?: AbortSignal,
     ): Promise<RagResult> {
       const state = await pipeline.invoke({ context, request }, signal ? { signal } : {});
+      const facts = state.facts.map((fact, position) => ({
+        ...fact,
+        id: state.sources.length + position + 1,
+      }));
+      const route = facts.length ? "documents" : state.decision;
       return {
-        route: state.decision,
-        queries: state.decision === "documents" ? state.queries : [],
-        sources: state.sources,
+        route,
+        queries: route === "documents" ? state.queries : [],
+        sources: [...state.sources, ...facts],
         candidates: state.candidates.map((hit) => ({
           documentId: hit.payload.document_id,
           chunkIndex: hit.payload.chunk_index,

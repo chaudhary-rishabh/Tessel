@@ -25,7 +25,7 @@ beforeAll(async () => {
 afterAll(() => gateway.close());
 beforeEach(() => gateway.reset());
 
-async function setup() {
+async function setup({ graph }: { graph?: Parameters<typeof createRagPipeline>[0]["graph"] } = {}) {
   const ledger = memoryLedger();
   const ai = createAi({
     gateway: { apiKey: "k", baseURL: gateway.url },
@@ -59,7 +59,11 @@ async function setup() {
     chunk("w1", "laptops", 0, "Laptops are replaced every three years."),
     chunk("w2", "secret", 0, "Another workspace's zephyrine budget."),
   ]);
-  return { pipeline: createRagPipeline({ ai, index, logger }), ledger };
+  return {
+    pipeline: createRagPipeline({ ai, index, logger, ...(graph ? { graph } : {}) }),
+    ledger,
+    index,
+  };
 }
 
 const request = (message: string, overrides: Partial<RagRequest> = {}): RagRequest => ({
@@ -90,6 +94,64 @@ describe("RAG pipeline", () => {
 
     // Router, query embedding, and reranker: all recorded.
     expect(ledger.events.map((event) => event.feature)).toEqual(["rag", "rag", "rag"]);
+  });
+
+  it("looks up the graph while it searches, and numbers its facts after the passages", async () => {
+    const events: string[] = [];
+    let releaseGraph!: () => void;
+    const graphDone = new Promise<void>((resolve) => (releaseGraph = resolve));
+    const { pipeline, index } = await setup({
+      graph: async (_context, entities, startId) => {
+        events.push("graph started");
+        await graphDone;
+        events.push("graph finished");
+        return [
+          {
+            id: startId,
+            documentId: "org",
+            filename: "org.md",
+            page: null,
+            chunkIndex: 0,
+            text: `Relationships from the knowledge graph:\n- ${entities[0]} LEADS Signals`,
+          },
+        ];
+      },
+    });
+    const search = index.search.bind(index);
+    index.search = async (query) => {
+      events.push("search");
+      // The graph is still waiting on its answer while the passages are searched.
+      releaseGraph();
+      return search(query);
+    };
+    const result = await pipeline.prepare(
+      context,
+      request('What is the zephyrine allowance for "Priya"?'),
+    );
+    // Started before the search and finished after it: the two overlapped.
+    expect(events).toEqual(["graph started", "search", "graph finished"]);
+    expect(result.route).toBe("documents");
+    const last = result.sources.at(-1)!;
+    expect(last.text).toContain("Priya LEADS Signals");
+    expect(result.sources.map((source) => source.id)).toEqual(result.sources.map((_, i) => i + 1));
+  });
+
+  it("answers from the graph alone when only entities matter", async () => {
+    const { pipeline } = await setup({
+      graph: async (_context, entities, startId) => [
+        {
+          id: startId,
+          documentId: "org",
+          filename: "org.md",
+          page: null,
+          chunkIndex: 0,
+          text: `- ${entities[0]} REPORTS_TO Arjun`,
+        },
+      ],
+    });
+    const result = await pipeline.prepare(context, request('MOCK_DIRECT who is "Priya"?'));
+    expect(result.route).toBe("documents");
+    expect(result.sources).toEqual([expect.objectContaining({ id: 1, documentId: "org" })]);
   });
 
   it("answers directly when the router says documents won't help", async () => {
